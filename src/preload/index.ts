@@ -7,6 +7,7 @@ import {
   type VideoProbe,
   type VideoSource
 } from '../shared/ipc-contract'
+import type { Settings, SettingsLoadResult } from '../shared/settings'
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result: IpcResult<T> = await ipcRenderer.invoke(channel, ...args)
@@ -18,6 +19,8 @@ const api: FlowApi = {
   getAppInfo: () => invoke<AppInfo>(IPC_CHANNELS.appGetInfo),
   openVideoDialog: () => invoke<VideoSource | null>(IPC_CHANNELS.videoOpenDialog),
   probeVideo: (id: string) => invoke<VideoProbe>(IPC_CHANNELS.videoProbe, id),
+  getSettings: () => invoke<SettingsLoadResult>(IPC_CHANNELS.settingsGet),
+  saveSettings: (settings: Settings) => invoke<Settings>(IPC_CHANNELS.settingsSet, settings),
   importDroppedVideo(file: File): Promise<VideoSource> {
     let path: string
     try {

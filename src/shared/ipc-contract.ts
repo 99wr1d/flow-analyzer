@@ -1,11 +1,14 @@
 // Единый контракт IPC между main, preload и renderer.
 // Здесь только имена каналов, типы и константы — никакой логики.
+import type { Settings, SettingsLoadResult } from './settings'
 
 export const IPC_CHANNELS = {
   appGetInfo: 'app:get-info',
   videoOpenDialog: 'video:open-dialog',
   videoImportPath: 'video:import-path',
-  videoProbe: 'video:probe'
+  videoProbe: 'video:probe',
+  settingsGet: 'settings:get',
+  settingsSet: 'settings:set'
 } as const
 
 export interface AppInfo {
@@ -45,4 +48,8 @@ export interface FlowApi {
   importDroppedVideo(file: File): Promise<VideoSource>
   /** Метаданные ранее выданного видео (по id, не по пути). */
   probeVideo(id: string): Promise<VideoProbe>
+  /** Настройки приложения. Повреждённый файл заменяется стандартными настройками, о чём говорит warning. */
+  getSettings(): Promise<SettingsLoadResult>
+  /** Проверяет и сохраняет настройки; возвращает то, что реально записано. */
+  saveSettings(settings: Settings): Promise<Settings>
 }

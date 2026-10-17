@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnnotationTrack } from '../annotations/AnnotationTrack'
+import { EpisodeTrack } from '../episodes/EpisodeTrack'
+import { MarkOverlay } from '../episodes/MarkOverlay'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { formatTime } from './format'
@@ -71,11 +73,10 @@ export function Timeline(): React.JSX.Element {
                 </span>
               </div>
             ))}
+          {ready && <MarkOverlay />}
         </div>
         <AnnotationTrack />
-        <div className="timeline__track">
-          <span className="timeline__empty">{ready ? ru.timeline.noMarks : ru.timeline.empty}</span>
-        </div>
+        <EpisodeTrack />
         {ready && <Playhead />}
       </div>
     </section>

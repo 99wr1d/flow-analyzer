@@ -1,4 +1,6 @@
 import { ru } from '../../i18n/ru'
+import { useKeyHint } from '../commands/useKeys'
+import { redoAny, undoAny, useCanRedo, useCanUndo } from '../history/unified'
 import { DashedLineIcon, RedoIcon, SolidLineIcon, UndoIcon } from '../../ui/icons'
 import { selectedAnnotation, useAnnotationsStore } from './annotationsStore'
 import { LEVELS, PALETTE, levelOf, type CurrentStyle, type Level } from './styles'
@@ -30,10 +32,10 @@ export function StyleBar(): React.JSX.Element {
   const shown = useShownStyle()
   const context = useContextType()
   const setStyle = useAnnotationsStore((s) => s.setStyle)
-  const canUndo = useAnnotationsStore((s) => s.past.length > 0)
-  const canRedo = useAnnotationsStore((s) => s.future.length > 0)
-  const undo = useAnnotationsStore((s) => s.undo)
-  const redo = useAnnotationsStore((s) => s.redo)
+  const canUndo = useCanUndo()
+  const canRedo = useCanRedo()
+  const undoHint = useKeyHint('general:undo')
+  const redoHint = useKeyHint('general:redo')
 
   return (
     <div
@@ -120,11 +122,11 @@ export function StyleBar(): React.JSX.Element {
         type="button"
         className="icon-btn"
         disabled={!canUndo}
-        title={ru.annotations.undo}
+        title={`${ru.annotations.undo}${undoHint}`}
         aria-label={ru.annotations.undo}
         data-testid="undo"
         onClick={(e) => {
-          undo()
+          undoAny()
           e.currentTarget.blur()
         }}
       >
@@ -134,11 +136,11 @@ export function StyleBar(): React.JSX.Element {
         type="button"
         className="icon-btn"
         disabled={!canRedo}
-        title={ru.annotations.redo}
+        title={`${ru.annotations.redo}${redoHint}`}
         aria-label={ru.annotations.redo}
         data-testid="redo"
         onClick={(e) => {
-          redo()
+          redoAny()
           e.currentTarget.blur()
         }}
       >

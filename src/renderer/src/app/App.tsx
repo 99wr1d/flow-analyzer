@@ -1,5 +1,9 @@
-import { useAnnotationShortcuts } from '../features/annotations/useAnnotationShortcuts'
-import { useDropImport, useShortcuts } from '../features/player/useGlobalInput'
+import { useEffect } from 'react'
+import { useCommandDispatcher } from '../features/commands/dispatcher'
+import { installUnifiedHistory } from '../features/history/unified'
+import { useDropImport } from '../features/player/useGlobalInput'
+import { SettingsDialog } from '../features/settings/SettingsDialog'
+import { useSettingsStore } from '../features/settings/settingsStore'
 import { BottomDock } from './BottomDock'
 import { EpisodesPanel } from './EpisodesPanel'
 import { StatusBar } from './StatusBar'
@@ -8,17 +12,26 @@ import { TopBar } from './TopBar'
 import { VideoStage } from './VideoStage'
 
 export function App(): React.JSX.Element {
-  useShortcuts()
+  const loaded = useSettingsStore((s) => s.loaded)
+  const dialogOpen = useSettingsStore((s) => s.dialogOpen)
+  useCommandDispatcher()
   useDropImport()
-  useAnnotationShortcuts()
+
+  useEffect(() => {
+    const uninstall = installUnifiedHistory()
+    void useSettingsStore.getState().load()
+    return uninstall
+  }, [])
+
   return (
-    <div className="app">
+    <div className="app" data-settings={loaded ? 'loaded' : 'loading'}>
       <TopBar />
       <ToolRail />
       <VideoStage />
       <EpisodesPanel />
       <BottomDock />
       <StatusBar />
+      {dialogOpen && <SettingsDialog />}
     </div>
   )
 }

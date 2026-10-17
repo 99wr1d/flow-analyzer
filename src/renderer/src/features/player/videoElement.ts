@@ -79,3 +79,18 @@ export function toggleMute(): void {
 export function getVideoElement(): HTMLVideoElement | null {
   return element
 }
+
+/** Точное текущее время: сам элемент знает его лучше, чем состояние, которое обновляется с задержкой. */
+export function getCurrentTime(): number {
+  return element ? element.currentTime : usePlayerStore.getState().currentTime
+}
+
+/** Запускает воспроизведение (не переключает). */
+export function playVideo(): void {
+  const el = ready()
+  if (el && (el.paused || el.ended)) {
+    el.play().catch(() => {
+      /* воспроизведение прервано — не ошибка */
+    })
+  }
+}

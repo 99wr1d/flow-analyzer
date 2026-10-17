@@ -10,7 +10,7 @@ test('приложение запускается безопасно и пока
   const { app, win } = await launch()
   try {
     await expect(win).toHaveTitle('FlowAnalyzer')
-    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.4.0')
+    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.5.0')
 
     const leaks = await win.evaluate(() => {
       const w = window as unknown as Record<string, unknown>
@@ -26,9 +26,11 @@ test('приложение запускается безопасно и пока
     expect(leaks.electron).toBe('undefined')
     expect(leaks.apiKeys).toEqual([
       'getAppInfo',
+      'getSettings',
       'importDroppedVideo',
       'openVideoDialog',
-      'probeVideo'
+      'probeVideo',
+      'saveSettings'
     ])
 
     await win.screenshot({ path: join(SHOTS, `e2e-empty${SUFFIX}.png`) })

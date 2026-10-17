@@ -9,6 +9,7 @@ import {
   type Timing
 } from '../../../../shared/annotations'
 import { ru } from '../../i18n/ru'
+import { useKeyHint } from '../commands/useKeys'
 import { usePlayerStore } from '../../store/playerStore'
 import { TrashIcon } from '../../ui/icons'
 import { formatTime } from '../player/format'
@@ -80,6 +81,7 @@ export function Inspector(): React.JSX.Element | null {
   const setTiming = useAnnotationsStore((s) => s.setTiming)
   const remove = useAnnotationsStore((s) => s.remove)
   const fps = usePlayerStore((s) => s.fps)
+  const removeHint = useKeyHint('general:delete')
   if (!selected) return null
 
   const timing = selected.timing
@@ -115,7 +117,7 @@ export function Inspector(): React.JSX.Element | null {
         <button
           type="button"
           className="icon-btn icon-btn--small"
-          title={ru.annotations.remove}
+          title={`${ru.annotations.remove}${removeHint}`}
           aria-label={ru.annotations.remove}
           data-testid="annotation-delete"
           onClick={() => remove(selected.id)}

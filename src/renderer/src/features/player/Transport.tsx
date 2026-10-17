@@ -1,4 +1,5 @@
 import { ru } from '../../i18n/ru'
+import { useKeyHint } from '../commands/useKeys'
 import { usePlayerStore } from '../../store/playerStore'
 import {
   FrameBackIcon,
@@ -33,13 +34,14 @@ function useHoursFlag(): boolean {
 function PlayButton(): React.JSX.Element {
   const ready = useReady()
   const playing = usePlayerStore((s) => s.playing)
+  const hint = useKeyHint('playback:toggle')
   return (
     <button
       type="button"
       className="icon-btn icon-btn--primary"
       disabled={!ready}
       onClick={togglePlay}
-      title={playing ? ru.transport.pause : ru.transport.play}
+      title={`${playing ? ru.transport.pause : ru.transport.play}${hint}`}
       aria-label={playing ? ru.transport.pauseAria : ru.transport.playAria}
       data-testid="play-toggle"
     >
@@ -51,6 +53,7 @@ function PlayButton(): React.JSX.Element {
 function FrameButton({ direction }: { direction: -1 | 1 }): React.JSX.Element {
   const ready = useReady()
   const back = direction === -1
+  const hint = useKeyHint(back ? 'playback:frame-back' : 'playback:frame-forward')
   return (
     <button
       type="button"
@@ -60,7 +63,7 @@ function FrameButton({ direction }: { direction: -1 | 1 }): React.JSX.Element {
         stepFrame(direction)
         e.currentTarget.blur()
       }}
-      title={back ? ru.transport.frameBack : ru.transport.frameForward}
+      title={`${back ? ru.transport.frameBack : ru.transport.frameForward}${hint}`}
       aria-label={back ? ru.transport.frameBackAria : ru.transport.frameForwardAria}
       data-testid={back ? 'frame-back' : 'frame-forward'}
     >
@@ -227,6 +230,7 @@ function Volume(): React.JSX.Element {
   const volume = usePlayerStore((s) => s.volume)
   const muted = usePlayerStore((s) => s.muted)
   const shown = muted ? 0 : volume
+  const hint = useKeyHint('playback:mute')
   return (
     <div className="volume">
       <button
@@ -234,7 +238,7 @@ function Volume(): React.JSX.Element {
         className="icon-btn"
         disabled={!ready}
         onClick={toggleMute}
-        title={muted ? ru.transport.unmute : ru.transport.mute}
+        title={`${muted ? ru.transport.unmute : ru.transport.mute}${hint}`}
         aria-label={muted ? ru.transport.unmuteAria : ru.transport.muteAria}
         aria-pressed={muted}
         data-testid="mute"

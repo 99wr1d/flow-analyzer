@@ -1,4 +1,5 @@
 import { TOOLS, useAnnotationsStore, type Tool } from '../features/annotations/annotationsStore'
+import { useKeyHint } from '../features/commands/useKeys'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
 import { ArrowToolIcon, CircleToolIcon, LineToolIcon, SelectIcon, TextToolIcon } from '../ui/icons'
@@ -11,29 +12,35 @@ const ICONS: Record<Tool, () => React.JSX.Element> = {
   text: () => <TextToolIcon size={20} />
 }
 
-export function ToolRail(): React.JSX.Element {
+function ToolButton({ tool }: { tool: Tool }): React.JSX.Element {
   const ready = usePlayerStore((s) => s.status === 'ready')
-  const active = useAnnotationsStore((s) => s.tool)
+  const active = useAnnotationsStore((s) => s.tool === tool)
   const setTool = useAnnotationsStore((s) => s.setTool)
+  const label = `${ru.toolRail[tool]}${useKeyHint(`draw:${tool}`)}`
+  return (
+    <button
+      type="button"
+      className={active ? 'tool-btn tool-btn--active' : 'tool-btn'}
+      disabled={!ready}
+      aria-pressed={active}
+      title={label}
+      aria-label={label}
+      data-testid={`tool-${tool}`}
+      onClick={(e) => {
+        setTool(tool)
+        e.currentTarget.blur()
+      }}
+    >
+      {ICONS[tool]()}
+    </button>
+  )
+}
+
+export function ToolRail(): React.JSX.Element {
   return (
     <nav className="tool-rail" aria-label={ru.toolRail.label}>
       {TOOLS.map((tool) => (
-        <button
-          key={tool}
-          type="button"
-          className={active === tool ? 'tool-btn tool-btn--active' : 'tool-btn'}
-          disabled={!ready}
-          aria-pressed={active === tool}
-          title={ru.toolRail[tool]}
-          aria-label={ru.toolRail[tool]}
-          data-testid={`tool-${tool}`}
-          onClick={(e) => {
-            setTool(tool)
-            e.currentTarget.blur()
-          }}
-        >
-          {ICONS[tool]()}
-        </button>
+        <ToolButton key={tool} tool={tool} />
       ))}
     </nav>
   )

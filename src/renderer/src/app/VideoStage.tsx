@@ -1,6 +1,8 @@
 import { AnnotationLayer } from '../features/annotations/AnnotationLayer'
 import { StyleBar } from '../features/annotations/StyleBar'
+import { Toast } from '../features/episodes/Toast'
 import { openVideoFromDialog } from '../features/player/importVideo'
+import { useSettingsStore } from '../features/settings/settingsStore'
 import { VideoView } from '../features/player/VideoView'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
@@ -33,6 +35,31 @@ function ImportBanner(): React.JSX.Element | null {
         type="button"
         className="icon-btn icon-btn--small"
         onClick={() => usePlayerStore.getState().setImportError(null)}
+        aria-label={ru.stage.dismiss}
+        title={ru.stage.dismiss}
+      >
+        <CloseIcon size={14} />
+      </button>
+    </div>
+  )
+}
+
+/** Разовое предупреждение о настройках (например, файл был повреждён). */
+function SettingsWarning(): React.JSX.Element | null {
+  const warning = useSettingsStore((s) => s.warning)
+  if (!warning) return null
+  return (
+    <div
+      className="banner banner--warn"
+      role="alert"
+      aria-label={ru.settings.warningLabel}
+      data-testid="settings-warning"
+    >
+      <span>{warning}</span>
+      <button
+        type="button"
+        className="icon-btn icon-btn--small"
+        onClick={() => useSettingsStore.getState().dismissWarning()}
         aria-label={ru.stage.dismiss}
         title={ru.stage.dismiss}
       >
@@ -77,6 +104,8 @@ export function VideoStage(): React.JSX.Element {
           </div>
         )}
         <ImportBanner />
+        <SettingsWarning />
+        <Toast />
         {dragActive && <div className="stage__drop-hint">{ru.stage.dropHere}</div>}
       </div>
     </section>

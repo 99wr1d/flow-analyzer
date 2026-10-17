@@ -5,34 +5,34 @@ export const HISTORY_LIMIT = 100
 /** Правки одного вида подряд в пределах этого времени (мс) склеиваются в один шаг отмены. */
 export const COALESCE_MS = 800
 
-export interface HistoryState {
-  items: Annotation[]
-  past: Annotation[][]
-  future: Annotation[][]
+export interface HistoryState<T = Annotation> {
+  items: T[]
+  past: T[][]
+  future: T[][]
   lastKey: string | null
   lastAt: number
 }
 
-export function createHistory(items: Annotation[] = []): HistoryState {
+export function createHistory<T = Annotation>(items: T[] = []): HistoryState<T> {
   return { items, past: [], future: [], lastKey: null, lastAt: 0 }
 }
 
-function pushPast(past: Annotation[][], snapshot: Annotation[]): Annotation[][] {
+function pushPast<T>(past: T[][], snapshot: T[]): T[][] {
   const next = [...past, snapshot]
   return next.length > HISTORY_LIMIT ? next.slice(next.length - HISTORY_LIMIT) : next
 }
 
 /** Меняет список без записи в историю (промежуточные кадры перетаскивания). */
-export function preview(h: HistoryState, items: Annotation[]): HistoryState {
+export function preview<T>(h: HistoryState<T>, items: T[]): HistoryState<T> {
   return { ...h, items }
 }
 
 /** Новое состояние = шаг истории. key+now склеивают быстрые правки одного поля (например, ввод цифр). */
-export function commit(
-  h: HistoryState,
-  items: Annotation[],
+export function commit<T>(
+  h: HistoryState<T>,
+  items: T[],
   opts: { key?: string; now?: number } = {}
-): HistoryState {
+): HistoryState<T> {
   if (items === h.items) return h
   const now = opts.now ?? Date.now()
   const key = opts.key ?? null
@@ -48,12 +48,12 @@ export function commit(
 }
 
 /** Завершение перетаскивания: в историю попадает состояние ДО начала жеста. */
-export function commitFrom(h: HistoryState, before: Annotation[]): HistoryState {
+export function commitFrom<T>(h: HistoryState<T>, before: T[]): HistoryState<T> {
   if (before === h.items) return h
   return { items: h.items, past: pushPast(h.past, before), future: [], lastKey: null, lastAt: 0 }
 }
 
-export function undo(h: HistoryState): HistoryState {
+export function undo<T>(h: HistoryState<T>): HistoryState<T> {
   if (h.past.length === 0) return h
   const items = h.past[h.past.length - 1]
   return {
@@ -65,7 +65,7 @@ export function undo(h: HistoryState): HistoryState {
   }
 }
 
-export function redo(h: HistoryState): HistoryState {
+export function redo<T>(h: HistoryState<T>): HistoryState<T> {
   if (h.future.length === 0) return h
   const items = h.future[h.future.length - 1]
   return {

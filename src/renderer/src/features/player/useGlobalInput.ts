@@ -1,65 +1,6 @@
 import { useEffect } from 'react'
 import { usePlayerStore } from '../../store/playerStore'
-import { importDroppedFile, openVideoFromDialog } from './importVideo'
-import { changeRate, stepFrame, stepSecond, toggleMute, togglePlay } from './videoElement'
-
-/** Поля, где печатают текст: горячие клавиши плеера там не срабатывают. */
-function isTyping(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return true
-  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true
-  return target instanceof HTMLInputElement && target.type !== 'range'
-}
-
-/**
- * Горячие клавиши: Ctrl+O, Пробел, [ ], M, ←/→ (кадр), Shift+←/→ (секунда).
- * Стрелки работают и при удержании (автоповтор), но не на ползунке громкости — там они меняют громкость.
- */
-export function useShortcuts(): void {
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.defaultPrevented || e.isComposing) return
-
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyO') {
-        e.preventDefault()
-        void openVideoFromDialog()
-        return
-      }
-      if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return
-
-      switch (e.code) {
-        case 'ArrowLeft':
-        case 'ArrowRight': {
-          if (e.target instanceof HTMLInputElement) return
-          e.preventDefault()
-          const direction = e.code === 'ArrowLeft' ? -1 : 1
-          if (e.shiftKey) stepSecond(direction)
-          else stepFrame(direction)
-          break
-        }
-        case 'Space':
-          // На кнопке пробел и так «нажимает» её — не дублируем.
-          if (e.target instanceof HTMLButtonElement) return
-          e.preventDefault()
-          if (!e.repeat) togglePlay()
-          break
-        case 'BracketLeft':
-          e.preventDefault()
-          changeRate(-1)
-          break
-        case 'BracketRight':
-          e.preventDefault()
-          changeRate(1)
-          break
-        case 'KeyM':
-          if (!e.repeat) toggleMute()
-          break
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-}
+import { importDroppedFile } from './importVideo'
 
 function hasFiles(e: DragEvent): boolean {
   return Array.from(e.dataTransfer?.types ?? []).includes('Files')

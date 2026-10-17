@@ -154,3 +154,31 @@ export const SolidLineIcon = (p: IconProps): React.JSX.Element => (
     <path d="M3 12h18" strokeWidth="2.200" />
   </Svg>
 )
+
+export const GearIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path
+      d="M18.70 10.34L21.12 10.78L21.12 13.22L18.70 13.66L17.91 15.56L19.31 17.58L17.58 19.31L15.56 17.91L13.66 18.70L13.22 21.12L10.78 21.12L10.34 18.70L8.44 17.91L6.42 19.31L4.69 17.58L6.09 15.56L5.30 13.66L2.88 13.22L2.88 10.78L5.30 10.34L6.09 8.44L4.69 6.42L6.42 4.69L8.44 6.09L10.34 5.30L10.78 2.88L13.22 2.88L13.66 5.30L15.56 6.09L17.58 4.69L19.31 6.42L17.91 8.44Z"
+      strokeWidth="1.5"
+    />
+    <circle cx="12" cy="12" r="3" />
+  </Svg>
+)
+
+export const PlusIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M12 5v14M5 12h14" />
+  </Svg>
+)
+
+export const ArrowUpIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="m6 14 6-6 6 6" />
+  </Svg>
+)
+
+export const ArrowDownIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="m6 10 6 6 6-6" />
+  </Svg>
+)

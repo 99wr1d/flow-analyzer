@@ -1,7 +1,9 @@
+import { useKeyHint } from '../features/commands/useKeys'
 import { openVideoFromDialog } from '../features/player/importVideo'
+import { useSettingsStore } from '../features/settings/settingsStore'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
-import { FolderOpenIcon } from '../ui/icons'
+import { FolderOpenIcon, GearIcon } from '../ui/icons'
 import { Logo } from '../ui/Logo'
 
 function FileName(): React.JSX.Element | null {
@@ -21,6 +23,9 @@ function FileName(): React.JSX.Element | null {
 }
 
 export function TopBar(): React.JSX.Element {
+  const openHint = useKeyHint('general:open-video')
+  const settingsHint = useKeyHint('general:settings')
+  const openSettings = useSettingsStore((s) => s.openDialog)
   return (
     <header className="top-bar">
       <div className="top-bar__brand">
@@ -38,11 +43,24 @@ export function TopBar(): React.JSX.Element {
         type="button"
         className="btn"
         onClick={() => void openVideoFromDialog()}
-        title={ru.topBar.openVideoTitle}
+        title={`${ru.topBar.openVideoTitle}${openHint}`}
         data-testid="open-video"
       >
         <FolderOpenIcon />
         {ru.topBar.openVideo}
+      </button>
+      <button
+        type="button"
+        className="icon-btn"
+        onClick={(e) => {
+          openSettings()
+          e.currentTarget.blur()
+        }}
+        title={`${ru.topBar.settingsTitle}${settingsHint}`}
+        aria-label={ru.topBar.settings}
+        data-testid="open-settings"
+      >
+        <GearIcon size={18} />
       </button>
     </header>
   )
