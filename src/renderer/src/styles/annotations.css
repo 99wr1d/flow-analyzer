@@ -1,0 +1,324 @@
+/* ---------- Левая рейка: инструменты ---------- */
+.tool-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: calc(var(--u) * 1.5);
+}
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+.tool-btn:hover:not(:disabled) {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.tool-btn--active,
+.tool-btn--active:hover:not(:disabled) {
+  background: rgba(43, 214, 123, 0.16);
+  border-color: rgba(43, 214, 123, 0.55);
+  color: var(--accent);
+}
+.tool-btn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+.tool-btn:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 1px;
+}
+
+/* ---------- Панель стиля над видео ---------- */
+.stage {
+  flex-direction: column;
+  gap: var(--u);
+}
+.style-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  min-height: 34px;
+  padding: 0 var(--u);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.style-bar__group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.style-bar__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-strong);
+  margin: 0 4px;
+}
+.style-bar__spacer {
+  flex: 1;
+}
+.swatch {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  cursor: pointer;
+}
+.swatch:hover {
+  box-shadow: 0 0 0 1px var(--text-muted);
+}
+.swatch--active,
+.swatch--active:hover {
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 0 1px transparent;
+}
+.seg-btn,
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.seg-btn:hover:not(:disabled),
+.chip-btn:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--panel-3);
+}
+.seg-btn--active,
+.chip-btn--active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(43, 214, 123, 0.1);
+}
+.seg-btn:disabled,
+.chip-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.seg-btn__bar {
+  display: block;
+  width: 16px;
+  border-radius: 2px;
+  background: currentColor;
+}
+.chip-btn {
+  font-weight: 700;
+  margin-left: 4px;
+}
+:is(.swatch, .seg-btn, .chip-btn, .tool-btn, .segmented__btn, .input):focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 1px;
+}
+
+/* ---------- Слой рисунков ---------- */
+.anno-host {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.anno-svg {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+  overflow: visible;
+}
+.anno-shape {
+  filter: drop-shadow(0 1px 2.5px rgba(0, 0, 0, 0.7));
+}
+.anno-shape--dark {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.85));
+}
+.anno-handle {
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+.anno-text-input {
+  position: absolute;
+  z-index: 2;
+  pointer-events: auto;
+  border: 1.5px dashed var(--accent);
+  outline: none;
+  line-height: 1;
+  user-select: text;
+  cursor: text;
+  caret-color: currentColor;
+}
+.anno-text-input::placeholder {
+  color: inherit;
+  opacity: 0.45;
+}
+
+/* ---------- Правая панель: свойства рисунка ---------- */
+.inspector {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  padding: calc(var(--u) * 1.5) calc(var(--u) * 2) calc(var(--u) * 2);
+  border-bottom: 1px solid var(--border);
+}
+.inspector__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.inspector__title {
+  font-weight: 600;
+}
+.inspector__section {
+  margin-top: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.inspector__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.inspector__value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.inspector__wide {
+  justify-content: center;
+}
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.segmented__btn {
+  height: 26px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.segmented__btn:hover {
+  color: var(--text);
+}
+.segmented__btn--active,
+.segmented__btn--active:hover {
+  background: var(--panel-3);
+  color: var(--accent);
+  font-weight: 600;
+}
+.field {
+  display: grid;
+  grid-template-columns: 1fr 88px;
+  align-items: center;
+  column-gap: var(--u);
+}
+.field__label {
+  color: var(--text-muted);
+}
+.field__hint {
+  grid-column: 1 / -1;
+  min-height: 16px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.field__hint--error {
+  color: var(--danger);
+}
+.input {
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono);
+  user-select: text;
+}
+.input--invalid {
+  border-color: var(--danger);
+}
+
+/* ---------- Дорожка «Рисунки» на таймлайне ---------- */
+.anno-track {
+  position: relative;
+  flex: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-top: none;
+}
+.anno-track__label {
+  position: absolute;
+  left: 6px;
+  top: 2px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  pointer-events: none;
+}
+.anno-track__item {
+  position: absolute;
+  min-width: 6px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.anno-track__item--frame {
+  width: 4px;
+  min-width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+}
+.anno-track__item:hover {
+  opacity: 1;
+}
+.anno-track__item--selected {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  z-index: 1;
+}
+.anno-track__item:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 1px;
+}
+
+/* Сообщения поверх слоя рисунков. */
+.banner,
+.stage__drop-hint {
+  z-index: 3;
+}

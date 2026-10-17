@@ -1,3 +1,4 @@
+import { useAnnotationShortcuts } from '../features/annotations/useAnnotationShortcuts'
 import { useDropImport, useShortcuts } from '../features/player/useGlobalInput'
 import { BottomDock } from './BottomDock'
 import { EpisodesPanel } from './EpisodesPanel'
@@ -9,6 +10,7 @@ import { VideoStage } from './VideoStage'
 export function App(): React.JSX.Element {
   useShortcuts()
   useDropImport()
+  useAnnotationShortcuts()
   return (
     <div className="app">
       <TopBar />

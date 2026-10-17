@@ -10,7 +10,7 @@ test('приложение запускается безопасно и пока
   const { app, win } = await launch()
   try {
     await expect(win).toHaveTitle('FlowAnalyzer')
-    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.3.0')
+    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.4.0')
 
     const leaks = await win.evaluate(() => {
       const w = window as unknown as Record<string, unknown>

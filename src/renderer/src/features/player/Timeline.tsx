@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { AnnotationTrack } from '../annotations/AnnotationTrack'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { formatTime } from './format'
@@ -71,6 +72,7 @@ export function Timeline(): React.JSX.Element {
               </div>
             ))}
         </div>
+        <AnnotationTrack />
         <div className="timeline__track">
           <span className="timeline__empty">{ready ? ru.timeline.noMarks : ru.timeline.empty}</span>
         </div>

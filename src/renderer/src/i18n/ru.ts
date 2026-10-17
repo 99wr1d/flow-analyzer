@@ -8,7 +8,50 @@ export const ru = {
     openVideoTitle: 'Открыть видеофайл (Ctrl+O)',
     fileLabel: 'Видео'
   },
-  toolRail: { label: 'Инструменты' },
+  toolRail: {
+    label: 'Инструменты',
+    select: 'Выбор (V)',
+    arrow: 'Стрелка (A)',
+    line: 'Линия (L)',
+    circle: 'Круг (C)',
+    text: 'Текст (T)'
+  },
+  annotations: {
+    styleBar: 'Стиль рисунка',
+    color: 'Цвет',
+    width: 'Толщина',
+    dash: 'Тип линии',
+    solid: 'Сплошная',
+    dashed: 'Пунктирная',
+    textBackground: 'Фон под текстом',
+    undo: 'Отменить (Ctrl+Z)',
+    redo: 'Повторить (Ctrl+Y)',
+    textInput: 'Текст на видео',
+    textPlaceholder: 'Текст…',
+    types: { arrow: 'Стрелка', line: 'Линия', circle: 'Круг', text: 'Текст' } as Record<
+      string,
+      string
+    >,
+    trackLabel: 'Рисунки',
+    trackEmpty: 'Рисунков пока нет',
+    trackItem: 'Выбрать рисунок и перейти к его началу',
+    inspector: 'Рисунок',
+    inspectorHint: 'Выберите рисунок на видео или на дорожке «Рисунки»',
+    timing: 'Время показа',
+    modeRange: 'Отрезок',
+    modeFrame: 'Только кадр',
+    modeRangeHint: 'Рисунок виден заданное число секунд',
+    modeFrameHint: 'Рисунок виден только на одном кадре',
+    duration: 'Длительность, с',
+    durationErrors: {
+      empty: 'Введите число секунд от 0.2 до 60',
+      nan: 'Нужно число, например 2.5',
+      range: 'Допустимо от 0.2 до 60 секунд'
+    } as Record<string, string>,
+    startsAt: 'Начало',
+    startFromNow: 'Начать с текущего момента',
+    remove: 'Удалить (Delete)'
+  },
   stage: {
     label: 'Видео',
     emptyTitle: 'Видео не загружено',

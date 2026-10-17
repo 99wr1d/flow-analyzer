@@ -86,3 +86,71 @@ export const FrameForwardIcon = (p: IconProps): React.JSX.Element => (
     />
   </Svg>
 )
+
+export const SelectIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path
+      d="M6 3.800 18.200 11.200l-5.200 1.400 2.800 5.400-2.200 1.100-2.800-5.400-3.600 3.800z"
+      fill="currentColor"
+    />
+  </Svg>
+)
+
+export const ArrowToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 19 16.500 7.500" strokeWidth="2.2" />
+    <path d="M10.500 6.500H17.500V13.500z" fill="currentColor" />
+  </Svg>
+)
+
+export const LineToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 19 19 5" strokeWidth="2.2" />
+    <circle cx="5" cy="19" r="1.600" fill="currentColor" />
+    <circle cx="19" cy="5" r="1.600" fill="currentColor" />
+  </Svg>
+)
+
+export const CircleToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <ellipse cx="12" cy="12" rx="8" ry="6.500" strokeWidth="2" />
+  </Svg>
+)
+
+export const TextToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M6 7V5.500h12V7M12 5.500v13M9.500 18.500h5" strokeWidth="2" />
+  </Svg>
+)
+
+export const UndoIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M9 14 4.500 9.500 9 5" />
+    <path d="M4.500 9.500H15a4.500 4.500 0 0 1 0 9h-3" />
+  </Svg>
+)
+
+export const RedoIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="m15 14 4.500-4.500L15 5" />
+    <path d="M19.500 9.500H9a4.500 4.500 0 0 0 0 9h3" />
+  </Svg>
+)
+
+export const TrashIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M4.500 7h15M9.500 7V4.500h5V7M6.500 7l.8 12.500h9.400L17.500 7M10 11v5M14 11v5" />
+  </Svg>
+)
+
+export const DashedLineIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M3 12h4M10 12h4M17 12h4" strokeWidth="2.200" />
+  </Svg>
+)
+
+export const SolidLineIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M3 12h18" strokeWidth="2.200" />
+  </Svg>
+)

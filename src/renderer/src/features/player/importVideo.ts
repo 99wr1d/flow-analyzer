@@ -1,4 +1,5 @@
 import { ru } from '../../i18n/ru'
+import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { usePlayerStore } from '../../store/playerStore'
 import type { VideoSource } from '../../../../shared/ipc-contract'
 
@@ -16,6 +17,8 @@ async function probeFps(source: VideoSource): Promise<void> {
 
 function accept(source: VideoSource): void {
   usePlayerStore.getState().loadSource(source)
+  // Рисунки принадлежат видео и пока нигде не сохраняются (до этапа 8): новое видео — чистый лист.
+  useAnnotationsStore.getState().reset()
   void probeFps(source)
   // Фокус не должен оставаться на кнопке «Открыть видео»: иначе Пробел откроет диалог снова.
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur()

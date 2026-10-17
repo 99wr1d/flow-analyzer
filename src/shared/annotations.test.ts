@@ -1,0 +1,115 @@
+import { describe, expect, it } from 'vitest'
+import {
+  AnnotationSchema,
+  defaultDuration,
+  frameCenter,
+  isVisible,
+  parseDuration,
+  type Annotation
+} from './annotations'
+
+const base = {
+  id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11',
+  style: { color: '#ffd60a', width: 0.008, dash: 'solid' as const }
+}
+const range = (start: number, duration: number): Annotation => ({
+  ...base,
+  type: 'arrow',
+  p1: { x: 0.1, y: 0.1 },
+  p2: { x: 0.5, y: 0.5 },
+  timing: { mode: 'range', start, duration }
+})
+const frameAt = (start: number): Annotation => ({
+  ...range(0, 1),
+  timing: { mode: 'frame', start }
+})
+
+describe('isVisible: отрезок', () => {
+  const a = range(2, 3)
+  it('границы: включительно слева, исключительно справа', () => {
+    expect(isVisible(a, 1.999, 25)).toBe(false)
+    expect(isVisible(a, 2, 25)).toBe(true)
+    expect(isVisible(a, 4.999, 25)).toBe(true)
+    expect(isVisible(a, 5, 25)).toBe(false)
+    expect(isVisible(a, 5.2, 25)).toBe(false)
+  })
+})
+
+describe('isVisible: только кадр', () => {
+  for (const fps of [25, 30]) {
+    it(`виден ровно в одном кадре при ${fps} к/с`, () => {
+      const n = 12
+      const a = frameAt(frameCenter((n + 0.3) / fps, fps))
+      expect(isVisible(a, (n - 0.5) / fps, fps)).toBe(false)
+      expect(isVisible(a, n / fps, fps)).toBe(true)
+      expect(isVisible(a, (n + 0.5) / fps, fps)).toBe(true)
+      expect(isVisible(a, (n + 0.999) / fps, fps)).toBe(true)
+      expect(isVisible(a, (n + 1) / fps, fps)).toBe(false)
+      expect(isVisible(a, (n + 1.5) / fps, fps)).toBe(false)
+    })
+  }
+  it('frameCenter: середина кадра', () => {
+    expect(frameCenter(0, 25)).toBeCloseTo(0.02)
+    expect(frameCenter(0.2, 25)).toBeCloseTo(0.22)
+    expect(frameCenter(0.0399, 25)).toBeCloseTo(0.02)
+  })
+})
+
+describe('длительность', () => {
+  it('по умолчанию 3 секунды, но не дальше конца видео', () => {
+    expect(defaultDuration(0, 10)).toBe(3)
+    expect(defaultDuration(8.5, 10)).toBeCloseTo(1.5)
+    expect(defaultDuration(9.95, 10)).toBe(0.2)
+    expect(defaultDuration(1, 0)).toBe(3)
+  })
+  it('разбор ввода', () => {
+    expect(parseDuration('2')).toEqual({ ok: true, value: 2 })
+    expect(parseDuration(' 2,5 ')).toEqual({ ok: true, value: 2.5 })
+    expect(parseDuration('0.2')).toEqual({ ok: true, value: 0.2 })
+    expect(parseDuration('60')).toEqual({ ok: true, value: 60 })
+    expect(parseDuration('')).toEqual({ ok: false, error: 'empty' })
+    expect(parseDuration('abc')).toEqual({ ok: false, error: 'nan' })
+    expect(parseDuration('-1')).toEqual({ ok: false, error: 'nan' })
+    expect(parseDuration('1e3')).toEqual({ ok: false, error: 'nan' })
+    expect(parseDuration('0.1')).toEqual({ ok: false, error: 'range' })
+    expect(parseDuration('60.5')).toEqual({ ok: false, error: 'range' })
+  })
+})
+
+describe('схемы zod', () => {
+  it('принимают корректные рисунки', () => {
+    expect(AnnotationSchema.safeParse(range(1, 3)).success).toBe(true)
+    expect(AnnotationSchema.safeParse(frameAt(1.02)).success).toBe(true)
+    expect(
+      AnnotationSchema.safeParse({
+        ...base,
+        type: 'text',
+        pos: { x: 0.2, y: 0.3 },
+        text: '  Пас  ',
+        style: { color: '#ffffff', size: 0.06, background: true },
+        timing: { mode: 'range', start: 0, duration: 3 }
+      }).success
+    ).toBe(true)
+  })
+  it('отклоняют некорректные', () => {
+    const bad = (v: unknown): boolean => AnnotationSchema.safeParse(v).success
+    expect(bad({ ...range(1, 3), p1: { x: 1.2, y: 0 } })).toBe(false)
+    expect(bad({ ...range(1, 3), id: 'не-uuid' })).toBe(false)
+    expect(bad({ ...range(1, 3), type: 'star' })).toBe(false)
+    expect(bad(range(1, 0.1))).toBe(false)
+    expect(bad(range(1, 61))).toBe(false)
+    expect(bad(range(-1, 3))).toBe(false)
+    expect(bad({ ...range(1, 3), style: { ...base.style, color: 'red' } })).toBe(false)
+    expect(bad({ ...range(1, 3), style: { ...base.style, dash: 'dotted' } })).toBe(false)
+    const text = {
+      ...base,
+      type: 'text',
+      pos: { x: 0.2, y: 0.3 },
+      style: { color: '#ffffff', size: 0.06, background: true },
+      timing: { mode: 'frame', start: 1 }
+    }
+    expect(bad({ ...text, text: '   ' })).toBe(false)
+    expect(bad({ ...text, text: 'x'.repeat(201) })).toBe(false)
+    expect(bad({ ...text, text: 'ok' })).toBe(true)
+  })
+})

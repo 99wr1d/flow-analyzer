@@ -1,3 +1,5 @@
+import { AnnotationLayer } from '../features/annotations/AnnotationLayer'
+import { StyleBar } from '../features/annotations/StyleBar'
 import { openVideoFromDialog } from '../features/player/importVideo'
 import { VideoView } from '../features/player/VideoView'
 import { ru } from '../i18n/ru'
@@ -47,8 +49,10 @@ export function VideoStage(): React.JSX.Element {
 
   return (
     <section className={dragActive ? 'stage stage--drop' : 'stage'} aria-label={ru.stage.label}>
+      {source && status === 'ready' && <StyleBar />}
       <div className="stage__canvas">
         {source && <VideoView id={source.id} url={source.url} />}
+        {source && <AnnotationLayer />}
         {!source && (
           <EmptyState
             icon={<VideoIcon />}
