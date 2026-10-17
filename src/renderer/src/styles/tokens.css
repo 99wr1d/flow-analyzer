@@ -1,12 +1,16 @@
 :root {
+  color-scheme: dark;
   --bg: #0e1014;
   --panel: #15181e;
   --panel-2: #1a1e26;
+  --panel-3: #232833;
+  --border-strong: #323948;
   --border: #232833;
   --text: #e6e8ec;
   --text-muted: #8a93a3;
   --text-faint: #5b6373;
   --accent: #2bd67b;
+  --accent-hover: #4be896;
   --accent-2: #8b6cff;
   --danger: #ff6b6b;
 

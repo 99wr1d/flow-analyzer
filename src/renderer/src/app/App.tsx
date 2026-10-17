@@ -1,3 +1,4 @@
+import { useDropImport, useShortcuts } from '../features/player/useGlobalInput'
 import { BottomDock } from './BottomDock'
 import { EpisodesPanel } from './EpisodesPanel'
 import { StatusBar } from './StatusBar'
@@ -6,6 +7,8 @@ import { TopBar } from './TopBar'
 import { VideoStage } from './VideoStage'
 
 export function App(): React.JSX.Element {
+  useShortcuts()
+  useDropImport()
   return (
     <div className="app">
       <TopBar />

@@ -1,7 +1,11 @@
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { registerIpcHandlers } from './ipc/register'
+import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { applySessionSecurity, createMainWindow } from './window'
+
+// Схема flow-media должна быть объявлена до готовности приложения.
+registerMediaScheme()
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.wr1d99.flowanalyzer')
@@ -12,6 +16,7 @@ app.whenReady().then(() => {
   })
 
   applySessionSecurity()
+  registerMediaProtocol()
   registerIpcHandlers()
   createMainWindow()
 
