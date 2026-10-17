@@ -66,3 +66,23 @@ export const CloseIcon = (p: IconProps): React.JSX.Element => (
     <path d="m6 6 12 12M18 6 6 18" />
   </Svg>
 )
+
+export const FrameBackIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M6 5v14" />
+    <path
+      d="M18.4 5.9v12.2a.6.6 0 0 1-.9.5L9 12.5a.6.6 0 0 1 0-1l8.500-6.100a.6.6 0 0 1 .9.5z"
+      fill="currentColor"
+    />
+  </Svg>
+)
+
+export const FrameForwardIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M18 5v14" />
+    <path
+      d="M5.600 5.900v12.200a.6.6 0 0 0 .9.5L15 12.500a.6.6 0 0 0 0-1L6.500 5.400a.6.6 0 0 0-.9.5z"
+      fill="currentColor"
+    />
+  </Svg>
+)

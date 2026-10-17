@@ -4,6 +4,7 @@ import {
   type AppInfo,
   type FlowApi,
   type IpcResult,
+  type VideoProbe,
   type VideoSource
 } from '../shared/ipc-contract'
 
@@ -16,6 +17,7 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 const api: FlowApi = {
   getAppInfo: () => invoke<AppInfo>(IPC_CHANNELS.appGetInfo),
   openVideoDialog: () => invoke<VideoSource | null>(IPC_CHANNELS.videoOpenDialog),
+  probeVideo: (id: string) => invoke<VideoProbe>(IPC_CHANNELS.videoProbe, id),
   importDroppedVideo(file: File): Promise<VideoSource> {
     let path: string
     try {

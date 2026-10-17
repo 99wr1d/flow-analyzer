@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { VideoSource } from '../../../shared/ipc-contract'
+import { DEFAULT_FPS, type FpsSource } from '../features/player/frames'
 
 export type PlayerStatus = 'empty' | 'loading' | 'ready' | 'error'
 
@@ -12,6 +13,13 @@ export interface PlayerState {
   playbackRate: number
   volume: number
   muted: boolean
+  /** Частота кадров и откуда она известна. */
+  fps: number
+  fpsSource: FpsSource
+  /** Частота переменная: fps — среднее значение. */
+  fpsVariable: boolean
+  /** Формат времени: «ММ:СС.д» или таймкод «ЧЧ:ММ:СС:КК». Сохраняется между файлами. */
+  timeMode: 'time' | 'timecode'
   /** Ошибка воспроизведения текущего файла. */
   playbackError: string | null
   /** Ошибка импорта (файл не принят); текущее видео при этом не трогаем. */
@@ -27,6 +35,8 @@ export interface PlayerActions {
   setPlaying: (playing: boolean) => void
   setCurrentTime: (time: number) => void
   setPlaybackRate: (rate: number) => void
+  setFps: (fps: number, source: FpsSource, variable?: boolean) => void
+  toggleTimeMode: () => void
   setVolumeState: (volume: number, muted: boolean) => void
   setPlaybackError: (message: string) => void
   setImportError: (message: string | null) => void
@@ -38,6 +48,9 @@ const resetPlayback = {
   currentTime: 0,
   duration: 0,
   playbackRate: 1,
+  fps: DEFAULT_FPS,
+  fpsSource: 'default',
+  fpsVariable: false,
   playbackError: null,
   importError: null
 } as const
@@ -54,6 +67,10 @@ export const usePlayerStore = create<PlayerState & PlayerActions>()((set) => ({
   currentTime: 0,
   duration: 0,
   playbackRate: 1,
+  fps: DEFAULT_FPS,
+  fpsSource: 'default',
+  fpsVariable: false,
+  timeMode: 'time',
 
   loadSource: (source) => set({ ...resetPlayback, source, status: 'loading' }),
   setMetadata: (duration) =>
@@ -65,6 +82,8 @@ export const usePlayerStore = create<PlayerState & PlayerActions>()((set) => ({
   setPlaying: (playing) => set({ playing }),
   setCurrentTime: (currentTime) => set({ currentTime }),
   setPlaybackRate: (playbackRate) => set({ playbackRate }),
+  setFps: (fps, fpsSource, fpsVariable = false) => set({ fps, fpsSource, fpsVariable }),
+  toggleTimeMode: () => set((s) => ({ timeMode: s.timeMode === 'time' ? 'timecode' : 'time' })),
   setVolumeState: (volume, muted) => set({ volume, muted }),
   setPlaybackError: (message) => set({ status: 'error', playing: false, playbackError: message }),
   setImportError: (importError) => set({ importError }),

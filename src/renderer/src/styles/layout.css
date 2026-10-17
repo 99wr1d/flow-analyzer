@@ -327,6 +327,36 @@
 .transport__time--total {
   text-align: left;
 }
+.transport__time[data-mode='timecode'] {
+  min-width: 11ch;
+}
+/* Время-кнопка: выглядит как текст, но кликабельна (переключает формат). */
+.transport__time-btn {
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.transport__time-btn:hover {
+  background: var(--panel-3);
+}
+.transport__time-btn:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 1px;
+}
+.transport__fps {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: help;
+}
+.transport__fps--unknown {
+  color: var(--warn, var(--text-muted));
+}
 
 .scrub {
   position: relative;

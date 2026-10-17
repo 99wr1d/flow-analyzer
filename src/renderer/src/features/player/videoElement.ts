@@ -1,6 +1,8 @@
 // Единственный <video> приложения и команды управления им.
 // Состояние (playing, currentTime, ...) обновляется событиями элемента — см. VideoView.
 import { clamp } from './format'
+import { secondsToFrames } from './frames'
+import { resetStepper, stepFrames } from './stepper'
 import { stepRate } from './speed'
 import { usePlayerStore } from '../../store/playerStore'
 
@@ -8,6 +10,7 @@ let element: HTMLVideoElement | null = null
 
 export function setVideoElement(el: HTMLVideoElement | null): void {
   element = el
+  resetStepper()
 }
 
 function ready(): HTMLVideoElement | null {
@@ -30,9 +33,22 @@ export function togglePlay(): void {
 export function seekTo(time: number): void {
   const el = ready()
   if (!el || !Number.isFinite(time)) return
+  resetStepper()
   const target = clamp(time, 0, el.duration || 0)
   el.currentTime = target
   usePlayerStore.getState().setCurrentTime(target)
+}
+
+/** Шаг на delta кадров (отрицательное — назад); ставит на паузу. */
+export function stepFrame(delta: number): void {
+  const el = ready()
+  if (el) stepFrames(el, delta)
+}
+
+/** Шаг на секунду вперёд (direction = 1) или назад (-1) с остановкой на границе кадра. */
+export function stepSecond(direction: -1 | 1): void {
+  const el = ready()
+  if (el) stepFrames(el, direction * secondsToFrames(1, usePlayerStore.getState().fps))
 }
 
 export function seekBy(delta: number): void {

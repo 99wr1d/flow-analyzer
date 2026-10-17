@@ -3,10 +3,12 @@ import {
   IPC_CHANNELS,
   VIDEO_EXTENSIONS,
   type IpcResult,
+  type VideoProbe,
   type VideoSource
 } from '../../shared/ipc-contract'
-import { grantVideo } from '../media/registry'
-import { MEDIA_ERRORS } from '../media/validate'
+import { probeVideo } from '../media/probe'
+import { getMediaEntry, grantVideo } from '../media/registry'
+import { MEDIA_ERRORS, checkMediaId } from '../media/validate'
 import { isTrustedSender } from '../security'
 
 function errorText(error: unknown): string {
@@ -45,6 +47,22 @@ export function registerVideoHandlers(): void {
       try {
         if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }
         return { ok: true, data: await grantVideo(path) }
+      } catch (error) {
+        return { ok: false, error: errorText(error) }
+      }
+    }
+  )
+
+  ipcMain.handle(
+    IPC_CHANNELS.videoProbe,
+    async (event, id: unknown): Promise<IpcResult<VideoProbe>> => {
+      try {
+        if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }
+        const problem = checkMediaId(id)
+        if (problem) return { ok: false, error: problem }
+        const entry = getMediaEntry(id as string)
+        if (!entry) return { ok: false, error: MEDIA_ERRORS.unknownId }
+        return { ok: true, data: await probeVideo(entry.path) }
       } catch (error) {
         return { ok: false, error: errorText(error) }
       }

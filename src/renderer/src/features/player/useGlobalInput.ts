@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { usePlayerStore } from '../../store/playerStore'
 import { importDroppedFile, openVideoFromDialog } from './importVideo'
-import { changeRate, toggleMute, togglePlay } from './videoElement'
+import { changeRate, stepFrame, stepSecond, toggleMute, togglePlay } from './videoElement'
 
 /** Поля, где печатают текст: горячие клавиши плеера там не срабатывают. */
 function isTyping(target: EventTarget | null): boolean {
@@ -12,8 +12,8 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /**
- * Горячие клавиши: Ctrl+O, Пробел, [ ], M.
- * Стрелки ←/→ не заняты — они понадобятся для покадрового перехода.
+ * Горячие клавиши: Ctrl+O, Пробел, [ ], M, ←/→ (кадр), Shift+←/→ (секунда).
+ * Стрелки работают и при удержании (автоповтор), но не на ползунке громкости — там они меняют громкость.
  */
 export function useShortcuts(): void {
   useEffect(() => {
@@ -28,6 +28,15 @@ export function useShortcuts(): void {
       if (e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return
 
       switch (e.code) {
+        case 'ArrowLeft':
+        case 'ArrowRight': {
+          if (e.target instanceof HTMLInputElement) return
+          e.preventDefault()
+          const direction = e.code === 'ArrowLeft' ? -1 : 1
+          if (e.shiftKey) stepSecond(direction)
+          else stepFrame(direction)
+          break
+        }
         case 'Space':
           // На кнопке пробел и так «нажимает» её — не дублируем.
           if (e.target instanceof HTMLButtonElement) return

@@ -1,10 +1,26 @@
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
-import { PauseIcon, PlayIcon, VolumeIcon, VolumeMutedIcon } from '../../ui/icons'
+import {
+  FrameBackIcon,
+  FrameForwardIcon,
+  PauseIcon,
+  PlayIcon,
+  VolumeIcon,
+  VolumeMutedIcon
+} from '../../ui/icons'
 import { formatTime } from './format'
+import { formatDurationTimecode, formatFps, formatTimecode } from './frames'
 import { PLAYBACK_RATES, formatRate } from './speed'
 import { useSeekPointer } from './useSeekPointer'
-import { seekBy, seekTo, setRate, setVolume, toggleMute, togglePlay } from './videoElement'
+import {
+  seekBy,
+  seekTo,
+  setRate,
+  stepFrame,
+  setVolume,
+  toggleMute,
+  togglePlay
+} from './videoElement'
 
 function useReady(): boolean {
   return usePlayerStore((s) => s.status === 'ready')
@@ -32,30 +48,97 @@ function PlayButton(): React.JSX.Element {
   )
 }
 
+function FrameButton({ direction }: { direction: -1 | 1 }): React.JSX.Element {
+  const ready = useReady()
+  const back = direction === -1
+  return (
+    <button
+      type="button"
+      className="icon-btn"
+      disabled={!ready}
+      onClick={(e) => {
+        stepFrame(direction)
+        e.currentTarget.blur()
+      }}
+      title={back ? ru.transport.frameBack : ru.transport.frameForward}
+      aria-label={back ? ru.transport.frameBackAria : ru.transport.frameForwardAria}
+      data-testid={back ? 'frame-back' : 'frame-forward'}
+    >
+      {back ? <FrameBackIcon /> : <FrameForwardIcon />}
+    </button>
+  )
+}
+
 function CurrentTime(): React.JSX.Element {
   const time = usePlayerStore((s) => s.currentTime)
+  const duration = usePlayerStore((s) => s.duration)
+  const fps = usePlayerStore((s) => s.fps)
+  const mode = usePlayerStore((s) => s.timeMode)
   const hours = useHoursFlag()
+  const toggle = usePlayerStore((s) => s.toggleTimeMode)
   return (
-    <span
-      className="transport__time transport__time--current"
+    <button
+      type="button"
+      className="transport__time transport__time--current transport__time-btn"
+      onClick={(e) => {
+        toggle()
+        e.currentTarget.blur()
+      }}
+      title={ru.transport.timeToggle}
       aria-label={ru.transport.currentTime}
       data-testid="current-time"
+      data-mode={mode}
     >
-      {formatTime(time, { tenths: true, hours })}
-    </span>
+      {mode === 'timecode'
+        ? formatTimecode(time, fps, duration)
+        : formatTime(time, { tenths: true, hours })}
+    </button>
   )
 }
 
 function TotalTime(): React.JSX.Element {
   const duration = usePlayerStore((s) => s.duration)
+  const fps = usePlayerStore((s) => s.fps)
+  const mode = usePlayerStore((s) => s.timeMode)
   const hours = useHoursFlag()
   return (
     <span
       className="transport__time transport__time--total"
       aria-label={ru.transport.totalTime}
       data-testid="total-time"
+      data-mode={mode}
     >
-      {formatTime(duration, { tenths: true, hours })}
+      {mode === 'timecode'
+        ? formatDurationTimecode(duration, fps)
+        : formatTime(duration, { tenths: true, hours })}
+    </span>
+  )
+}
+
+function FpsLabel(): React.JSX.Element {
+  const ready = useReady()
+  const fps = usePlayerStore((s) => s.fps)
+  const source = usePlayerStore((s) => s.fpsSource)
+  const variable = usePlayerStore((s) => s.fpsVariable)
+  const approx = source === 'estimated' || variable
+  const text = `${approx ? '≈' : ''}${formatFps(fps)} ${ru.transport.fpsUnit}${source === 'default' ? '?' : ''}`
+  const why =
+    source === 'container'
+      ? ru.transport.fpsContainer
+      : source === 'estimated'
+        ? ru.transport.fpsEstimated
+        : ru.transport.fpsDefault
+  return (
+    <span
+      className={`transport__fps${source === 'default' ? ' transport__fps--unknown' : ''}`}
+      title={variable ? `${why} ${ru.transport.fpsVariable}` : why}
+      aria-label={ru.transport.fpsLabel}
+      data-testid="fps"
+      data-source={source}
+      data-variable={variable}
+      hidden={!ready}
+    >
+      {text}
     </span>
   )
 }
@@ -69,7 +152,7 @@ function Scrub(): React.JSX.Element {
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
     if (!ready) return
-    // Стрелки ←/→ намеренно не трогаем: они зарезервированы под покадровый переход.
+    // Стрелки ←/→ обрабатываются глобально (покадровый переход) — см. useGlobalInput.
     switch (e.key) {
       case 'Home':
         seekTo(0)
@@ -179,10 +262,13 @@ function Volume(): React.JSX.Element {
 export function Transport(): React.JSX.Element {
   return (
     <div className="transport" role="group" aria-label={ru.transport.label}>
+      <FrameButton direction={-1} />
       <PlayButton />
+      <FrameButton direction={1} />
       <CurrentTime />
       <Scrub />
       <TotalTime />
+      <FpsLabel />
       <SpeedSelect />
       <Volume />
     </div>

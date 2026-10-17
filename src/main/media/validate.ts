@@ -10,6 +10,8 @@ export const MEDIA_ERRORS = {
   notFound: 'Файл не найден или недоступен',
   notFile: 'Выбранный объект не является файлом',
   empty: 'Файл пустой',
+  badId: 'Некорректный идентификатор видео',
+  unknownId: 'Видео не найдено — откройте файл заново',
   untrusted: 'Недоверенный источник запроса',
   unknown: 'Неизвестная ошибка'
 } as const
@@ -39,6 +41,13 @@ export function checkVideoPath(value: unknown): string | null {
   const ext = extensionOf(value)
   if (!(VIDEO_EXTENSIONS as readonly string[]).includes(ext)) return MEDIA_ERRORS.badExtension
   return null
+}
+
+const MEDIA_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+
+/** Возвращает текст ошибки или null, если значение похоже на выданный идентификатор. */
+export function checkMediaId(value: unknown): string | null {
+  return typeof value === 'string' && MEDIA_ID.test(value) ? null : MEDIA_ERRORS.badId
 }
 
 export function fileNameOf(path: string): string {

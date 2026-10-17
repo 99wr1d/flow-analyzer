@@ -1,73 +1,16 @@
-import { _electron as electron, expect, test } from '@playwright/test'
-import type { ElectronApplication, Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { existsSync } from 'fs'
 import { join, resolve } from 'path'
-
-const SHOTS =
-  process.env.FLOW_SHOTS_DIR ??
-  'C:/Users/user/AppData/Local/Temp/claude/C--Users-user/272a2939-769e-4218-aeb7-9ba220c997d1/scratchpad'
-
-// Если задан FLOW_EXE — тесты запускаются на собранном приложении (dist/win-unpacked/FlowAnalyzer.exe).
-const EXE = process.env.FLOW_EXE
-const SUFFIX = EXE ? '-packaged' : ''
-
-const FIXTURES = resolve('tests/fixtures')
-const fixture = (name: string): string => join(FIXTURES, name)
+import { FIXTURES, SHOTS, SUFFIX, fixture, launch, stubDialog, videoState } from './helpers'
 
 const PLAYBACK_ERROR =
   'Не удалось воспроизвести файл. Поддерживаются MP4 (H.264), WebM и MOV. Другие форматы научимся открывать позже.'
-
-// ELECTRON_RUN_AS_NODE (наследуется из VS Code) ломает запуск Electron — убираем.
-function cleanEnv(): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined && k !== 'ELECTRON_RUN_AS_NODE') env[k] = v
-  }
-  return env
-}
-
-async function launch(): Promise<{ app: ElectronApplication; win: Page }> {
-  const app = await electron.launch(
-    EXE
-      ? { executablePath: EXE, env: cleanEnv() }
-      : { args: ['.'], cwd: resolve('.'), env: cleanEnv() }
-  )
-  const win = await app.firstWindow()
-  await win.waitForLoadState('domcontentloaded')
-  // Ждём, пока React отрисует интерфейс и повесит обработчики.
-  await win.getByTestId('open-video').waitFor()
-  await win.waitForTimeout(100)
-  return { app, win }
-}
-
-/** Подменяет системный диалог выбора файла: он «выбирает» указанный путь. */
-async function stubDialog(app: ElectronApplication, path: string): Promise<void> {
-  await app.evaluate(({ dialog }, p) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] })
-  }, path)
-}
-
-const videoState = (win: Page) =>
-  win.evaluate(() => {
-    const v = document.querySelector('video')
-    return v
-      ? {
-          currentTime: v.currentTime,
-          duration: v.duration,
-          paused: v.paused,
-          ended: v.ended,
-          rate: v.playbackRate,
-          muted: v.muted,
-          volume: v.volume
-        }
-      : null
-  })
 
 test('приложение запускается безопасно и показывает версию', async () => {
   const { app, win } = await launch()
   try {
     await expect(win).toHaveTitle('FlowAnalyzer')
-    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.2.0')
+    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.3.0')
 
     const leaks = await win.evaluate(() => {
       const w = window as unknown as Record<string, unknown>
@@ -81,7 +24,12 @@ test('приложение запускается безопасно и пока
     expect(leaks.require).toBe('undefined')
     expect(leaks.process).toBe('undefined')
     expect(leaks.electron).toBe('undefined')
-    expect(leaks.apiKeys).toEqual(['getAppInfo', 'importDroppedVideo', 'openVideoDialog'])
+    expect(leaks.apiKeys).toEqual([
+      'getAppInfo',
+      'importDroppedVideo',
+      'openVideoDialog',
+      'probeVideo'
+    ])
 
     await win.screenshot({ path: join(SHOTS, `e2e-empty${SUFFIX}.png`) })
   } finally {
@@ -95,6 +43,10 @@ test('до загрузки видео управление отключено, 
     await expect(win.getByText('Перетащите видео сюда или нажмите «Открыть видео»')).toBeVisible()
     await expect(win.getByTestId('open-video')).toBeEnabled()
     await expect(win.getByTestId('play-toggle')).toBeDisabled()
+    await expect(win.getByTestId('frame-back')).toBeDisabled()
+    await expect(win.getByTestId('frame-forward')).toBeDisabled()
+    await expect(win.getByTestId('frame-back')).toHaveAttribute('title', 'Кадр назад (←)')
+    await expect(win.getByTestId('frame-forward')).toHaveAttribute('title', 'Кадр вперёд (→)')
     await expect(win.getByTestId('speed')).toBeDisabled()
     await expect(win.getByTestId('mute')).toBeDisabled()
     await expect(win.getByTestId('volume')).toBeDisabled()

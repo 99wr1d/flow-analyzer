@@ -4,7 +4,8 @@
 export const IPC_CHANNELS = {
   appGetInfo: 'app:get-info',
   videoOpenDialog: 'video:open-dialog',
-  videoImportPath: 'video:import-path'
+  videoImportPath: 'video:import-path',
+  videoProbe: 'video:probe'
 } as const
 
 export interface AppInfo {
@@ -21,6 +22,14 @@ export interface VideoSource {
   url: string
 }
 
+/** Что удалось узнать о файле из его метаданных. fps = null — контейнер не прочитан или частоты нет. */
+export interface VideoProbe {
+  fps: number | null
+  /** Частота кадров переменная: fps — среднее значение. */
+  variable: boolean
+  frameCount?: number
+}
+
 /** Расширения, которые можно импортировать (без точки). */
 export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'webm', 'mkv'] as const
 
@@ -34,4 +43,6 @@ export interface FlowApi {
   openVideoDialog(): Promise<VideoSource | null>
   /** Принимает файл, перетащенный в окно. */
   importDroppedVideo(file: File): Promise<VideoSource>
+  /** Метаданные ранее выданного видео (по id, не по пути). */
+  probeVideo(id: string): Promise<VideoProbe>
 }

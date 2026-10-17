@@ -1,6 +1,8 @@
 import { useCallback, useEffect } from 'react'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
+import { startFpsEstimate } from './fpsEstimator'
+import { handleSeeked } from './stepper'
 import { getVideoElement, setVideoElement } from './videoElement'
 
 /** Сам <video>. key=id пересоздаёт элемент при каждом новом файле — состояние сбрасывается полностью. */
@@ -16,6 +18,12 @@ export function VideoView({ id, url }: { id: string; url: string }): React.JSX.E
       el.muted = muted
     }
   }, [])
+
+  // Оценка частоты кадров по воспроизведению (если контейнер её не назвал).
+  useEffect(() => {
+    const el = getVideoElement()
+    return el ? startFpsEstimate(el) : undefined
+  }, [id])
 
   // Плавное обновление положения, пока видео играет (timeupdate срабатывает лишь ~4 раза в секунду).
   useEffect(() => {
@@ -49,7 +57,10 @@ export function VideoView({ id, url }: { id: string; url: string }): React.JSX.E
         s.setCurrentTime(e.currentTarget.currentTime)
       }}
       onTimeUpdate={(e) => usePlayerStore.getState().setCurrentTime(e.currentTarget.currentTime)}
-      onSeeked={(e) => usePlayerStore.getState().setCurrentTime(e.currentTarget.currentTime)}
+      onSeeked={(e) => {
+        handleSeeked(e.currentTarget)
+        usePlayerStore.getState().setCurrentTime(e.currentTarget.currentTime)
+      }}
       onRateChange={(e) => usePlayerStore.getState().setPlaybackRate(e.currentTarget.playbackRate)}
       onVolumeChange={(e) =>
         usePlayerStore.getState().setVolumeState(e.currentTarget.volume, e.currentTarget.muted)

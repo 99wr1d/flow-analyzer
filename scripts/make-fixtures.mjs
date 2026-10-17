@@ -1,14 +1,20 @@
-// Генератор тестовых видео для e2e-тестов: tests/fixtures/sample.webm, sample.mp4, broken.mp4.
+// Генератор тестовых видео для e2e-тестов (tests/fixtures).
 //
-// Запуск:  node scripts/make-fixtures.mjs
-// Нужен установленный Google Chrome (используется через Playwright, channel: 'chrome').
+// Запуск:
+//   node scripts/make-fixtures.mjs          # всё сразу
+//   node scripts/make-fixtures.mjs cfr      # только cfr25.mp4 и cfr30.webm (нужен лишь ffmpeg-static)
+//   node scripts/make-fixtures.mjs chrome   # только sample.webm, sample.mp4, broken.mp4 (нужен Google Chrome)
 //
-// Как это работает: в странице рисуется 6-секундная анимация на canvas (поле, мяч, таймкод),
-// canvas.captureStream() записывается через MediaRecorder. WebM из MediaRecorder не содержит
-// длительности, поэтому скрипт дописывает элемент Duration в заголовок (иначе duration = Infinity).
-// Если Chrome не умеет писать MP4 (H.264) — sample.mp4 просто не создаётся, а тесты его пропускают.
+// 1) cfr25.mp4 (H.264, 25 к/с) и cfr30.webm (VP8, 30 к/с): ровная частота кадров, на каждом кадре крупно
+//    нарисован его номер (drawtext). Делает ffmpeg из пакета ffmpeg-static (devDependency).
+// 2) sample.*: в странице рисуется 6-секундная анимация на canvas, canvas.captureStream() пишется через
+//    MediaRecorder в Chrome (Playwright, channel: 'chrome'). Частота кадров там НЕ постоянная — это нужно,
+//    чтобы проверять поведение на «неидеальных» файлах. WebM из MediaRecorder не содержит длительности,
+//    поэтому скрипт дописывает элемент Duration в заголовок. Если Chrome не умеет писать MP4 — sample.mp4 пропускается.
 import { chromium } from '@playwright/test'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -178,8 +184,72 @@ async function record(page, mimeType) {
   )
 }
 
+// ---------- ffmpeg: файлы с постоянной частотой кадров ----------
+function makeCfr() {
+  const ffmpeg = createRequire(import.meta.url)('ffmpeg-static')
+  if (!ffmpeg) throw new Error('ffmpeg-static не нашёл ffmpeg для этой системы')
+  // Номер кадра рисуется крупно: text='%{eif:n:d:3}' (n — номер кадра с нуля). Внутри фильтра двоеточия экранируются.
+  const font = 'C\\:/Windows/Fonts/arial.ttf'
+  const overlay =
+    "drawtext=fontfile='" +
+    font +
+    "':text='%{eif\\:n\\:d\\:3}':fontsize=140:fontcolor=white:" +
+    'borderw=6:bordercolor=black:x=(w-text_w)/2:y=(h-text_h)/2'
+  const source = (fps) => ['-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=' + fps + ':duration=4']
+  const common = ['-y', '-hide_banner', '-loglevel', 'error']
+  const jobs = [
+    [
+      'cfr25.mp4',
+      [
+        ...source(25),
+        '-vf',
+        overlay + ',format=yuv420p',
+        '-c:v',
+        'libx264',
+        '-profile:v',
+        'main',
+        '-preset',
+        'medium',
+        '-crf',
+        '30',
+        '-g',
+        '25',
+        '-r',
+        '25',
+        '-an',
+        '-movflags',
+        '+faststart'
+      ]
+    ],
+    [
+      'cfr30.webm',
+      [
+        ...source(30),
+        '-vf',
+        overlay + ',format=yuv420p',
+        '-c:v',
+        'libvpx',
+        '-b:v',
+        '300k',
+        '-g',
+        '30',
+        '-r',
+        '30',
+        '-an'
+      ]
+    ]
+  ]
+  for (const [file, args] of jobs) {
+    execFileSync(ffmpeg, [...common, ...args, join(OUT, file)], { stdio: 'inherit' })
+    console.log(file + ': ' + (statSync(join(OUT, file)).size / 1024).toFixed(0) + ' КБ')
+  }
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true })
+  const mode = process.argv[2] ?? 'all'
+  if (mode === 'all' || mode === 'cfr') makeCfr()
+  if (mode === 'cfr') return
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
   try {
     const page = await browser.newPage()
