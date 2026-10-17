@@ -2,6 +2,9 @@ import { useEffect } from 'react'
 import { useCommandDispatcher } from '../features/commands/dispatcher'
 import { installUnifiedHistory } from '../features/history/unified'
 import { useDropImport } from '../features/player/useGlobalInput'
+import { RelinkDialog } from '../features/project/RelinkDialog'
+import { UnsavedDialog } from '../features/project/UnsavedDialog'
+import { useProjectLifecycle } from '../features/project/useProjectLifecycle'
 import { SettingsDialog } from '../features/settings/SettingsDialog'
 import { useSettingsStore } from '../features/settings/settingsStore'
 import { BottomDock } from './BottomDock'
@@ -16,6 +19,7 @@ export function App(): React.JSX.Element {
   const dialogOpen = useSettingsStore((s) => s.dialogOpen)
   useCommandDispatcher()
   useDropImport()
+  useProjectLifecycle()
 
   useEffect(() => {
     const uninstall = installUnifiedHistory()
@@ -32,6 +36,8 @@ export function App(): React.JSX.Element {
       <BottomDock />
       <StatusBar />
       {dialogOpen && <SettingsDialog />}
+      <UnsavedDialog />
+      <RelinkDialog />
     </div>
   )
 }

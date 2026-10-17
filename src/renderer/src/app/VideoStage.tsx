@@ -3,6 +3,7 @@ import { StyleBar } from '../features/annotations/StyleBar'
 import { Toast } from '../features/episodes/Toast'
 import { openVideoFromDialog } from '../features/player/importVideo'
 import { useSettingsStore } from '../features/settings/settingsStore'
+import { ProjectBanners } from '../features/project/ProjectBanners'
 import { VideoView } from '../features/player/VideoView'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
@@ -105,6 +106,7 @@ export function VideoStage(): React.JSX.Element {
         )}
         <ImportBanner />
         <SettingsWarning />
+        <ProjectBanners />
         <Toast />
         {dragActive && <div className="stage__drop-hint">{ru.stage.dropHere}</div>}
       </div>

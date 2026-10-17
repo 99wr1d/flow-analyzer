@@ -182,3 +182,15 @@ export const ArrowDownIcon = (p: IconProps): React.JSX.Element => (
     <path d="m6 10 6 6 6-6" />
   </Svg>
 )
+
+export const ChevronDownIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="m6 9.5 6 6 6-6" />
+  </Svg>
+)
+
+export const ChevronRightIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="m9.5 6 6 6-6 6" />
+  </Svg>
+)

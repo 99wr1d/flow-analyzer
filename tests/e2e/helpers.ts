@@ -38,6 +38,10 @@ export interface LaunchOptions {
   userData?: string
   /** Записать в settings.json перед запуском (объект — как JSON, строка — как есть). */
   settingsFile?: unknown
+  /** Аргументы командной строки приложения (например, путь к .flowproj). */
+  args?: string[]
+  /** Дополнительные переменные окружения. */
+  env?: Record<string, string>
 }
 
 export async function launch(
@@ -51,9 +55,18 @@ export async function launch(
         : JSON.stringify(options.settingsFile)
     writeFileSync(join(userData, 'settings.json'), text, 'utf8')
   }
-  const env = { ...cleanEnv(), FLOW_USER_DATA: userData }
+  const env = {
+    ...cleanEnv(),
+    FLOW_USER_DATA: userData,
+    // FLOW_SHOW_WINDOW=1 — показать окно на экране при отладке тестов.
+    ...(process.env.FLOW_SHOW_WINDOW === '1' ? {} : { FLOW_BACKGROUND_WINDOW: '1' }),
+    ...options.env
+  }
+  const extra = options.args ?? []
   const app = await electron.launch(
-    EXE ? { executablePath: EXE, env } : { args: [ASAR ?? '.'], cwd: resolve('.'), env }
+    EXE
+      ? { executablePath: EXE, args: extra, env }
+      : { args: [ASAR ?? '.', ...extra], cwd: resolve('.'), env }
   )
   const win = await app.firstWindow()
   await win.waitForLoadState('domcontentloaded')
@@ -93,8 +106,13 @@ export async function seekVideo(win: Page, time: number): Promise<void> {
     (t) =>
       new Promise<void>((resolve) => {
         const v = document.querySelector('video')!
-        v.addEventListener('seeked', () => resolve(), { once: true })
-        v.currentTime = t
+        const go = (): void => {
+          v.addEventListener('seeked', () => resolve(), { once: true })
+          v.currentTime = t
+        }
+        // Предыдущая перемотка (например, восстановление времени проекта) ещё идёт — дождёмся её конца.
+        if (v.seeking) v.addEventListener('seeked', go, { once: true })
+        else go()
       }),
     time
   )
@@ -114,4 +132,62 @@ export async function pressRussian(win: Page, code: string, key: string): Promis
     },
     { code, key }
   )
+}
+
+/** Подменяет системный диалог «Сохранить как»: он «выбирает» указанный путь и считает свои вызовы. */
+export async function stubSaveDialog(app: ElectronApplication, path: string): Promise<void> {
+  await app.evaluate(({ dialog }, p) => {
+    const g = globalThis as unknown as { __saveCalls: number }
+    g.__saveCalls = 0
+    dialog.showSaveDialog = async () => {
+      g.__saveCalls += 1
+      return { canceled: false, filePath: p }
+    }
+  }, path)
+}
+
+export const saveDialogCalls = (app: ElectronApplication): Promise<number> =>
+  app.evaluate(() => (globalThis as unknown as { __saveCalls?: number }).__saveCalls ?? 0)
+
+/** Закрывает окно так, как это делает пользователь (кнопка ×): срабатывает защита от потери данных. */
+export async function closeWindow(app: ElectronApplication): Promise<void> {
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.close()
+  })
+}
+
+interface Box {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Перетаскивание мышью по картинке в долях кадра (0..1). */
+export async function dragOnPicture(
+  win: Page,
+  from: [number, number],
+  to: [number, number]
+): Promise<void> {
+  const b = (await win.getByTestId('annotation-layer').boundingBox()) as Box
+  const at = ([fx, fy]: [number, number]): [number, number] => [
+    b.x + fx * b.width,
+    b.y + fy * b.height
+  ]
+  const [x0, y0] = at(from)
+  const [x1, y1] = at(to)
+  await win.mouse.move(x0, y0)
+  await win.mouse.down()
+  await win.mouse.move((x0 + x1) / 2, (y0 + y1) / 2, { steps: 4 })
+  await win.mouse.move(x1, y1, { steps: 4 })
+  await win.mouse.up()
+}
+
+/** Имитирует аварийное завершение: процесс приложения убивается без закрытия окна и без обработчиков выхода. */
+export async function crashApp(app: ElectronApplication): Promise<void> {
+  const exited = app.waitForEvent('close')
+  await app.evaluate(() => process.kill(process.pid, 'SIGKILL')).catch(() => undefined)
+  await exited.catch(() => undefined)
+  // Пока дочерние процессы не завершились, папка данных занята.
+  await new Promise((resolve) => setTimeout(resolve, 500))
 }

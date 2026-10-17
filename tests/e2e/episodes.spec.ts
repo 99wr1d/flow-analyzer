@@ -326,6 +326,8 @@ test.describe('эпизоды', () => {
       await expect(rows(win)).toHaveCount(1)
       await stubDialog(app, fixture('cfr30.webm'))
       await win.getByTestId('open-video').click()
+      // Эпизоды не сохранены в проект — приложение спрашивает, что делать.
+      await win.getByTestId('unsaved-discard').click()
       await expect(win.getByTestId('file-name')).toHaveText('cfr30.webm')
       await expect(rows(win)).toHaveCount(0)
       await expect(win.getByTestId('episode-count')).toHaveText('0')

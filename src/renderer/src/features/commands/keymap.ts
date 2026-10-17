@@ -1,7 +1,14 @@
 // Раскладка команд: какие сочетания действуют, конфликты, замена. Чистые функции — их легко проверять тестами.
 import { bindingsEqual, serializeBinding, type Binding } from './binding'
 
-export const COMMAND_GROUPS = ['Воспроизведение', 'Рисование', 'Эпизоды', 'Теги', 'Общее'] as const
+export const COMMAND_GROUPS = [
+  'Воспроизведение',
+  'Рисование',
+  'Эпизоды',
+  'Теги',
+  'Проект',
+  'Общее'
+] as const
 export type CommandGroup = (typeof COMMAND_GROUPS)[number]
 
 /** Описание команды без действия: для настроек и проверок достаточно его. */

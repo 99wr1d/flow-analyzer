@@ -31,6 +31,8 @@ export interface PlayerState {
 export interface PlayerActions {
   /** Загружает новый файл и полностью сбрасывает состояние воспроизведения. */
   loadSource: (source: VideoSource) => void
+  /** Видео убрано (новый проект): плеер возвращается в пустое состояние. */
+  clear: () => void
   setMetadata: (duration: number) => void
   setPlaying: (playing: boolean) => void
   setCurrentTime: (time: number) => void
@@ -73,6 +75,7 @@ export const usePlayerStore = create<PlayerState & PlayerActions>()((set) => ({
   timeMode: 'time',
 
   loadSource: (source) => set({ ...resetPlayback, source, status: 'loading' }),
+  clear: () => set({ ...resetPlayback, source: null, status: 'empty' }),
   setMetadata: (duration) =>
     set((s) =>
       s.status === 'loading'

@@ -1,5 +1,7 @@
 // Единая отмена для рисунков и эпизодов: Ctrl+Z отменяет последнее действие любого вида.
 // У каждого хранилища своя история; здесь только порядок: какое хранилище сделало шаг раньше или позже.
+import type { Annotation } from '../../../../shared/annotations'
+import type { Episode } from '../../../../shared/episodes'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
 
@@ -126,6 +128,18 @@ export function resetWork(): void {
   try {
     useAnnotationsStore.getState().reset()
     useEpisodesStore.getState().reset()
+  } finally {
+    busy = false
+  }
+  order = emptyOrder()
+}
+
+/** Загрузка проекта: рисунки и эпизоды заменяются, общая история очищается. */
+export function loadWork(annotations: Annotation[], episodes: Episode[]): void {
+  busy = true
+  try {
+    useAnnotationsStore.getState().load(annotations)
+    useEpisodesStore.getState().load(episodes)
   } finally {
     busy = false
   }

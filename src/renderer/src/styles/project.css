@@ -1,0 +1,213 @@
+/* ---------- Проекты: меню, диалоги, плашки ---------- */
+.top-bar__project {
+  align-items: center;
+}
+.top-bar__project-name {
+  max-width: 28vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.top-bar__dirty {
+  color: var(--accent);
+  font-size: 18px;
+  line-height: 1;
+  margin-left: -4px;
+  cursor: default;
+}
+
+.project-menu {
+  position: relative;
+}
+.btn--menu {
+  height: 26px;
+  padding: 0 8px 0 10px;
+  gap: 4px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.btn--menu:hover,
+.btn--menu[aria-expanded='true'] {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.menu {
+  z-index: 60;
+  min-width: 250px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+}
+.menu--main {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+}
+.menu--sub {
+  position: absolute;
+  top: -5px;
+  left: calc(100% + 4px);
+  min-width: 320px;
+  max-width: 460px;
+}
+.menu__parent {
+  position: relative;
+}
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 2);
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.menu__item:hover:not(:disabled),
+.menu__item:focus-visible {
+  background: var(--panel-3);
+  outline: none;
+}
+.menu__item:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent-2);
+}
+.menu__item:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+.menu__item[aria-expanded='true'] {
+  background: var(--panel-3);
+}
+.menu__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu__hint {
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.menu__sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+.menu__item--recent {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 5px 10px;
+}
+.menu__item--recent .menu__label {
+  width: 100%;
+}
+.menu__path {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* Небольшое модальное окно с вопросом. */
+.modal--small {
+  width: min(460px, calc(100vw - 48px));
+  height: auto;
+}
+.modal__body--prompt {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  padding: 22px 24px 18px;
+}
+.modal__text {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.modal__foot--end {
+  justify-content: flex-end;
+}
+.btn--danger:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.btn--small {
+  height: 24px;
+  padding: 0 10px;
+}
+.btn--primary.btn--small {
+  height: 24px;
+  padding: 0 12px;
+}
+
+/* Плашки поверх видео. */
+.banner-stack {
+  position: absolute;
+  top: var(--u);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  width: max-content;
+  max-width: calc(100% - var(--u) * 4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.banner-stack > .banner {
+  position: static;
+  transform: none;
+  pointer-events: auto;
+}
+.banner--info {
+  border-color: var(--accent);
+  background: #14231c;
+  color: #c9f3dd;
+}
+.banner--error .banner__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.banner__sub {
+  color: #86b9a0;
+}
+.banner__details summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: #ff9d9d;
+}
+.banner__details pre {
+  margin: 4px 0 0;
+  max-height: 120px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  color: #ffd0d0;
+}
+.banner--error {
+  align-items: flex-start;
+}

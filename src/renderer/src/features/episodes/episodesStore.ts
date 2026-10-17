@@ -27,6 +27,8 @@ export interface EpisodesActions {
   redo: () => void
   /** Новое видео: эпизоды, метки, фильтр и история очищаются. */
   reset: () => void
+  /** Загрузка проекта: эпизоды заменяются, остальное сбрасывается. */
+  load: (items: Episode[]) => void
 }
 
 function withSelection(s: EpisodesState, h: HistoryState<Episode>): Partial<EpisodesState> {
@@ -93,7 +95,8 @@ export const useEpisodesStore = create<EpisodesState & EpisodesActions>()((set) 
 
   undo: () => set((s) => withSelection(s, undo(s))),
   redo: () => set((s) => withSelection(s, redo(s))),
-  reset: () => set(initial())
+  reset: () => set(initial()),
+  load: (items) => set({ ...initial(), ...createHistory<Episode>(items) })
 }))
 
 /** Эпизоды по порядку начала (при равенстве — по концу). */

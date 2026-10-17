@@ -6,6 +6,7 @@ import { useEpisodesStore } from '../episodes/episodesStore'
 import { applyTag, markIn, markOut } from '../episodes/tagging'
 import { redoAny, undoAny } from '../history/unified'
 import { openVideoFromDialog } from '../player/importVideo'
+import { canSave, newProject, openProject, saveProject, saveProjectAs } from '../project/actions'
 import { changeRate, stepFrame, stepSecond, toggleMute, togglePlay } from '../player/videoElement'
 import { useSettingsStore } from '../settings/settingsStore'
 import { makeBinding, type Binding } from './binding'
@@ -160,6 +161,37 @@ export const STATIC_COMMANDS: readonly Command[] = [
     defaults: [key('KeyO')],
     run: markOut,
     enabled: ready
+  },
+  {
+    id: 'project:save',
+    label: 'Сохранить',
+    group: 'Проект',
+    defaults: [key('KeyS', { ctrl: true })],
+    run: () => void saveProject(),
+    enabled: canSave
+  },
+  {
+    id: 'project:save-as',
+    label: 'Сохранить как…',
+    group: 'Проект',
+    defaults: [key('KeyS', { ctrl: true, shift: true })],
+    run: () => void saveProjectAs(),
+    enabled: canSave
+  },
+  {
+    id: 'project:open',
+    label: 'Открыть проект',
+    group: 'Проект',
+    defaults: [key('KeyO', { ctrl: true, shift: true })],
+    run: () => void openProject()
+  },
+  {
+    id: 'project:new',
+    label: 'Новый проект',
+    group: 'Проект',
+    defaults: [key('KeyN', { ctrl: true })],
+    run: () => void newProject(),
+    enabled: canSave
   },
   {
     id: 'general:open-video',

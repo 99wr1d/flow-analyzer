@@ -409,6 +409,8 @@ test.describe('рисунки поверх видео', () => {
 
       await stubDialog(app, fixture('cfr30.webm'))
       await win.keyboard.press('Control+o')
+      // Рисунки не сохранены в проект — приложение спрашивает, что делать.
+      await win.getByTestId('unsaved-discard').click()
       await expect(win.getByTestId('file-name')).toHaveText('cfr30.webm')
       await expect(win.getByTestId('annotation-layer')).toBeVisible()
       await expect(shapes(win)).toHaveCount(0)

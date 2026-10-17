@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron'
 import { IPC_CHANNELS, type AppInfo, type IpcResult } from '../../shared/ipc-contract'
 import { isTrustedSender } from '../security'
+import { autosaveInterval } from '../project/autosave'
 
 export function registerAppHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.appGetInfo, (event): IpcResult<AppInfo> => {
@@ -10,7 +11,12 @@ export function registerAppHandlers(): void {
       }
       return {
         ok: true,
-        data: { name: app.getName(), version: app.getVersion(), platform: process.platform }
+        data: {
+          name: app.getName(),
+          version: app.getVersion(),
+          platform: process.platform,
+          autosaveMs: autosaveInterval()
+        }
       }
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : 'Неизвестная ошибка' }

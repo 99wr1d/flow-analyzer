@@ -14,6 +14,13 @@ files:
   - '!{test-results,playwright-report}/**'
 asarUnpack:
   - resources/**
+# Файлы проектов (.flowproj) открываются двойным щелчком в FlowAnalyzer.
+fileAssociations:
+  - ext: flowproj
+    name: Проект FlowAnalyzer
+    description: Проект FlowAnalyzer
+    icon: build/icon.ico
+    role: Editor
 win:
   executableName: FlowAnalyzer
   icon: build/icon.ico

@@ -2,6 +2,8 @@ import { BrowserWindow, session } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { isBackgroundWindow } from './bringToFront'
+import { installCloseGuard } from './closeGuard'
 import { isAppUrl } from './security'
 
 const BACKGROUND = '#0E1014'
@@ -14,8 +16,13 @@ export function applySessionSecurity(): void {
   session.defaultSession.setPermissionCheckHandler(() => false)
 }
 
+// Для автотестов: окно открывается за пределами экрана, без фокуса и без кнопки
+// на панели задач, чтобы не мешать работе за компьютером.
+const backgroundWindow = isBackgroundWindow
+
 export function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
+    ...(backgroundWindow ? { x: -20000, y: -20000, skipTaskbar: true } : {}),
     width: 1440,
     height: 900,
     minWidth: 1100,
@@ -30,14 +37,16 @@ export function createMainWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      webSecurity: true
+      webSecurity: true,
+      backgroundThrottling: !backgroundWindow
     }
   })
 
   win.removeMenu()
-  win.on('ready-to-show', () => win.show())
+  installCloseGuard(win)
+  win.on('ready-to-show', () => (backgroundWindow ? win.showInactive() : win.show()))
 
-  // Заголовок окна всегда "FlowAnalyzer", что бы ни написала страница.
+  // Страница не может поменять заголовок окна: его задаёт только main (см. project/title.ts).
   win.on('page-title-updated', (event) => event.preventDefault())
 
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))

@@ -37,6 +37,8 @@ export interface AnnotationsActions {
   redo: () => void
   /** Новое видео: рисунки и история очищаются. Инструмент и стиль сохраняются. */
   reset: () => void
+  /** Загрузка проекта: рисунки заменяются, история пуста. */
+  load: (items: Annotation[]) => void
 }
 
 function withSelection(s: AnnotationsState, h: HistoryState): Partial<AnnotationsState> {
@@ -119,7 +121,9 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
   commitFrom: (before) => set((s) => ({ ...commitFrom(s, before) })),
   undo: () => set((s) => withSelection(s, undo(s))),
   redo: () => set((s) => withSelection(s, redo(s))),
-  reset: () => set((s) => ({ ...initial(), tool: s.tool, style: s.style }))
+  reset: () => set((s) => ({ ...initial(), tool: s.tool, style: s.style })),
+  load: (items) =>
+    set((s) => ({ ...initial(), ...createHistory(items), tool: s.tool, style: s.style }))
 }))
 
 export const selectedAnnotation = (s: AnnotationsState): Annotation | null =>

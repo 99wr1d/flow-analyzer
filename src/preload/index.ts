@@ -1,12 +1,20 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import {
   IPC_CHANNELS,
+  IPC_EVENTS,
   type AppInfo,
   type FlowApi,
   type IpcResult,
   type VideoProbe,
   type VideoSource
 } from '../shared/ipc-contract'
+import type {
+  ProjectOpenResult,
+  ProjectSaveRequest,
+  ProjectSaveResult,
+  RecentProject,
+  RecoveryItem
+} from '../shared/project'
 import type { Settings, SettingsLoadResult } from '../shared/settings'
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
@@ -21,6 +29,37 @@ const api: FlowApi = {
   probeVideo: (id: string) => invoke<VideoProbe>(IPC_CHANNELS.videoProbe, id),
   getSettings: () => invoke<SettingsLoadResult>(IPC_CHANNELS.settingsGet),
   saveSettings: (settings: Settings) => invoke<Settings>(IPC_CHANNELS.settingsSet, settings),
+  saveProject: (request: ProjectSaveRequest, saveAs: boolean) =>
+    invoke<ProjectSaveResult>(IPC_CHANNELS.projectSave, request, saveAs),
+  openProject: (path: string | null) => invoke<ProjectOpenResult>(IPC_CHANNELS.projectOpen, path),
+  relinkProjectVideo: (ticket: string) =>
+    invoke<ProjectOpenResult>(IPC_CHANNELS.projectRelinkVideo, ticket),
+  listRecentProjects: () => invoke<RecentProject[]>(IPC_CHANNELS.projectRecent),
+  autosaveProject: (request: ProjectSaveRequest) =>
+    invoke<void>(IPC_CHANNELS.projectAutosave, request),
+  listRecovery: () => invoke<RecoveryItem[]>(IPC_CHANNELS.projectRecoveryList),
+  restoreRecovery: (key: string) =>
+    invoke<ProjectOpenResult>(IPC_CHANNELS.projectRecoveryRestore, key),
+  discardRecovery: (key: string) => invoke<void>(IPC_CHANNELS.projectRecoveryDiscard, key),
+  clearRecovery: (path: string | null) => invoke<void>(IPC_CHANNELS.projectClearRecovery, path),
+  takeLaunchProject: () => invoke<string | null>(IPC_CHANNELS.projectTakeLaunchPath),
+  setWindowTitle: (name: string | null, dirty: boolean) =>
+    invoke<void>(IPC_CHANNELS.windowSetTitle, name, dirty),
+  onCloseRequested(callback: () => void): () => void {
+    const listener = (): void => callback()
+    ipcRenderer.on(IPC_EVENTS.closeRequested, listener)
+    return () => ipcRenderer.removeListener(IPC_EVENTS.closeRequested, listener)
+  },
+  respondClose: (dirty: boolean) => invoke<void>(IPC_CHANNELS.appCloseResponse, dirty),
+  confirmClose: () => invoke<void>(IPC_CHANNELS.appConfirmClose),
+  cancelClose: () => invoke<void>(IPC_CHANNELS.appCancelClose),
+  onOpenProjectRequested(callback: (path: string) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, path: unknown): void => {
+      if (typeof path === 'string') callback(path)
+    }
+    ipcRenderer.on(IPC_EVENTS.openProjectRequested, listener)
+    return () => ipcRenderer.removeListener(IPC_EVENTS.openProjectRequested, listener)
+  },
   importDroppedVideo(file: File): Promise<VideoSource> {
     let path: string
     try {

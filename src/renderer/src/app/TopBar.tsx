@@ -1,5 +1,7 @@
 import { useKeyHint } from '../features/commands/useKeys'
 import { openVideoFromDialog } from '../features/player/importVideo'
+import { ProjectMenu } from '../features/project/ProjectMenu'
+import { useProjectStore } from '../features/project/projectStore'
 import { useSettingsStore } from '../features/settings/settingsStore'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
@@ -22,6 +24,29 @@ function FileName(): React.JSX.Element | null {
   )
 }
 
+function ProjectName(): React.JSX.Element {
+  const name = useProjectStore((s) => s.name)
+  const dirty = useProjectStore((s) => s.dirty)
+  return (
+    <>
+      <span className="top-bar__project-name" title={name} data-testid="project-name">
+        {name}
+      </span>
+      {dirty && (
+        <span
+          className="top-bar__dirty"
+          title={ru.project.dirty}
+          role="img"
+          aria-label={ru.project.dirty}
+          data-testid="project-dirty"
+        >
+          •
+        </span>
+      )}
+    </>
+  )
+}
+
 export function TopBar(): React.JSX.Element {
   const openHint = useKeyHint('general:open-video')
   const settingsHint = useKeyHint('general:settings')
@@ -34,8 +59,8 @@ export function TopBar(): React.JSX.Element {
       </div>
       <div className="top-bar__sep" aria-hidden="true" />
       <div className="top-bar__project">
-        <span className="top-bar__project-label">{ru.topBar.projectLabel}</span>
-        <span className="top-bar__project-name">{ru.topBar.newProject}</span>
+        <ProjectMenu />
+        <ProjectName />
       </div>
       <FileName />
       <div className="top-bar__spacer" />
