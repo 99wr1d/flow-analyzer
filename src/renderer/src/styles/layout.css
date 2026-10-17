@@ -1,0 +1,222 @@
+.app {
+  display: grid;
+  height: 100%;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr) var(--side-w);
+  grid-template-rows:
+    var(--topbar-h) minmax(0, 1fr) calc(var(--transport-h) + var(--timeline-h))
+    var(--status-h);
+  grid-template-areas:
+    'top top top'
+    'rail stage side'
+    'rail dock dock'
+    'status status status';
+}
+
+/* ---------- Верхняя панель ---------- */
+.top-bar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--u) * 1.5);
+  padding: 0 calc(var(--u) * 2);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.top-bar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+}
+.top-bar__name {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.top-bar__sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+}
+.top-bar__project {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u);
+}
+.top-bar__project-label {
+  color: var(--text-faint);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.top-bar__project-name {
+  color: var(--text-muted);
+}
+
+/* ---------- Левая рейка ---------- */
+.tool-rail {
+  grid-area: rail;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+}
+
+/* ---------- Сцена видео ---------- */
+.stage {
+  grid-area: stage;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--u) * 2);
+  background: var(--bg);
+  container-type: size;
+}
+.stage__canvas {
+  /* 16:9, вписанное в доступную область (letterbox) */
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #090b0e;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--u);
+  text-align: center;
+  padding: var(--u);
+}
+.empty-state__icon {
+  color: var(--text-faint);
+  display: flex;
+}
+.empty-state__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.empty-state__hint {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+/* ---------- Правая панель ---------- */
+.side-panel {
+  grid-area: side;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+}
+.panel-header {
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 calc(var(--u) * 2);
+  border-bottom: 1px solid var(--border);
+}
+.panel-header__title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+.side-panel__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: calc(var(--u) * 2);
+}
+.side-panel__empty {
+  color: var(--text-faint);
+}
+
+/* ---------- Нижняя область ---------- */
+.dock {
+  grid-area: dock;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.transport {
+  height: var(--transport-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 calc(var(--u) * 2);
+  border-bottom: 1px solid var(--border);
+}
+.transport__time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.timeline {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.timeline__ruler {
+  position: relative;
+  height: 24px;
+  flex: none;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+}
+.timeline__tick {
+  position: absolute;
+  bottom: 0;
+  height: 8px;
+  border-left: 1px solid var(--border);
+}
+.timeline__tick:first-child {
+  height: 100%;
+  border-left-color: var(--text-faint);
+}
+.timeline__tick-label {
+  position: absolute;
+  top: 3px;
+  left: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.timeline__track {
+  flex: 1;
+  margin: calc(var(--u) * 1.5) calc(var(--u) * 2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+}
+.timeline__empty {
+  color: var(--text-faint);
+}
+
+/* ---------- Строка состояния ---------- */
+.status-bar {
+  grid-area: status;
+  display: flex;
+  align-items: center;
+  padding: 0 calc(var(--u) * 1.5);
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.status-bar__item--error {
+  color: var(--danger);
+}

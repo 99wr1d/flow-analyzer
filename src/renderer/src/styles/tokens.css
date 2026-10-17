@@ -1,0 +1,24 @@
+:root {
+  --bg: #0e1014;
+  --panel: #15181e;
+  --panel-2: #1a1e26;
+  --border: #232833;
+  --text: #e6e8ec;
+  --text-muted: #8a93a3;
+  --text-faint: #5b6373;
+  --accent: #2bd67b;
+  --accent-2: #8b6cff;
+  --danger: #ff6b6b;
+
+  --font: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, 'Inter', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+  --fs: 13px;
+
+  --u: 8px;
+  --topbar-h: 44px;
+  --rail-w: 56px;
+  --side-w: 300px;
+  --timeline-h: 180px;
+  --transport-h: 40px;
+  --status-h: 24px;
+}

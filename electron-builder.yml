@@ -1,0 +1,48 @@
+appId: com.wr1d99.flowanalyzer
+productName: FlowAnalyzer
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!tests/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json,playwright.config.ts,vitest.config.ts}'
+  - '!{test-results,playwright-report}/**'
+asarUnpack:
+  - resources/**
+win:
+  executableName: FlowAnalyzer
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: FlowAnalyzer
+  uninstallDisplayName: FlowAnalyzer
+  artifactName: FlowAnalyzer-Setup-${version}.${ext}
+  installerLanguages:
+    - ru_RU
+    - en_US
+  multiLanguageInstaller: true
+mac:
+  category: public.app-category.video
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: false
+dmg:
+  artifactName: FlowAnalyzer-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - deb
+  maintainer: 99wr1d
+  category: AudioVideo
+appImage:
+  artifactName: FlowAnalyzer-${version}.${ext}
+npmRebuild: false
