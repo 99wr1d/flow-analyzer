@@ -1,6 +1,7 @@
 // Экспорт клипов: запрос, прогресс и результат. Общее для main, preload и интерфейса.
 // Пути к файлам в этом контракте не передаются: видео задаётся идентификатором, папку выбирает пользователь в диалоге main.
 import { z } from 'zod'
+import { TimingSchema } from './annotations'
 
 export const MAX_EXPORT_CLIPS = 500
 export const MAX_PADDING = 10
@@ -21,6 +22,41 @@ export const ExportClipSchema = z.object({
   label: z.string().max(200)
 })
 
+/** Рисунки в экспорте: время показа каждого (по порядку наложения) и билет на загруженные картинки. */
+export const MAX_EXPORT_DRAWINGS = 10_000
+export const ExportDrawingsSchema = z.object({
+  /** Билет, который main выдал при загрузке картинок (stageExportOverlays). */
+  token: z.uuid(),
+  /** Частота кадров, по которой интерфейс считал стоп-кадры. */
+  fps: z.number().finite().gt(0).max(1000),
+  timings: z.array(TimingSchema).max(MAX_EXPORT_DRAWINGS)
+})
+
+/** Ограничения на картинки с рисунками (проверяет main). */
+export const OVERLAY_LIMITS = {
+  maxImages: 300,
+  maxImageBytes: 8 * 1024 * 1024,
+  maxTotalBytes: 300 * 1024 * 1024,
+  minSide: 16,
+  maxSide: 8192,
+  maxKeyLength: 100_000
+} as const
+
+export const OverlayImageSchema = z.object({
+  /** Набор рисунков на картинке: номера через дефис («3-7-12»), см. exportOverlays.ts. */
+  key: z
+    .string()
+    .max(OVERLAY_LIMITS.maxKeyLength)
+    .regex(/^\d+(-\d+)*$/),
+  data: z.instanceof(Uint8Array)
+})
+export const StageOverlaysSchema = z.object({
+  width: z.number().int().min(OVERLAY_LIMITS.minSide).max(OVERLAY_LIMITS.maxSide),
+  height: z.number().int().min(OVERLAY_LIMITS.minSide).max(OVERLAY_LIMITS.maxSide),
+  images: z.array(OverlayImageSchema).min(1).max(OVERLAY_LIMITS.maxImages)
+})
+export type StageOverlays = z.infer<typeof StageOverlaysSchema>
+
 export const ExportRequestSchema = z.object({
   videoId: z.string().min(1).max(100),
   clips: z.array(ExportClipSchema).min(1).max(MAX_EXPORT_CLIPS),
@@ -29,9 +65,12 @@ export const ExportRequestSchema = z.object({
   /** Запас по краям, секунд. */
   padding: z.number().finite().min(0).max(MAX_PADDING),
   /** Имя проекта для имени подборки; null — взять имя видеофайла. */
-  projectName: z.string().max(300).nullable()
+  projectName: z.string().max(300).nullable(),
+  /** Нанести рисунки на видео (только с перекодированием). */
+  drawings: ExportDrawingsSchema.optional()
 })
 
+export type ExportDrawings = z.infer<typeof ExportDrawingsSchema>
 export type ExportClip = z.infer<typeof ExportClipSchema>
 export type ExportRequest = z.infer<typeof ExportRequestSchema>
 

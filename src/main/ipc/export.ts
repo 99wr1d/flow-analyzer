@@ -6,6 +6,15 @@ import { ExportRequestSchema, type ExportProgress, type ExportResult } from '../
 import { IPC_CHANNELS, IPC_EVENTS, type IpcResult } from '../../shared/ipc-contract'
 import { ExportError, runExportJob } from '../ffmpeg/job'
 import { compilationDefaultName } from '../ffmpeg/names'
+import {
+  disposeAllSync,
+  disposeStaged,
+  holdStaged,
+  stageOverlays,
+  sweepStale,
+  takeStaged,
+  type Staged
+} from '../ffmpeg/staging'
 import { getFfmpegPath } from '../ffmpeg/path'
 import { killAllFfmpeg } from '../ffmpeg/runner'
 import { getMediaEntry } from '../media/registry'
@@ -16,7 +25,8 @@ export const EXPORT_IPC_ERRORS = {
   busy: 'Экспорт уже идёт. Дождитесь окончания или отмените его',
   badRequest: 'Некорректный запрос на экспорт',
   videoGone: 'Видеофайл не найден — возможно, его переместили или удалили',
-  unknown: 'Не удалось выполнить экспорт'
+  unknown: 'Не удалось выполнить экспорт',
+  noOverlays: 'Рисунки для экспорта не найдены. Закройте окно экспорта и повторите'
 } as const
 
 interface ActiveJob {
@@ -85,6 +95,12 @@ async function startExport(
     }
     const ffmpeg = getFfmpegPath()
     if (!ffmpeg.ok) return { ok: false, error: ffmpeg.error }
+    // Картинки с рисунками, загруженные заранее: забираем по билету. Удаляем их в любом исходе.
+    let staged: Staged | null = null
+    if (request.drawings) {
+      staged = takeStaged(request.drawings.token)
+      if (!staged) return { ok: false, error: EXPORT_IPC_ERRORS.noOverlays }
+    }
 
     // Занимаем место сразу: пока открыт диалог выбора папки, второй запрос не пройдёт.
     const controller = new AbortController()
@@ -114,6 +130,7 @@ async function startExport(
         request,
         target,
         onProgress,
+        overlays: staged ?? undefined,
         signal: controller.signal,
         onPartFile: (path) => {
           job.part = path
@@ -125,6 +142,7 @@ async function startExport(
       return { ok: true, data: result }
     } finally {
       active = null
+      await disposeStaged(staged)
     }
   } catch (error) {
     if (error instanceof ExportError) return { ok: false, error: error.message }
@@ -134,6 +152,20 @@ async function startExport(
 
 export function registerExportHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.exportStart, startExport)
+
+  // Картинки с рисунками приходят отдельно от запроса (двоичные данные, без base64) и ждут запуска экспорта.
+  ipcMain.handle(
+    IPC_CHANNELS.exportStageOverlays,
+    async (event, raw: unknown): Promise<IpcResult<{ token: string }>> => {
+      if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }
+      if (active) return { ok: false, error: EXPORT_IPC_ERRORS.busy }
+      const result = await stageOverlays(raw)
+      if (!result.ok) return { ok: false, error: result.error }
+      await holdStaged(result.staged)
+      return { ok: true, data: { token: result.staged.token } }
+    }
+  )
+  void sweepStale()
 
   ipcMain.handle(IPC_CHANNELS.exportCancel, (event): IpcResult<void> => {
     if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }
@@ -153,13 +185,19 @@ export function registerExportHandlers(): void {
   let quitting = false
   app.on('before-quit', (event) => {
     const job = active
-    if (!job || quitting) return
+    if (!job) {
+      // Экспорта нет, но загруженные заранее картинки могли остаться.
+      disposeAllSync()
+      return
+    }
+    if (quitting) return
     quitting = true
     event.preventDefault()
     job.controller.abort()
     killAllFfmpeg()
     const finish = (): void => {
       if (job.part) rmSync(job.part, { force: true })
+      disposeAllSync()
       app.quit()
     }
     // Ждём уборку, но не дольше нескольких секунд.

@@ -33,7 +33,8 @@ export function ExportRunning(): React.JSX.Element {
   const progress = useExportStore((s) => s.progress)
   const startedAt = useExportStore((s) => s.startedAt)
   const cancelling = useExportStore((s) => s.cancelling)
-  const compilation = useExportStore((s) => s.mode) === 'compilation'
+  const compilation = useExportStore((s) => s.mode === 'compilation' && s.scope !== 'whole')
+  const preparing = useExportStore((s) => s.preparing)
   const [now, setNow] = useState(() => Date.now())
 
   // Таймер тикает сам: ffmpeg может долго ничего не присылать (например, ищет начало эпизода).
@@ -48,7 +49,15 @@ export function ExportRunning(): React.JSX.Element {
   return (
     <>
       <div className="modal__body export__body export__body--run" aria-live="polite">
-        {progress === null ? (
+        {preparing !== null ? (
+          <div className="export__waiting" data-testid="export-preparing">
+            <p className="export__waiting-title">{ru.export.preparing}</p>
+            <p className="export__hint">
+              {ru.export.preparingProgress(preparing.done, preparing.total)}
+            </p>
+            <p className="export__hint">{ru.export.preparingHint}</p>
+          </div>
+        ) : progress === null ? (
           <div className="export__waiting" data-testid="export-waiting">
             <p className="export__waiting-title">{ru.export.chooseTarget}</p>
             <p className="export__hint">{ru.export.chooseTargetHint}</p>

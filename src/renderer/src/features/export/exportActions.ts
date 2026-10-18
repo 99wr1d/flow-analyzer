@@ -1,23 +1,32 @@
 // Действия экспорта: открыть окно, запустить, отменить, показать результат. Их вызывают и кнопки, и команда Ctrl+E.
 import type { Episode } from '../../../../shared/episodes'
-import type { ExportRequest } from '../../../../shared/export'
+import { OVERLAY_LIMITS, type ExportRequest } from '../../../../shared/export'
 import { UNTITLED_PROJECT } from '../../../../shared/project'
 import { usePlayerStore } from '../../store/playerStore'
+import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { sortEpisodes, useEpisodesStore } from '../episodes/episodesStore'
+import { getVideoElement } from '../player/videoElement'
 import { useProjectStore } from '../project/projectStore'
-import { useExportStore } from './exportStore'
+import { planExportView, WHOLE_VIDEO_LABEL, type ExportPlan } from './exportPlan'
+import { useExportStore, type ExportState } from './exportStore'
+import { RenderCancelled, renderOverlayImages } from './renderOverlays'
 import { chooseEpisodes, parsePadding } from './selection'
 
 const UNKNOWN_ERROR = 'Не удалось выполнить экспорт'
+export const DRAWINGS_ERRORS = {
+  tooMany: `Слишком много разных наборов рисунков для одного экспорта (больше ${OVERLAY_LIMITS.maxImages}). Экспортируйте по частям или отключите «С рисунками»`,
+  noVideo: 'Не удалось определить размер видео для рисунков. Откройте видео заново',
+  tooBig: 'Видео слишком большое, чтобы нанести на него рисунки. Отключите «С рисунками»',
+  render:
+    'Не удалось подготовить рисунки для экспорта. Попробуйте ещё раз или отключите «С рисунками»'
+} as const
 
 const set = useExportStore.setState
 const get = useExportStore.getState
 
-/** Экспорт возможен, когда видео открыто и есть хотя бы один эпизод. */
+/** Экспорт возможен, когда видео открыто: эпизодов может не быть — тогда экспортируется всё видео целиком. */
 export function canExport(): boolean {
-  return (
-    usePlayerStore.getState().status === 'ready' && useEpisodesStore.getState().items.length > 0
-  )
+  return usePlayerStore.getState().status === 'ready'
 }
 
 export const isExportRunning = (): boolean => get().open && get().phase === 'running'
@@ -30,8 +39,10 @@ export function openExportDialog(): void {
   set({
     open: true,
     phase: 'form',
-    scope: filter.length > 0 ? 'visible' : 'all',
+    scope: items.length === 0 ? 'whole' : filter.length > 0 ? 'visible' : 'all',
     picked: items.map((e) => e.id),
+    withDrawings: null,
+    preparing: null,
     progress: null,
     startedAt: null,
     cancelling: false,
@@ -53,47 +64,148 @@ export function selectedForExport(): Episode[] {
   return chooseEpisodes(scope, sortEpisodes(items), filter, new Set(picked))
 }
 
+/** План экспорта по текущим настройкам окна (для сводки, переключателя «С рисунками» и запуска). */
+export function currentExportPlan(
+  state: ExportState = get(),
+  episodes: readonly Episode[] = selectedForExport()
+): ExportPlan {
+  const player = usePlayerStore.getState()
+  const padding = parsePadding(state.padding)
+  return planExportView({
+    scope: state.scope,
+    episodes,
+    mode: state.mode,
+    padding: padding.ok ? padding.value : 0,
+    duration: player.duration,
+    fps: player.fps,
+    timings: useAnnotationsStore.getState().items.map((a) => a.timing)
+  })
+}
+
+/** «Быстро» (копирование потока) выбрано и действует: для «Подборки» оно недоступно. */
+export function isFastMode(state: Pick<ExportState, 'scope' | 'mode' | 'precision'>): boolean {
+  const compilation = state.scope !== 'whole' && state.mode === 'compilation'
+  return !compilation && state.precision === 'fast'
+}
+
+/** Наносить ли рисунки: выбор пользователя, а по умолчанию — да, если рисунки попадают в экспорт. «Быстро» рисунки не умеет. */
+export function drawingsEnabled(
+  state: Pick<ExportState, 'scope' | 'mode' | 'precision' | 'withDrawings'>,
+  plan: ExportPlan
+): boolean {
+  return plan.hasDrawings && !isFastMode(state) && (state.withDrawings ?? true)
+}
+
 let currentRun: Promise<void> | null = null
+let prepareCancelled = false
+
+type DrawingsRequest = NonNullable<ExportRequest['drawings']>
+
+/**
+ * Готовит рисунки: рисует PNG по плану, отправляет их в main и возвращает данные для запроса.
+ * null — рисунков нет; { error } — понятная ошибка; 'cancelled' — пользователь остановил подготовку.
+ */
+async function prepareDrawings(
+  plan: ExportPlan | null
+): Promise<DrawingsRequest | { error: string } | 'cancelled' | null> {
+  if (!plan) return null
+  if (plan.keys.length > OVERLAY_LIMITS.maxImages) return { error: DRAWINGS_ERRORS.tooMany }
+  const video = getVideoElement()
+  const width = video?.videoWidth ?? 0
+  const height = video?.videoHeight ?? 0
+  if (!(width > 0 && height > 0)) return { error: DRAWINGS_ERRORS.noVideo }
+  if (width > OVERLAY_LIMITS.maxSide || height > OVERLAY_LIMITS.maxSide) {
+    return { error: DRAWINGS_ERRORS.tooBig }
+  }
+  const annotations = useAnnotationsStore.getState().items
+  const fps = usePlayerStore.getState().fps
+  try {
+    set({ preparing: { done: 0, total: plan.keys.length } })
+    const images = await renderOverlayImages({
+      annotations,
+      keys: plan.keys,
+      width,
+      height,
+      isCancelled: () => prepareCancelled,
+      onProgress: (done, total) => set({ preparing: { done, total } })
+    })
+    if (prepareCancelled) return 'cancelled'
+    const { token } = await window.api.stageExportOverlays({
+      width,
+      height,
+      images: images.map((i) => ({ key: i.key, data: i.data }))
+    })
+    if (prepareCancelled) return 'cancelled'
+    return { token, fps, timings: annotations.map((a) => a.timing) }
+  } catch (error) {
+    if (error instanceof RenderCancelled) return 'cancelled'
+    // Понятное сообщение от main (например, «слишком много рисунков») показываем как есть.
+    const text = error instanceof Error ? error.message : ''
+    return { error: /[А-Яа-я]/.test(text) ? text : DRAWINGS_ERRORS.render }
+  }
+}
 
 /** Запускает экспорт. Папку или файл спросит main системным диалогом. */
 export function startExport(): Promise<void> {
   const state = get()
   if (state.phase === 'running') return currentRun ?? Promise.resolve()
-  const source = usePlayerStore.getState().source
+  const player = usePlayerStore.getState()
+  const source = player.source
   const padding = parsePadding(state.padding)
+  const whole = state.scope === 'whole'
   const episodes = selectedForExport()
-  if (!source || !padding.ok || episodes.length === 0) return Promise.resolve()
+  if (!source || !padding.ok || (!whole && episodes.length === 0)) return Promise.resolve()
+  if (whole && !(player.duration > 0)) return Promise.resolve()
 
   const project = useProjectStore.getState()
+  const plan = currentExportPlan(state, episodes)
+  const withDrawings = drawingsEnabled(state, plan)
+  const mode = whole ? 'files' : state.mode
   const request: ExportRequest = {
     videoId: source.id,
-    clips: episodes.map((e) => ({ start: e.start, end: e.end, label: e.tagName })),
-    mode: state.mode,
-    // Подборку без перекодирования собрать нельзя — всегда «Точно».
-    precision: state.mode === 'compilation' ? 'precise' : state.precision,
-    padding: padding.value,
+    clips: whole
+      ? [{ start: 0, end: player.duration, label: WHOLE_VIDEO_LABEL }]
+      : episodes.map((e) => ({ start: e.start, end: e.end, label: e.tagName })),
+    mode,
+    // Подборку без перекодирования собрать нельзя, рисунки нанести тоже — тогда всегда «Точно».
+    precision: mode === 'compilation' || withDrawings ? 'precise' : state.precision,
+    padding: whole ? 0 : padding.value,
     projectName: project.path !== null && project.name !== UNTITLED_PROJECT ? project.name : null
   }
 
+  prepareCancelled = false
   set({
     phase: 'running',
     progress: null,
     startedAt: Date.now(),
     cancelling: false,
     result: null,
-    error: null
+    error: null,
+    preparing: null
   })
-  currentRun = window.api
-    .startExport(request)
-    .then((result) => {
-      if (result.status === 'dialog-cancelled') set({ phase: 'form', startedAt: null })
-      else set({ phase: 'result', result, startedAt: null, progress: null })
+  const backToForm = (error: string | null): void =>
+    set({ phase: 'form', startedAt: null, progress: null, preparing: null, error })
+
+  currentRun = prepareDrawings(withDrawings ? plan : null)
+    .then((drawings) => {
+      if (drawings === 'cancelled') return backToForm(null)
+      if (drawings && 'error' in drawings) return backToForm(drawings.error)
+      set({ preparing: null })
+      // Остановку нажали, пока подготовка заканчивалась: до запуска ffmpeg ещё можно отказаться.
+      if (get().cancelling) return backToForm(null)
+      return window.api
+        .startExport(drawings ? { ...request, drawings } : request)
+        .then((result) => {
+          if (result.status === 'dialog-cancelled') set({ phase: 'form', startedAt: null })
+          else set({ phase: 'result', result, startedAt: null, progress: null })
+        })
     })
     .catch((error: unknown) => {
       set({
         phase: 'form',
         startedAt: null,
         progress: null,
+        preparing: null,
         error: error instanceof Error && error.message ? error.message : UNKNOWN_ERROR
       })
     })
@@ -109,6 +221,8 @@ export function startExport(): Promise<void> {
 /** Просит остановить экспорт. Недописанный файл main удаляет сам. */
 export async function cancelExport(): Promise<void> {
   if (get().phase !== 'running') return
+  // Рисунки ещё готовятся (ffmpeg не запущен): останавливаем подготовку.
+  if (get().preparing !== null) prepareCancelled = true
   set({ cancelling: true })
   try {
     await window.api.cancelExport()

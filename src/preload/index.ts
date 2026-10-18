@@ -8,7 +8,7 @@ import {
   type VideoProbe,
   type VideoSource
 } from '../shared/ipc-contract'
-import type { ExportProgress, ExportRequest, ExportResult } from '../shared/export'
+import type { ExportProgress, ExportRequest, ExportResult, StageOverlays } from '../shared/export'
 import type {
   ProjectOpenResult,
   ProjectSaveRequest,
@@ -45,6 +45,8 @@ const api: FlowApi = {
   clearRecovery: (path: string | null) => invoke<void>(IPC_CHANNELS.projectClearRecovery, path),
   takeLaunchProject: () => invoke<string | null>(IPC_CHANNELS.projectTakeLaunchPath),
   startExport: (request: ExportRequest) => invoke<ExportResult>(IPC_CHANNELS.exportStart, request),
+  stageExportOverlays: (overlays: StageOverlays) =>
+    invoke<{ token: string }>(IPC_CHANNELS.exportStageOverlays, overlays),
   cancelExport: () => invoke<void>(IPC_CHANNELS.exportCancel),
   revealExport: () => invoke<void>(IPC_CHANNELS.exportReveal),
   onExportProgress(callback: (progress: ExportProgress) => void): () => void {

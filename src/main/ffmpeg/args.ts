@@ -139,6 +139,42 @@ export function buildCompilationArgs(opts: {
   ]
 }
 
+/** Перекодирование по готовому графу с рисунками. PNG-наложения — входы ffmpeg с номерами 1, 2, … */
+export function buildDrawnArgs(opts: {
+  input: string
+  pngPaths: readonly string[]
+  output: string
+  scriptPath: string
+  offset: number
+  span: number
+  hasAudio: boolean
+}): string[] {
+  const { input, pngPaths, output, scriptPath, offset, span, hasAudio } = opts
+  return [
+    ...head(),
+    '-ss',
+    sec(offset),
+    '-t',
+    sec(span),
+    '-i',
+    input,
+    ...pngPaths.flatMap((p) => ['-i', p]),
+    '-filter_complex_script',
+    scriptPath,
+    '-map',
+    '[outv]',
+    ...(hasAudio ? ['-map', '[outa]'] : []),
+    ...reencodeVideo(),
+    ...(hasAudio ? reencodeAudio() : []),
+    '-movflags',
+    '+faststart',
+    '-f',
+    'mp4',
+    '-y',
+    output
+  ]
+}
+
 /** Только чтение сведений о файле: ffmpeg без выхода печатает потоки в stderr и завершается с ошибкой — это нормально. */
 export function buildProbeArgs(input: string): string[] {
   return ['-hide_banner', '-nostdin', '-i', input]

@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  DEFAULT_FREEZE,
   MAX_DURATION,
+  MAX_FREEZE,
   MIN_DURATION,
+  MIN_FREEZE,
   defaultDuration,
   frameCenter,
   parseDuration,
+  parseFreeze,
   type Annotation,
   type Timing
 } from '../../../../shared/annotations'
@@ -76,6 +80,67 @@ function DurationField({ annotation }: { annotation: Annotation }): React.JSX.El
   )
 }
 
+/** Стоп-кадр при экспорте: только для рисунков «Только кадр». */
+function FreezeField({ annotation }: { annotation: Annotation }): React.JSX.Element | null {
+  const setTiming = useAnnotationsStore((s) => s.setTiming)
+  const timing = annotation.timing
+  const current = timing.mode === 'frame' ? timing.freezeSeconds : 0
+  const [text, setText] = useState(String(current))
+  const [error, setError] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setText(String(Math.round(current * 100) / 100))
+      setError(null)
+    }
+  }, [current, annotation.id])
+
+  if (timing.mode !== 'frame') return null
+
+  const onChange = (value: string): void => {
+    setText(value)
+    const parsed = parseFreeze(value)
+    if (!parsed.ok) {
+      setError(ru.annotations.freezeErrors[parsed.error])
+      return
+    }
+    setError(null)
+    setTiming(annotation.id, { ...timing, freezeSeconds: parsed.value }, `freeze:${annotation.id}`)
+  }
+
+  return (
+    <label className="field">
+      <span className="field__label">{ru.annotations.freeze}</span>
+      <input
+        ref={inputRef}
+        type="number"
+        className={error ? 'input input--invalid' : 'input'}
+        min={MIN_FREEZE}
+        max={MAX_FREEZE}
+        step={0.5}
+        value={text}
+        aria-invalid={error !== null}
+        aria-describedby="freeze-hint"
+        data-testid="freeze-input"
+        onChange={(e) => onChange(e.target.value)}
+        onBlur={() => {
+          setText(String(Math.round(current * 100) / 100))
+          setError(null)
+        }}
+      />
+      <span
+        id="freeze-hint"
+        className={error ? 'field__hint field__hint--error' : 'field__hint'}
+        role={error ? 'alert' : undefined}
+        data-testid="freeze-hint"
+      >
+        {error ?? ru.annotations.freezeHint}
+      </span>
+    </label>
+  )
+}
+
 export function Inspector(): React.JSX.Element | null {
   const selected = useAnnotationsStore(selectedAnnotation)
   const setTiming = useAnnotationsStore((s) => s.setTiming)
@@ -88,7 +153,11 @@ export function Inspector(): React.JSX.Element | null {
   const setMode = (mode: Timing['mode']): void => {
     if (mode === timing.mode) return
     if (mode === 'frame') {
-      setTiming(selected.id, { mode: 'frame', start: frameCenter(timing.start, fps) })
+      setTiming(selected.id, {
+        mode: 'frame',
+        start: frameCenter(timing.start, fps),
+        freezeSeconds: DEFAULT_FREEZE
+      })
     } else {
       const { duration } = usePlayerStore.getState()
       setTiming(selected.id, {
@@ -103,7 +172,7 @@ export function Inspector(): React.JSX.Element | null {
     setTiming(
       selected.id,
       timing.mode === 'frame'
-        ? { mode: 'frame', start: frameCenter(now, fps) }
+        ? { ...timing, start: frameCenter(now, fps) }
         : { ...timing, start: now }
     )
   }
@@ -159,6 +228,7 @@ export function Inspector(): React.JSX.Element | null {
         </button>
       </div>
       <DurationField annotation={selected} />
+      <FreezeField annotation={selected} />
       <div className="inspector__row">
         <span className="field__label">{ru.annotations.startsAt}</span>
         <span className="inspector__value" data-testid="annotation-start">

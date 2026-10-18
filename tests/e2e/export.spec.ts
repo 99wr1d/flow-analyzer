@@ -118,7 +118,7 @@ const percentOf = async (win: Page, id: string): Promise<number> =>
   Number((await win.getByTestId(id).getAttribute('data-percent')) ?? '0')
 
 test.describe('экспорт клипов', () => {
-  test('кнопка и Ctrl+E открывают окно; без эпизодов кнопка выключена; команда есть в настройках', async () => {
+  test('кнопка и Ctrl+E открывают окно; без видео кнопка выключена, без эпизодов — «Всё видео»; команда есть в настройках', async () => {
     const ctx = await launch()
     const { app, win } = ctx
     try {
@@ -126,9 +126,20 @@ test.describe('экспорт клипов', () => {
       await win.keyboard.press('Control+e')
       await expect(dialog(win)).toHaveCount(0)
 
+      await expect(win.getByTestId('export-open')).toHaveAttribute(
+        'title',
+        'Сначала откройте видео'
+      )
+
       await openVideo(ctx, fixture('cfr25.mp4'))
-      await expect(win.getByTestId('export-open')).toBeDisabled()
+      // Видео есть, эпизодов нет: экспорт доступен, предлагается всё видео целиком.
+      await expect(win.getByTestId('export-open')).toBeEnabled()
       await win.keyboard.press('Control+e')
+      await expect(dialog(win)).toBeVisible()
+      await expect(win.getByTestId('export-scope-whole')).toBeChecked()
+      await expect(win.getByTestId('export-scope-all')).toBeDisabled()
+      await expect(win.getByTestId('export-start')).toBeEnabled()
+      await win.keyboard.press('Escape')
       await expect(dialog(win)).toHaveCount(0)
 
       await twoEpisodes(win)

@@ -7,7 +7,7 @@ import type {
   RecentProject,
   RecoveryItem
 } from './project'
-import type { ExportProgress, ExportRequest, ExportResult } from './export'
+import type { ExportProgress, ExportRequest, ExportResult, StageOverlays } from './export'
 import type { Settings, SettingsLoadResult } from './settings'
 
 export const IPC_CHANNELS = {
@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
   projectRecoveryDiscard: 'project:recovery-discard',
   projectClearRecovery: 'project:clear-recovery',
   projectTakeLaunchPath: 'project:take-launch-path',
+  exportStageOverlays: 'export:stage-overlays',
   exportStart: 'export:start',
   exportCancel: 'export:cancel',
   exportReveal: 'export:reveal',
@@ -109,6 +110,11 @@ export interface FlowApi {
    * Ошибка (reject) — запрос отклонён до начала работы.
    */
   startExport(request: ExportRequest): Promise<ExportResult>
+  /**
+   * Отправляет в main PNG с рисунками (в размер видео) для экспорта. main проверяет каждую картинку,
+   * записывает во временную папку и выдаёт билет, который указывается в запросе startExport (drawings.token).
+   */
+  stageExportOverlays(overlays: StageOverlays): Promise<{ token: string }>
   cancelExport(): Promise<void>
   /** Показывает в проводнике файл, созданный последним экспортом (путь выбирает main, не интерфейс). */
   revealExport(): Promise<void>

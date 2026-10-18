@@ -19,6 +19,10 @@ export interface ExportState {
   picked: string[]
   mode: ExportMode
   precision: ExportPrecision
+  /** «С рисунками»: null — по умолчанию (включено, если рисунки попадают в экспорт). */
+  withDrawings: boolean | null
+  /** Идёт подготовка картинок с рисунками (до запуска ffmpeg): сделано / всего. */
+  preparing: { done: number; total: number } | null
   /** Запас по краям — текст поля (проверяется при вводе). */
   padding: string
   progress: ExportProgress | null
@@ -39,6 +43,8 @@ export const useExportStore = create<ExportState>()(() => ({
   picked: [],
   mode: 'files',
   precision: 'precise',
+  withDrawings: null,
+  preparing: null,
   padding: '0',
   progress: null,
   startedAt: null,

@@ -34,6 +34,24 @@ describe('схема проекта', () => {
     ).toBe(true)
   })
 
+  it('старый проект без freezeSeconds открывается, подставляется 3 с', () => {
+    const project = sampleProject()
+    const old = {
+      ...project,
+      annotations: [{ ...project.annotations[0], timing: { mode: 'frame', start: 2 } }]
+    }
+    const result = parse(old)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.project.annotations[0].timing).toEqual({
+        mode: 'frame',
+        start: 2,
+        freezeSeconds: 3
+      })
+      expect(result.project.version).toBe(1)
+    }
+  })
+
   it('BOM в начале файла допустим', () => {
     expect(parseProjectText('\ufeff' + JSON.stringify(sampleProject())).ok).toBe(true)
   })

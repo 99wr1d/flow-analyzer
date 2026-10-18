@@ -7,6 +7,10 @@ export const MIN_DURATION = 0.2
 export const MAX_DURATION = 60
 export const DEFAULT_DURATION = 3
 export const MAX_TEXT_LENGTH = 200
+/** Стоп-кадр при экспорте для рисунка «только кадр»: сколько секунд кадр стоит в готовом видео. */
+export const MIN_FREEZE = 0.5
+export const MAX_FREEZE = 30
+export const DEFAULT_FREEZE = 3
 
 const unit = z.number().min(0).max(1)
 const PointSchema = z.object({ x: unit, y: unit })
@@ -19,7 +23,12 @@ export const TimingSchema = z.discriminatedUnion('mode', [
     start: z.number().min(0),
     duration: z.number().min(MIN_DURATION).max(MAX_DURATION)
   }),
-  z.object({ mode: z.literal('frame'), start: z.number().min(0) })
+  z.object({
+    mode: z.literal('frame'),
+    start: z.number().min(0),
+    /** Старые проекты поля не имеют — для них берётся значение по умолчанию (формат файла не меняется). */
+    freezeSeconds: z.number().min(MIN_FREEZE).max(MAX_FREEZE).default(DEFAULT_FREEZE)
+  })
 ])
 
 /** Стиль линии: толщина — доля высоты видео. */
@@ -128,6 +137,21 @@ export function parseDuration(input: string): DurationParse {
   if (!/^\d+(\.\d+)?$/.test(text)) return { ok: false, error: 'nan' }
   const value = Number(text)
   if (!Number.isFinite(value) || value < MIN_DURATION || value > MAX_DURATION) {
+    return { ok: false, error: 'range' }
+  }
+  return { ok: true, value }
+}
+
+export type FreezeParse =
+  { ok: true; value: number } | { ok: false; error: 'empty' | 'nan' | 'range' }
+
+/** Разбор введённой длины стоп-кадра (секунды; допустима запятая). Не бросает исключений. */
+export function parseFreeze(input: string): FreezeParse {
+  const text = input.trim().replace(',', '.')
+  if (text === '') return { ok: false, error: 'empty' }
+  if (!/^\d+(\.\d+)?$/.test(text)) return { ok: false, error: 'nan' }
+  const value = Number(text)
+  if (!Number.isFinite(value) || value < MIN_FREEZE || value > MAX_FREEZE) {
     return { ok: false, error: 'range' }
   }
   return { ok: true, value }

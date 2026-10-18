@@ -30,11 +30,20 @@ At least one output file must be specified`
 
 describe('parseMediaInfo', () => {
   it('длительность и дорожки', () => {
-    expect(parseMediaInfo(INFO)).toEqual({ duration: 5405.5, hasVideo: true, hasAudio: true })
+    expect(parseMediaInfo(INFO)).toEqual({
+      duration: 5405.5,
+      hasVideo: true,
+      hasAudio: true,
+      width: 640,
+      height: 360,
+      fps: 25,
+      audioRate: 48000,
+      audioMono: false
+    })
   })
   it('без звука и без длительности', () => {
     const r = parseMediaInfo('  Duration: N/A, start: 0\n  Stream #0:0: Video: vp8, yuv420p')
-    expect(r).toEqual({ duration: null, hasVideo: true, hasAudio: false })
+    expect(r).toMatchObject({ duration: null, hasVideo: true, hasAudio: false, fps: null })
   })
   it('обложка не считается видео', () => {
     const r = parseMediaInfo(
@@ -42,6 +51,27 @@ describe('parseMediaInfo', () => {
     )
     expect(r.hasVideo).toBe(false)
     expect(r.hasAudio).toBe(true)
+  })
+})
+
+describe('parseMediaInfo: размер, частота, звук, поворот', () => {
+  const real = `  Duration: 00:00:04.00, start: 0.000000, bitrate: 477 kb/s
+  Stream #0:0[0x1](und): Video: h264 (Main) (avc1 / 0x31637661), yuv420p(progressive), 1920x1080 [SAR 1:1 DAR 16:9], 473 kb/s, 29.97 fps, 29.97 tbr, 30k tbn (default)
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706d), 44100 Hz, mono, fltp, 69 kb/s (default)`
+  it('читает размер без путаницы с «0x31637661»', () => {
+    expect(parseMediaInfo(real)).toMatchObject({
+      width: 1920,
+      height: 1080,
+      fps: 29.97,
+      audioRate: 44100,
+      audioMono: true
+    })
+  })
+  it('поворот на 90° меняет ширину и высоту местами', () => {
+    const rotated = `${real}
+    Side data:
+      displaymatrix: rotation of -90.00 degrees`
+    expect(parseMediaInfo(rotated)).toMatchObject({ width: 1080, height: 1920 })
   })
 })
 

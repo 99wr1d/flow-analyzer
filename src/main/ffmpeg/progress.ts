@@ -27,6 +27,14 @@ export interface MediaFacts {
   duration: number | null
   hasVideo: boolean
   hasAudio: boolean
+  /** Размер картинки с учётом поворота; null — не удалось прочитать. */
+  width: number | null
+  height: number | null
+  /** Частота кадров из заголовка потока (может быть средней); null — не указана. */
+  fps: number | null
+  /** Звук: частота дискретизации и «моно» ли он. */
+  audioRate: number | null
+  audioMono: boolean
 }
 
 /** Сведения о файле из текста, который ffmpeg печатает при `ffmpeg -i файл`. */
@@ -37,10 +45,26 @@ export function parseMediaInfo(stderr: string): MediaFacts {
   const streams = stderr.split(/\r?\n/).filter((l) => /^\s*Stream #\d+:\d+/.test(l))
   const hasVideo = streams.some((l) => /: Video:/.test(l) && !/attached pic/.test(l))
   const hasAudio = streams.some((l) => /: Audio:/.test(l))
+  const videoLine = streams.find((l) => /: Video:/.test(l) && !/attached pic/.test(l))
+  const size = videoLine ? /,\s*(\d{2,5})x(\d{2,5})[\s,[]/.exec(videoLine) : null
+  const fpsMatch = videoLine ? /(\d+(?:\.\d+)?)\s+fps/.exec(videoLine) : null
+  // Поворот пишется отдельной строкой после потока («displaymatrix: rotation of -90.00 degrees»).
+  const rotation = /rotation of (-?\d+(?:\.\d+)?) degrees/.exec(stderr)
+  const quarter = rotation ? Math.round(Math.abs(Number(rotation[1])) / 90) % 2 === 1 : false
+  const audioLine = streams.find((l) => /: Audio:/.test(l))
+  const audioMatch = audioLine ? /(\d+) Hz,\s*([^,]+)/.exec(audioLine) : null
+  let width = size ? Number(size[1]) : null
+  let height = size ? Number(size[2]) : null
+  if (quarter && width !== null && height !== null) [width, height] = [height, width]
   return {
     duration: duration !== null && Number.isFinite(duration) ? duration : null,
     hasVideo,
-    hasAudio
+    hasAudio,
+    width,
+    height,
+    fps: fpsMatch ? Number(fpsMatch[1]) : null,
+    audioRate: audioMatch ? Number(audioMatch[1]) : null,
+    audioMono: audioMatch ? /^(mono|1 channels)/.test(audioMatch[2].trim()) : false
   }
 }
 

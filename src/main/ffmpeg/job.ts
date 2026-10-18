@@ -11,13 +11,34 @@ import type {
   ExportResult
 } from '../../shared/export'
 import { prepareClips, totalDuration, type PreparedClip } from '../../shared/exportRanges'
-import { buildClipArgs, buildCompilationArgs, buildProbeArgs, planCompilation } from './args'
+import { planExport, type OverlayPlan } from '../../shared/exportOverlays'
+import {
+  buildClipArgs,
+  buildCompilationArgs,
+  buildDrawnArgs,
+  buildProbeArgs,
+  planCompilation
+} from './args'
+import { planDrawn, type GraphPlan } from './drawGraph'
 import { clipStem, uniqueFileName } from './names'
 import { EXPORT_MESSAGES, friendlyFfmpegError, parseMediaInfo, type MediaFacts } from './progress'
 import { runFfmpeg, type RunResult } from './runner'
 
 export const COMPILATION_FAST_ERROR =
   'Подборку можно собрать только с перекодированием: куски из разных мест видео нельзя надёжно склеить без него'
+
+export const DRAWINGS_FAST_ERROR =
+  'Рисунки можно нанести только с перекодированием: выберите режим «Точно»'
+export const DRAWINGS_MISSING_ERROR =
+  'Не удалось подготовить рисунки для экспорта. Закройте окно экспорта и повторите'
+
+/** Картинки с рисунками, уже проверенные и записанные на диск (см. staging.ts). */
+export interface JobOverlays {
+  width: number
+  height: number
+  /** Ключ набора рисунков → путь к PNG. */
+  files: ReadonlyMap<string, string>
+}
 
 /** Ошибка, текст которой можно показать пользователю как есть. */
 export class ExportError extends Error {}
@@ -36,6 +57,8 @@ export interface JobInput {
   onPartFile?: (path: string | null) => void
   /** Папка для временных файлов (по умолчанию системная). */
   tempRoot?: string
+  /** Картинки для request.drawings. */
+  overlays?: JobOverlays
 }
 
 export interface JobOutput {
@@ -89,6 +112,9 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
   if (request.mode === 'compilation' && request.precision === 'fast') {
     throw new ExportError(COMPILATION_FAST_ERROR)
   }
+  const drawings = request.drawings
+  if (drawings && request.precision === 'fast') throw new ExportError(DRAWINGS_FAST_ERROR)
+  if (drawings && !input.overlays) throw new ExportError(DRAWINGS_MISSING_ERROR)
 
   let facts: MediaFacts
   try {
@@ -109,6 +135,77 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
   const prepared = prepareClips(request.clips, facts.duration, request.padding)
   if (!prepared.ok) throw new ExportError(prepared.error)
   const clips = prepared.clips
+
+  // Рисунки: частота кадров из запроса, но если файл говорит иное (разница больше 5%), верим файлу.
+  const fps =
+    facts.fps && drawings && Math.abs(facts.fps / drawings.fps - 1) > 0.05
+      ? facts.fps
+      : (drawings?.fps ?? facts.fps ?? 25)
+  // Планы строятся до запуска ffmpeg: если картинок не хватает, ничего не создаётся.
+  // null — рисунков в этом файле нет (обычная обрезка).
+  const plans: Array<OverlayPlan | null> =
+    drawings && input.overlays
+      ? planExport(clips, request.mode, drawings.timings, fps).map((plan) => {
+          if (plan.keys.length === 0) return null
+          for (const key of plan.keys) {
+            if (!input.overlays!.files.has(key)) throw new ExportError(DRAWINGS_MISSING_ERROR)
+          }
+          return plan
+        })
+      : clips.map(() => null)
+
+  /** Запуск ffmpeg по графу с рисунками. Временные файлы убираются всегда. */
+  async function runDrawn(
+    plan: OverlayPlan,
+    outputPart: string,
+    onTime: (seconds: number) => void
+  ): Promise<{ run: RunResult; seconds: number }> {
+    const overlays = input.overlays!
+    const graph: GraphPlan = planDrawn({
+      ranges: plan.ranges,
+      segments: plan.segments,
+      fps,
+      audio: facts.hasAudio
+        ? { sampleRate: facts.audioRate ?? 48000, mono: facts.audioMono }
+        : null,
+      videoSize: facts.width && facts.height ? { w: facts.width, h: facts.height } : null,
+      pngSize: { w: overlays.width, h: overlays.height }
+    })
+    let dir: string | null = null
+    try {
+      dir = await mkdtemp(join(input.tempRoot ?? tmpdir(), 'flow-export-'))
+      const scriptPath = join(dir, 'graph.txt')
+      await writeFile(scriptPath, graph.script, 'utf8')
+      const run = await runFfmpeg({
+        ffmpegPath,
+        args: buildDrawnArgs({
+          input: inputPath,
+          pngPaths: graph.inputKeys.map((k) => overlays.files.get(k)!),
+          output: outputPart,
+          scriptPath,
+          offset: graph.offset,
+          span: graph.span,
+          hasAudio: facts.hasAudio
+        }),
+        signal,
+        stallMs: input.stallMs,
+        onTime
+      })
+      return { run, seconds: graph.outputSeconds }
+    } catch (error) {
+      const run: RunResult = {
+        code: null,
+        cancelled: false,
+        stalled: false,
+        spawnError: error instanceof Error ? error.message : String(error),
+        stderrTail: [],
+        stderr: ''
+      }
+      return { run, seconds: 0 }
+    } finally {
+      if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    }
+  }
 
   const failures: ExportFailure[] = []
   const files: string[] = []
@@ -149,14 +246,16 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
 
   // ---------- Отдельные файлы ----------
   async function runFiles(): Promise<JobOutput> {
-    const total = totalDuration(clips)
+    const lengths = clips.map((c, i) => c.end - c.start + (plans[i]?.freezeSeconds ?? 0))
+    const total = lengths.reduce((a, b) => a + b, 0)
     const taken = new Set<string>()
     let doneSeconds = 0
 
     for (let i = 0; i < clips.length; i += 1) {
       if (signal?.aborted) return finish('cancelled')
       const clip = clips[i]
-      const length = clip.end - clip.start
+      const length = lengths[i]
+      const plan = plans[i]
       const stem = clipStem(clip.number, clip.label, clip.episodeStart)
       const name = uniqueFileName(
         stem,
@@ -169,20 +268,23 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
       input.onPartFile?.(part)
       emit(i, clips.length, name, 0, doneSeconds / total)
 
-      const run = await runFfmpeg({
-        ffmpegPath,
-        args: buildClipArgs({
-          input: inputPath,
-          output: part,
-          start: clip.start,
-          end: clip.end,
-          fast: request.precision === 'fast'
-        }),
-        signal,
-        stallMs: input.stallMs,
-        onTime: (s) =>
-          emit(i, clips.length, name, s / length, (doneSeconds + Math.min(s, length)) / total)
-      })
+      const onTime = (s: number): void =>
+        emit(i, clips.length, name, s / length, (doneSeconds + Math.min(s, length)) / total)
+      const run = plan
+        ? (await runDrawn(plan, part, onTime)).run
+        : await runFfmpeg({
+            ffmpegPath,
+            args: buildClipArgs({
+              input: inputPath,
+              output: part,
+              start: clip.start,
+              end: clip.end,
+              fast: request.precision === 'fast'
+            }),
+            signal,
+            stallMs: input.stallMs,
+            onTime
+          })
 
       if (run.cancelled) {
         await removeQuietly(part)
@@ -215,30 +317,37 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
 
   // ---------- Одна подборка ----------
   async function runCompilation(): Promise<JobOutput> {
+    const drawn = plans[0]
     const plan = planCompilation(clips as PreparedClip[], facts.hasAudio)
-    const length = totalDuration(clips)
+    const length = totalDuration(clips) + (drawn?.freezeSeconds ?? 0)
     const name = target.split(/[\\/]/).pop() ?? 'подборка.mp4'
     const part = partPath(target)
     let workDir: string | null = null
     input.onPartFile?.(part)
     emit(0, 1, name, 0, 0)
     try {
-      workDir = await mkdtemp(join(input.tempRoot ?? tmpdir(), 'flow-export-'))
-      const scriptPath = join(workDir, 'graph.txt')
-      await writeFile(scriptPath, plan.script, 'utf8')
-      const run = await runFfmpeg({
-        ffmpegPath,
-        args: buildCompilationArgs({
-          input: inputPath,
-          output: part,
-          scriptPath,
-          plan,
-          hasAudio: facts.hasAudio
-        }),
-        signal,
-        stallMs: input.stallMs,
-        onTime: (s) => emit(0, 1, name, s / length, s / length)
-      })
+      const onTime = (s: number): void => emit(0, 1, name, s / length, s / length)
+      let run: RunResult
+      if (drawn) {
+        run = (await runDrawn(drawn, part, onTime)).run
+      } else {
+        workDir = await mkdtemp(join(input.tempRoot ?? tmpdir(), 'flow-export-'))
+        const scriptPath = join(workDir, 'graph.txt')
+        await writeFile(scriptPath, plan.script, 'utf8')
+        run = await runFfmpeg({
+          ffmpegPath,
+          args: buildCompilationArgs({
+            input: inputPath,
+            output: part,
+            scriptPath,
+            plan,
+            hasAudio: facts.hasAudio
+          }),
+          signal,
+          stallMs: input.stallMs,
+          onTime
+        })
+      }
       if (run.cancelled) {
         await removeQuietly(part)
         return finish('cancelled')

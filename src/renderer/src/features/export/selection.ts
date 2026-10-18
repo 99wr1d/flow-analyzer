@@ -3,8 +3,8 @@ import { MAX_PADDING } from '../../../../shared/export'
 import { prepareClips, totalDuration } from '../../../../shared/exportRanges'
 import type { Episode } from '../../../../shared/episodes'
 
-/** Какие эпизоды экспортировать: видимые по фильтру, все или отмеченные вручную. */
-export type Scope = 'visible' | 'all' | 'pick'
+/** Что экспортировать: эпизоды (видимые по фильтру, все, отмеченные вручную) или всё видео целиком. */
+export type Scope = 'visible' | 'all' | 'pick' | 'whole'
 
 /** Эпизоды, которые сейчас видны в списке (по порядку начала). */
 export function visibleEpisodes(sorted: readonly Episode[], filter: readonly string[]): Episode[] {
@@ -17,6 +17,7 @@ export function chooseEpisodes(
   filter: readonly string[],
   picked: ReadonlySet<string>
 ): Episode[] {
+  if (scope === 'whole') return []
   if (scope === 'all') return [...sorted]
   if (scope === 'visible') return visibleEpisodes(sorted, filter)
   return sorted.filter((e) => picked.has(e.id))
@@ -46,14 +47,16 @@ export interface Summary {
 export function summarize(
   episodes: readonly Episode[],
   padding: number,
-  videoDuration: number
+  videoDuration: number,
+  /** Секунды стоп-кадров, которые рисунки добавляют к результату. */
+  extraSeconds = 0
 ): Summary {
   const clips = episodes.map((e) => ({ start: e.start, end: e.end, label: e.tagName }))
   const prepared = prepareClips(clips, videoDuration > 0 ? videoDuration : null, padding)
   const seconds = prepared.ok
     ? totalDuration(prepared.clips)
     : clips.reduce((sum, c) => sum + (c.end - c.start), 0)
-  return { count: episodes.length, seconds }
+  return { count: episodes.length, seconds: seconds + extraSeconds }
 }
 
 /** «0:45», «12:03», «1:02:03». */

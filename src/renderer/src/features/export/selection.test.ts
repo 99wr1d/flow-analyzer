@@ -100,3 +100,12 @@ describe('время и склонения', () => {
     ])
   })
 })
+
+describe('«Всё видео» и стоп-кадры в сводке', () => {
+  it('chooseEpisodes для «whole» не выбирает эпизодов (экспортируется всё видео)', () => {
+    expect(chooseEpisodes('whole', sorted, [], new Set(['a']))).toEqual([])
+  })
+  it('summarize прибавляет стоп-кадры', () => {
+    expect(summarize(sorted, 0, 100, 4.5).seconds).toBe(12.5)
+  })
+})

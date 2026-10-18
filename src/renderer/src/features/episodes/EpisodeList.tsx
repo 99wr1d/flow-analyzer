@@ -233,6 +233,7 @@ export function EpisodeList(): React.JSX.Element {
   const items = useEpisodesStore((s) => s.items)
   const filter = useEpisodesStore((s) => s.filter)
   const selected = useEpisodesStore(selectedEpisode)
+  const ready = usePlayerStore((s) => s.status === 'ready')
 
   const sorted = useMemo(() => sortEpisodes(items), [items])
   const visible = useMemo(
@@ -250,8 +251,8 @@ export function EpisodeList(): React.JSX.Element {
         <button
           type="button"
           className="btn btn--small panel-header__action"
-          disabled={items.length === 0}
-          title={ru.export.openTitle}
+          disabled={!ready}
+          title={ready ? ru.export.openTitle : ru.export.openNeedVideo}
           data-testid="export-open"
           onClick={(e) => {
             openExportDialog()

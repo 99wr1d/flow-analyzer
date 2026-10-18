@@ -5,6 +5,7 @@ import {
   frameCenter,
   isVisible,
   parseDuration,
+  parseFreeze,
   type Annotation
 } from './annotations'
 
@@ -21,7 +22,7 @@ const range = (start: number, duration: number): Annotation => ({
 })
 const frameAt = (start: number): Annotation => ({
   ...range(0, 1),
-  timing: { mode: 'frame', start }
+  timing: { mode: 'frame', start, freezeSeconds: 3 }
 })
 
 describe('isVisible: отрезок', () => {
@@ -106,10 +107,40 @@ describe('схемы zod', () => {
       type: 'text',
       pos: { x: 0.2, y: 0.3 },
       style: { color: '#ffffff', size: 0.06, background: true },
-      timing: { mode: 'frame', start: 1 }
+      timing: { mode: 'frame', start: 1, freezeSeconds: 3 }
     }
     expect(bad({ ...text, text: '   ' })).toBe(false)
     expect(bad({ ...text, text: 'x'.repeat(201) })).toBe(false)
     expect(bad({ ...text, text: 'ok' })).toBe(true)
+  })
+})
+
+describe('стоп-кадр (freezeSeconds)', () => {
+  const frame = (extra: Record<string, unknown>): unknown => ({
+    ...range(1, 1),
+    timing: { mode: 'frame', start: 1, ...extra }
+  })
+  it('без поля подставляется 3 с (старые проекты)', () => {
+    const parsed = AnnotationSchema.safeParse(frame({}))
+    expect(parsed.success).toBe(true)
+    if (parsed.success && parsed.data.timing.mode === 'frame') {
+      expect(parsed.data.timing.freezeSeconds).toBe(3)
+    }
+  })
+  it('границы 0.5–30', () => {
+    const ok = (v: unknown): boolean =>
+      AnnotationSchema.safeParse(frame({ freezeSeconds: v })).success
+    expect(ok(0.5)).toBe(true)
+    expect(ok(30)).toBe(true)
+    expect(ok(0.4)).toBe(false)
+    expect(ok(30.5)).toBe(false)
+    expect(ok('3')).toBe(false)
+  })
+  it('parseFreeze: запятая, ошибки', () => {
+    expect(parseFreeze('2,5')).toEqual({ ok: true, value: 2.5 })
+    expect(parseFreeze('')).toEqual({ ok: false, error: 'empty' })
+    expect(parseFreeze('abc')).toEqual({ ok: false, error: 'nan' })
+    expect(parseFreeze('0.2')).toEqual({ ok: false, error: 'range' })
+    expect(parseFreeze('31')).toEqual({ ok: false, error: 'range' })
   })
 })
