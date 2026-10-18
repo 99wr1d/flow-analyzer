@@ -7,6 +7,7 @@ export const COMMAND_GROUPS = [
   'Эпизоды',
   'Теги',
   'Проект',
+  'Экспорт',
   'Общее'
 ] as const
 export type CommandGroup = (typeof COMMAND_GROUPS)[number]

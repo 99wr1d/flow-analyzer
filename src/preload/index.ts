@@ -8,6 +8,7 @@ import {
   type VideoProbe,
   type VideoSource
 } from '../shared/ipc-contract'
+import type { ExportProgress, ExportRequest, ExportResult } from '../shared/export'
 import type {
   ProjectOpenResult,
   ProjectSaveRequest,
@@ -43,6 +44,16 @@ const api: FlowApi = {
   discardRecovery: (key: string) => invoke<void>(IPC_CHANNELS.projectRecoveryDiscard, key),
   clearRecovery: (path: string | null) => invoke<void>(IPC_CHANNELS.projectClearRecovery, path),
   takeLaunchProject: () => invoke<string | null>(IPC_CHANNELS.projectTakeLaunchPath),
+  startExport: (request: ExportRequest) => invoke<ExportResult>(IPC_CHANNELS.exportStart, request),
+  cancelExport: () => invoke<void>(IPC_CHANNELS.exportCancel),
+  revealExport: () => invoke<void>(IPC_CHANNELS.exportReveal),
+  onExportProgress(callback: (progress: ExportProgress) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, progress: unknown): void => {
+      if (progress && typeof progress === 'object') callback(progress as ExportProgress)
+    }
+    ipcRenderer.on(IPC_EVENTS.exportProgress, listener)
+    return () => ipcRenderer.removeListener(IPC_EVENTS.exportProgress, listener)
+  },
   setWindowTitle: (name: string | null, dirty: boolean) =>
     invoke<void>(IPC_CHANNELS.windowSetTitle, name, dirty),
   onCloseRequested(callback: () => void): () => void {

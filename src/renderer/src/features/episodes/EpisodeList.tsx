@@ -8,7 +8,8 @@ import {
 } from '../../../../shared/episodes'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
-import { TrashIcon } from '../../ui/icons'
+import { ExportIcon, TrashIcon } from '../../ui/icons'
+import { openExportDialog } from '../export/exportActions'
 import { getCurrentTime, playVideo, seekTo } from '../player/videoElement'
 import { selectedEpisode, sortEpisodes, useEpisodesStore } from './episodesStore'
 import { fmt, fmtRange } from './tagging'
@@ -246,6 +247,20 @@ export function EpisodeList(): React.JSX.Element {
         <span className="panel-header__count" data-testid="episode-count">
           {items.length}
         </span>
+        <button
+          type="button"
+          className="btn btn--small panel-header__action"
+          disabled={items.length === 0}
+          title={ru.export.openTitle}
+          data-testid="export-open"
+          onClick={(e) => {
+            openExportDialog()
+            e.currentTarget.blur()
+          }}
+        >
+          <ExportIcon size={14} />
+          {ru.export.open}
+        </button>
       </div>
       <FilterChips episodes={sorted} />
       {items.length === 0 ? (

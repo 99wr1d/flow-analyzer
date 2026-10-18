@@ -1,4 +1,6 @@
 import { useEffect } from 'react'
+import { ExportDialog } from '../features/export/ExportDialog'
+import { installExportProgress } from '../features/export/exportActions'
 import { useCommandDispatcher } from '../features/commands/dispatcher'
 import { installUnifiedHistory } from '../features/history/unified'
 import { useDropImport } from '../features/player/useGlobalInput'
@@ -23,8 +25,12 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     const uninstall = installUnifiedHistory()
+    const uninstallExport = installExportProgress()
     void useSettingsStore.getState().load()
-    return uninstall
+    return () => {
+      uninstall()
+      uninstallExport()
+    }
   }, [])
 
   return (
@@ -36,6 +42,7 @@ export function App(): React.JSX.Element {
       <BottomDock />
       <StatusBar />
       {dialogOpen && <SettingsDialog />}
+      <ExportDialog />
       <UnsavedDialog />
       <RelinkDialog />
     </div>

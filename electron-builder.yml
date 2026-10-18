@@ -14,6 +14,12 @@ files:
   - '!{test-results,playwright-report}/**'
 asarUnpack:
   - resources/**
+  # ffmpeg нельзя запускать из архива app.asar: бинарник распаковывается рядом (путь заменяет src/main/ffmpeg/path.ts).
+  - node_modules/ffmpeg-static/**
+# Лицензия FFmpeg (GPL) кладётся рядом с программой: resources/licenses.
+extraResources:
+  - from: licenses
+    to: licenses
 # Файлы проектов (.flowproj) открываются двойным щелчком в FlowAnalyzer.
 fileAssociations:
   - ext: flowproj

@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { usePlayerStore } from '../../store/playerStore'
 import { UNTITLED_PROJECT } from '../../../../shared/project'
+import { askStopForClose, cancelExportAndWait, isExportRunning } from '../export/exportActions'
 import { openProject, refreshRecovery, saveProject } from './actions'
 import { installDirtyTracking } from './dirty'
 import { useProjectStore } from './projectStore'
@@ -52,8 +53,21 @@ function startAutosave(intervalMs: number): () => void {
 /** Окно хотят закрыть: если есть несохранённое — спрашиваем, иначе main закроет окно сам. */
 async function handleCloseRequested(): Promise<void> {
   const dirty = useProjectStore.getState().dirty
-  await window.api.respondClose(dirty)
-  if (!dirty) return
+  const exporting = isExportRunning()
+  await window.api.respondClose(dirty || exporting)
+  if (!dirty && !exporting) return
+  if (exporting) {
+    // Идёт экспорт: закрытие его остановит, поэтому сначала спрашиваем.
+    if (!(await askStopForClose())) {
+      await window.api.cancelClose()
+      return
+    }
+    await cancelExportAndWait()
+    if (!dirty) {
+      await window.api.confirmClose()
+      return
+    }
+  }
   const choice = await askUnsaved()
   if (choice === 'save' && (await saveProject())) {
     await window.api.confirmClose()

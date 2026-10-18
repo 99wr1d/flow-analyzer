@@ -7,6 +7,7 @@ import type {
   RecentProject,
   RecoveryItem
 } from './project'
+import type { ExportProgress, ExportRequest, ExportResult } from './export'
 import type { Settings, SettingsLoadResult } from './settings'
 
 export const IPC_CHANNELS = {
@@ -26,6 +27,9 @@ export const IPC_CHANNELS = {
   projectRecoveryDiscard: 'project:recovery-discard',
   projectClearRecovery: 'project:clear-recovery',
   projectTakeLaunchPath: 'project:take-launch-path',
+  exportStart: 'export:start',
+  exportCancel: 'export:cancel',
+  exportReveal: 'export:reveal',
   windowSetTitle: 'window:set-title',
   appCloseResponse: 'app:close-response',
   appConfirmClose: 'app:confirm-close',
@@ -35,7 +39,8 @@ export const IPC_CHANNELS = {
 /** События, которые main отправляет интерфейсу. */
 export const IPC_EVENTS = {
   closeRequested: 'app:close-requested',
-  openProjectRequested: 'project:open-requested'
+  openProjectRequested: 'project:open-requested',
+  exportProgress: 'export:progress'
 } as const
 
 export interface AppInfo {
@@ -98,6 +103,16 @@ export interface FlowApi {
   clearRecovery(path: string | null): Promise<void>
   /** Проект, переданный в командной строке при запуске (выдаётся один раз). */
   takeLaunchProject(): Promise<string | null>
+  /**
+   * Вырезает клипы. Видео задаётся идентификатором; папку или файл пользователь выбирает в диалоге main.
+   * Ход работы приходит через onExportProgress, а промис завершается, когда экспорт закончен, отменён или не удался.
+   * Ошибка (reject) — запрос отклонён до начала работы.
+   */
+  startExport(request: ExportRequest): Promise<ExportResult>
+  cancelExport(): Promise<void>
+  /** Показывает в проводнике файл, созданный последним экспортом (путь выбирает main, не интерфейс). */
+  revealExport(): Promise<void>
+  onExportProgress(callback: (progress: ExportProgress) => void): () => void
   /** Заголовок окна задаёт main: name = null — просто «FlowAnalyzer». */
   setWindowTitle(name: string | null, dirty: boolean): Promise<void>
   /** Окно пытаются закрыть: интерфейс отвечает respondClose, а при несохранённой работе спрашивает пользователя. */

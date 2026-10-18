@@ -1,6 +1,7 @@
 // Единый обработчик нажатий: ищет команду по сочетанию клавиш и запускает её.
 import { useEffect } from 'react'
 import type { Settings } from '../../../../shared/settings'
+import { useExportStore } from '../export/exportStore'
 import { useProjectStore } from '../project/projectStore'
 import { useUnsavedStore } from '../project/unsavedStore'
 import { useSettingsStore } from '../settings/settingsStore'
@@ -50,6 +51,7 @@ export function handleKeyDown(e: KeyboardEvent): void {
   if (useKeymapStore.getState().capturing) return
   const state = useSettingsStore.getState()
   if (state.dialogOpen) return
+  if (useExportStore.getState().open) return
   // Вопросы о проекте — модальные окна: пока они открыты, клавиши команд молчат.
   if (useUnsavedStore.getState().open || useProjectStore.getState().relink) return
   if (isTyping(e.target)) return

@@ -10,7 +10,7 @@ test('приложение запускается безопасно и пока
   const { app, win } = await launch()
   try {
     await expect(win).toHaveTitle('FlowAnalyzer')
-    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.6.0')
+    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.7.0')
 
     const leaks = await win.evaluate(() => {
       const w = window as unknown as Record<string, unknown>
@@ -27,6 +27,7 @@ test('приложение запускается безопасно и пока
     expect(leaks.apiKeys).toEqual([
       'autosaveProject',
       'cancelClose',
+      'cancelExport',
       'clearRecovery',
       'confirmClose',
       'discardRecovery',
@@ -36,6 +37,7 @@ test('приложение запускается безопасно и пока
       'listRecentProjects',
       'listRecovery',
       'onCloseRequested',
+      'onExportProgress',
       'onOpenProjectRequested',
       'openProject',
       'openVideoDialog',
@@ -43,9 +45,11 @@ test('приложение запускается безопасно и пока
       'relinkProjectVideo',
       'respondClose',
       'restoreRecovery',
+      'revealExport',
       'saveProject',
       'saveSettings',
       'setWindowTitle',
+      'startExport',
       'takeLaunchProject'
     ])
 

@@ -194,3 +194,23 @@ export const ChevronRightIcon = (p: IconProps): React.JSX.Element => (
     <path d="m9.5 6 6 6-6 6" />
   </Svg>
 )
+
+export const ExportIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M12 4v10.5M7.8 10.6 12 14.8l4.2-4.2M5 19.2h14" />
+  </Svg>
+)
+
+export const CheckCircleIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="m8.4 12.3 2.4 2.4 4.8-5" />
+  </Svg>
+)
+
+export const AlertIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M12 4.2 3.6 18.6h16.8L12 4.2z" />
+    <path d="M12 10v4M12 16.6v.1" />
+  </Svg>
+)

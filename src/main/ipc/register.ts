@@ -1,5 +1,6 @@
 import { registerCloseHandlers } from '../closeGuard'
 import { registerAppHandlers } from './app'
+import { registerExportHandlers } from './export'
 import { registerProjectHandlers } from './project'
 import { registerSettingsHandlers } from './settings'
 import { registerVideoHandlers } from './video'
@@ -9,5 +10,6 @@ export function registerIpcHandlers(): void {
   registerVideoHandlers()
   registerSettingsHandlers()
   registerProjectHandlers()
+  registerExportHandlers()
   registerCloseHandlers()
 }

@@ -4,6 +4,7 @@ import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore, type Tool } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
 import { applyTag, markIn, markOut } from '../episodes/tagging'
+import { canExport, openExportDialog } from '../export/exportActions'
 import { redoAny, undoAny } from '../history/unified'
 import { openVideoFromDialog } from '../player/importVideo'
 import { canSave, newProject, openProject, saveProject, saveProjectAs } from '../project/actions'
@@ -192,6 +193,14 @@ export const STATIC_COMMANDS: readonly Command[] = [
     defaults: [key('KeyN', { ctrl: true })],
     run: () => void newProject(),
     enabled: canSave
+  },
+  {
+    id: 'export:open',
+    label: 'Экспорт клипов',
+    group: 'Экспорт',
+    defaults: [key('KeyE', { ctrl: true })],
+    run: openExportDialog,
+    enabled: canExport
   },
   {
     id: 'general:open-video',
