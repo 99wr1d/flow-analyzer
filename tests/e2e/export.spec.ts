@@ -118,18 +118,13 @@ const percentOf = async (win: Page, id: string): Promise<number> =>
   Number((await win.getByTestId(id).getAttribute('data-percent')) ?? '0')
 
 test.describe('экспорт клипов', () => {
-  test('кнопка и Ctrl+E открывают окно; без видео кнопка выключена, без эпизодов — «Всё видео»; команда есть в настройках', async () => {
+  test('кнопка и Ctrl+E открывают окно; на стартовом экране Ctrl+E молчит, без эпизодов — «Всё видео»; команда есть в настройках', async () => {
     const ctx = await launch()
     const { app, win } = ctx
     try {
-      await expect(win.getByTestId('export-open')).toBeDisabled()
+      await expect(win.getByTestId('export-open')).toHaveCount(0)
       await win.keyboard.press('Control+e')
       await expect(dialog(win)).toHaveCount(0)
-
-      await expect(win.getByTestId('export-open')).toHaveAttribute(
-        'title',
-        'Сначала откройте видео'
-      )
 
       await openVideo(ctx, fixture('cfr25.mp4'))
       // Видео есть, эпизодов нет: экспорт доступен, предлагается всё видео целиком.

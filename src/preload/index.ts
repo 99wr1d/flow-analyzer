@@ -9,7 +9,9 @@ import {
   type VideoSource
 } from '../shared/ipc-contract'
 import type { ExportProgress, ExportRequest, ExportResult, StageOverlays } from '../shared/export'
+import type { CreateProjectRequest, LibraryListing } from '../shared/library'
 import type {
+  ProjectMeta,
   ProjectOpenResult,
   ProjectSaveRequest,
   ProjectSaveResult,
@@ -45,6 +47,16 @@ const api: FlowApi = {
   discardRecovery: (key: string) => invoke<void>(IPC_CHANNELS.projectRecoveryDiscard, key),
   clearRecovery: (path: string | null) => invoke<void>(IPC_CHANNELS.projectClearRecovery, path),
   takeLaunchProject: () => invoke<string | null>(IPC_CHANNELS.projectTakeLaunchPath),
+  createProject: (request: CreateProjectRequest) =>
+    invoke<ProjectOpenResult>(IPC_CHANNELS.projectCreate, request),
+  listLibrary: () => invoke<LibraryListing>(IPC_CHANNELS.libraryList),
+  removeFromLibrary: (path: string) => invoke<void>(IPC_CHANNELS.libraryRemove, path),
+  deleteProject: (path: string) => invoke<void>(IPC_CHANNELS.libraryDelete, path),
+  revealProject: (path: string) => invoke<void>(IPC_CHANNELS.libraryReveal, path),
+  relocateProject: (oldPath: string) =>
+    invoke<string | null>(IPC_CHANNELS.libraryRelocate, oldPath),
+  updateProjectMeta: (path: string, meta: ProjectMeta) =>
+    invoke<void>(IPC_CHANNELS.libraryUpdateMeta, path, meta),
   startExport: (request: ExportRequest) => invoke<ExportResult>(IPC_CHANNELS.exportStart, request),
   stageExportOverlays: (overlays: StageOverlays) =>
     invoke<{ token: string }>(IPC_CHANNELS.exportStageOverlays, overlays),

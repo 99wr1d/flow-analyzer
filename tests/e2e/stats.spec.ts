@@ -67,13 +67,10 @@ const revealed = (app: ElectronApplication): Promise<string[]> =>
   app.evaluate(() => (globalThis as unknown as { __revealed?: string[] }).__revealed ?? [])
 
 test.describe('статистика', () => {
-  test('без видео кнопка недоступна, Ctrl+I ничего не открывает; команда есть в настройках', async () => {
+  test('на стартовом экране кнопки статистики нет, Ctrl+I ничего не открывает; команда есть в настройках', async () => {
     const { app, win } = await launch()
     try {
-      const button = win.getByTestId('stats-open')
-      await expect(button).toBeVisible()
-      await expect(button).toBeDisabled()
-      await expect(button).toContainText('Статистика')
+      await expect(win.getByTestId('stats-open')).toHaveCount(0)
       await win.keyboard.press('Control+i')
       await expect(dialog(win)).toHaveCount(0)
 
@@ -318,16 +315,16 @@ test.describe('статистика', () => {
       const text = bytes.toString('utf8').slice(1)
       const lines = text.split('\r\n')
       expect(lines[0]).toBe('Статистика по тегам')
-      expect(lines[1].split(';')).toHaveLength(8)
-      expect(lines[2]).toMatch(/^Атака;2;2,0;1,0;66,7;57,1;00:00\.5;00:02\.0$/)
-      expect(lines[3]).toMatch(/^Удар;1;1,5;1,5;33,3;42,9;00:01\.0;00:01\.0$/)
+      expect(lines[1].split(';')).toHaveLength(12)
+      expect(lines[2]).toMatch(/^Атака;2;2,0;1,0;66,7;57,1;00:00\.5;00:02\.0;0;0;0;—$/)
+      expect(lines[3]).toMatch(/^Удар;1;1,5;1,5;33,3;42,9;00:01\.0;00:01\.0;0;0;0;—$/)
       expect(lines[4]).toBe('')
       expect(lines[5]).toBe('Эпизоды')
-      expect(lines[6]).toBe('№;Тег;Начало;Конец;Длительность, с;Заметка')
+      expect(lines[6]).toBe('№;Тег;Начало;Конец;Длительность, с;Оценка;Разобрать;Заметка')
       // По порядку начала: Атака 0.5, Удар 1.0, Атака 2.0.
-      expect(lines[7]).toBe("1;Атака;00:00.5;00:01.5;1,0;'=1+1")
-      expect(lines[8]).toBe('2;Удар;00:01.0;00:02.5;1,5;"Угловой; ""быстро"""')
-      expect(lines[9]).toBe('3;Атака;00:02.0;00:03.0;1,0;')
+      expect(lines[7]).toBe("1;Атака;00:00.5;00:01.5;1,0;—;нет;'=1+1")
+      expect(lines[8]).toBe('2;Удар;00:01.0;00:02.5;1,5;—;нет;"Угловой; ""быстро"""')
+      expect(lines[9]).toBe('3;Атака;00:02.0;00:03.0;1,0;—;нет;')
 
       // «Показать в папке» открывает именно созданный файл.
       await win.getByTestId('stats-reveal').click()

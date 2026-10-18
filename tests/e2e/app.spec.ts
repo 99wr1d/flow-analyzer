@@ -10,7 +10,7 @@ test('приложение запускается безопасно и пока
   const { app, win } = await launch()
   try {
     await expect(win).toHaveTitle('FlowAnalyzer')
-    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.9.0')
+    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.10.0')
 
     const leaks = await win.evaluate(() => {
       const w = window as unknown as Record<string, unknown>
@@ -30,11 +30,14 @@ test('приложение запускается безопасно и пока
       'cancelExport',
       'clearRecovery',
       'confirmClose',
+      'createProject',
+      'deleteProject',
       'discardRecovery',
       'exportStatsCsv',
       'getAppInfo',
       'getSettings',
       'importDroppedVideo',
+      'listLibrary',
       'listRecentProjects',
       'listRecovery',
       'onCloseRequested',
@@ -44,16 +47,20 @@ test('приложение запускается безопасно и пока
       'openVideoDialog',
       'probeVideo',
       'relinkProjectVideo',
+      'relocateProject',
+      'removeFromLibrary',
       'respondClose',
       'restoreRecovery',
       'revealExport',
+      'revealProject',
       'revealStatsFile',
       'saveProject',
       'saveSettings',
       'setWindowTitle',
       'stageExportOverlays',
       'startExport',
-      'takeLaunchProject'
+      'takeLaunchProject',
+      'updateProjectMeta'
     ])
 
     await win.screenshot({ path: join(SHOTS, `e2e-empty${SUFFIX}.png`) })
@@ -62,20 +69,23 @@ test('приложение запускается безопасно и пока
   }
 })
 
-test('до загрузки видео управление отключено, подсказки на месте', async () => {
+test('стартовый экран: плеера и разметки нет, кнопки открытия на месте; в рабочей области подсказки на клавиши', async () => {
   const { app, win } = await launch()
   try {
-    await expect(win.getByText('Перетащите видео сюда или нажмите «Открыть видео»')).toBeVisible()
+    await expect(win.getByTestId('start-screen')).toBeVisible()
     await expect(win.getByTestId('open-video')).toBeEnabled()
-    await expect(win.getByTestId('play-toggle')).toBeDisabled()
-    await expect(win.getByTestId('frame-back')).toBeDisabled()
-    await expect(win.getByTestId('frame-forward')).toBeDisabled()
+    await expect(win.getByTestId('start-new')).toBeEnabled()
+    await expect(win.getByTestId('start-open-file')).toBeEnabled()
+    for (const id of ['play-toggle', 'frame-back', 'speed', 'mute', 'volume', 'tag-button']) {
+      await expect(win.getByTestId(id)).toHaveCount(0)
+    }
+    await expect(win.getByText('Таймлайн появится после загрузки видео')).toHaveCount(0)
+
+    await stubDialog(app, fixture('cfr25.mp4'))
+    await win.getByTestId('open-video').click()
+    await expect(win.getByTestId('play-toggle')).toBeEnabled()
     await expect(win.getByTestId('frame-back')).toHaveAttribute('title', 'Кадр назад (←)')
     await expect(win.getByTestId('frame-forward')).toHaveAttribute('title', 'Кадр вперёд (→)')
-    await expect(win.getByTestId('speed')).toBeDisabled()
-    await expect(win.getByTestId('mute')).toBeDisabled()
-    await expect(win.getByTestId('volume')).toBeDisabled()
-    await expect(win.getByText('Таймлайн появится после загрузки видео')).toBeVisible()
     await expect(win.getByTestId('play-toggle')).toHaveAttribute('title', /Пробел/)
   } finally {
     await app.close()

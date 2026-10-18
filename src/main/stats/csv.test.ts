@@ -15,12 +15,22 @@ const sample = (): StatsExport => ({
       shareCount: 66.67,
       shareTime: 80,
       first: 5,
-      last: 65.5
+      last: 65.5,
+      good: 2,
+      bad: 1,
+      review: 1
     }
   ],
   episodes: [
-    { tag: 'Атака', start: 5, end: 15 },
-    { tag: 'Атака', start: 65.5, end: 75.5, note: 'Угловой; "быстро"\nвторая строка' }
+    { tag: 'Атака', start: 5, end: 15, rating: 'good', review: false },
+    {
+      tag: 'Атака',
+      start: 65.5,
+      end: 75.5,
+      note: 'Угловой; "быстро"\nвторая строка',
+      rating: null,
+      review: true
+    }
   ]
 })
 
@@ -64,17 +74,17 @@ describe('buildStatsCsv', () => {
     const lines = csv.slice(1).split('\r\n')
     expect(lines[0]).toBe('Статистика по тегам')
     expect(lines[1]).toBe(
-      'Тег;Эпизодов;Время всего, с;Средняя длительность, с;Доля эпизодов, %;Доля времени, %;Первое начало;Последнее начало'
+      'Тег;Эпизодов;Время всего, с;Средняя длительность, с;Доля эпизодов, %;Доля времени, %;Первое начало;Последнее начало;Хорошо;Плохо;Разобрать;Хороших, %'
     )
-    expect(lines[2]).toBe('Атака;2;20,0;10,0;66,7;80,0;00:05.0;01:05.5')
+    expect(lines[2]).toBe('Атака;2;20,0;10,0;66,7;80,0;00:05.0;01:05.5;2;1;1;66,7')
     expect(lines[3]).toBe('')
     expect(lines[4]).toBe('Эпизоды')
-    expect(lines[5]).toBe('№;Тег;Начало;Конец;Длительность, с;Заметка')
-    expect(lines[6]).toBe('1;Атака;00:05.0;00:15.0;10,0;')
+    expect(lines[5]).toBe('№;Тег;Начало;Конец;Длительность, с;Оценка;Разобрать;Заметка')
+    expect(lines[6]).toBe('1;Атака;00:05.0;00:15.0;10,0;Хорошо;нет;')
   })
 
   it('заметка с ; кавычками и переносом цитируется целиком', () => {
-    expect(csv).toContain('2;Атака;01:05.5;01:15.5;10,0;"Угловой; ""быстро""\nвторая строка"')
+    expect(csv).toContain('2;Атака;01:05.5;01:15.5;10,0;—;да;"Угловой; ""быстро""\nвторая строка"')
   })
 
   it('кириллица сохраняется в UTF-8', () => {
@@ -92,6 +102,15 @@ describe('buildStatsCsv', () => {
     expect(out).toContain(";'@x;")
   })
 
+  it('колонки оценок: счётчики и «—», если оценённых нет', () => {
+    const data = sample()
+    data.tags.push({ ...data.tags[0], name: 'Без оценок', good: 0, bad: 0, review: 0 })
+    data.episodes[0] = { ...data.episodes[0], rating: 'bad', review: true }
+    const out = buildStatsCsv(data)
+    expect(out).toContain('\r\nБез оценок;2;20,0;10,0;66,7;80,0;00:05.0;01:05.5;0;0;0;—\r\n')
+    expect(out).toContain('1;Атака;00:05.0;00:15.0;10,0;Плохо;да;')
+  })
+
   it('пустые данные дают заголовки без строк', () => {
     const out = buildStatsCsv({ ...sample(), tags: [], episodes: [] })
     expect(out.split('\r\n').filter(Boolean)).toHaveLength(4)
@@ -99,6 +118,25 @@ describe('buildStatsCsv', () => {
 })
 
 describe('StatsExportSchema', () => {
+  it('старый запрос без оценок получает значения по умолчанию', () => {
+    const old = {
+      ...sample(),
+      tags: [
+        { name: 'Т', count: 1, total: 1, avg: 1, shareCount: 1, shareTime: 1, first: 0, last: 0 }
+      ],
+      episodes: [{ tag: 'Т', start: 0, end: 1 }]
+    }
+    const parsed = StatsExportSchema.parse(old)
+    expect(parsed.episodes[0]).toMatchObject({ rating: null, review: false })
+    expect(parsed.tags[0]).toMatchObject({ good: 0, bad: 0, review: 0 })
+    expect(
+      StatsExportSchema.safeParse({
+        ...old,
+        episodes: [{ tag: 'Т', start: 0, end: 1, rating: 'meh' }]
+      }).success
+    ).toBe(false)
+  })
+
   it('принимает корректные данные', () => {
     expect(StatsExportSchema.safeParse(sample()).success).toBe(true)
   })

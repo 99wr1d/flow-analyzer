@@ -1,11 +1,19 @@
 import { create } from 'zustand'
-import type { Episode, Range } from '../../../../shared/episodes'
+import {
+  toggledRating,
+  type Episode,
+  type Range,
+  type Rating,
+  type RatingFilter
+} from '../../../../shared/episodes'
 import { commit, createHistory, redo, undo, type HistoryState } from '../annotations/history'
 
 export interface EpisodesState extends HistoryState<Episode> {
   selectedId: string | null
   /** Показывать только эпизоды этих тегов (id). Пусто — все. */
   filter: string[]
+  /** Показывать только эпизоды с такими оценками (или «без оценки»). Пусто — все. Группа сочетается с тегами через «и». */
+  ratingFilter: RatingFilter[]
   /** Метки «Начало» / «Конец» для точной разметки (секунды). */
   inPoint: number | null
   outPoint: number | null
@@ -17,11 +25,18 @@ export interface EpisodesActions {
   remove: (id: string) => void
   setRange: (id: string, range: Range) => void
   setNote: (id: string, note: string) => void
+  /** Нажатие «хорошо» / «плохо»: повторное нажатие на активную оценку снимает её, другая оценка заменяет. */
+  toggleRating: (id: string, kind: Rating) => void
+  /** Флаг «разобрать» — независим от оценки. */
+  toggleReview: (id: string) => void
   select: (id: string | null) => void
   toggleFilter: (tagId: string) => void
   clearFilter: () => void
+  toggleRatingFilter: (kind: RatingFilter) => void
+  /** Сбрасывает и фильтр по тегам, и фильтр по оценкам. */
+  clearFilters: () => void
   /** Заменяет фильтр целиком (например, из окна статистики). */
-  setFilter: (tagIds: string[]) => void
+  setFilter: (tagIds: string[], ratings?: RatingFilter[]) => void
   setIn: (time: number) => void
   setOut: (time: number) => void
   clearMarks: () => void
@@ -42,6 +57,7 @@ const initial = (): EpisodesState => ({
   ...createHistory<Episode>(),
   selectedId: null,
   filter: [],
+  ratingFilter: [],
   inPoint: null,
   outPoint: null
 })
@@ -83,6 +99,28 @@ export const useEpisodesStore = create<EpisodesState & EpisodesActions>()((set) 
       return { ...commit(s, items, { key: `note:${id}` }) }
     }),
 
+  toggleRating: (id, kind) =>
+    set((s) => {
+      if (!s.items.some((e) => e.id === id)) return {}
+      return {
+        ...commit(
+          s,
+          s.items.map((e) => (e.id === id ? { ...e, rating: toggledRating(e.rating, kind) } : e))
+        )
+      }
+    }),
+
+  toggleReview: (id) =>
+    set((s) => {
+      if (!s.items.some((e) => e.id === id)) return {}
+      return {
+        ...commit(
+          s,
+          s.items.map((e) => (e.id === id ? { ...e, review: !e.review } : e))
+        )
+      }
+    }),
+
   select: (selectedId) => set({ selectedId }),
 
   toggleFilter: (tagId) =>
@@ -90,7 +128,14 @@ export const useEpisodesStore = create<EpisodesState & EpisodesActions>()((set) 
       filter: s.filter.includes(tagId) ? s.filter.filter((t) => t !== tagId) : [...s.filter, tagId]
     })),
   clearFilter: () => set({ filter: [] }),
-  setFilter: (filter) => set({ filter: [...filter] }),
+  toggleRatingFilter: (kind) =>
+    set((s) => ({
+      ratingFilter: s.ratingFilter.includes(kind)
+        ? s.ratingFilter.filter((r) => r !== kind)
+        : [...s.ratingFilter, kind]
+    })),
+  clearFilters: () => set({ filter: [], ratingFilter: [] }),
+  setFilter: (filter, ratings = []) => set({ filter: [...filter], ratingFilter: [...ratings] }),
 
   setIn: (inPoint) => set({ inPoint }),
   setOut: (outPoint) => set({ outPoint }),

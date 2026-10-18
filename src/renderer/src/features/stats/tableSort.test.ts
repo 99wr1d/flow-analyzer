@@ -12,7 +12,11 @@ const t = (name: string, count: number, total: number): TagStat => ({
   shareCount: 0,
   shareTime: 0,
   first: 0,
-  last: 0
+  last: 0,
+  good: 0,
+  bad: 0,
+  review: 0,
+  goodPercent: null
 })
 const tags = [t('Б', 2, 30), t('А', 5, 10), t('В', 2, 20)]
 

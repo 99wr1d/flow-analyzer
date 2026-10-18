@@ -35,11 +35,16 @@ export const isExportRunning = (): boolean => get().open && get().phase === 'run
 export function openExportDialog(): void {
   if (get().open) return
   if (!canExport()) return
-  const { items, filter } = useEpisodesStore.getState()
+  const { items, filter, ratingFilter } = useEpisodesStore.getState()
   set({
     open: true,
     phase: 'form',
-    scope: items.length === 0 ? 'whole' : filter.length > 0 ? 'visible' : 'all',
+    scope:
+      items.length === 0
+        ? 'whole'
+        : filter.length > 0 || ratingFilter.length > 0
+          ? 'visible'
+          : 'all',
     picked: items.map((e) => e.id),
     withDrawings: null,
     preparing: null,
@@ -59,9 +64,9 @@ export function closeExportDialog(): void {
 
 /** Эпизоды, которые сейчас выбраны в окне экспорта (по порядку начала). */
 export function selectedForExport(): Episode[] {
-  const { items, filter } = useEpisodesStore.getState()
+  const { items, filter, ratingFilter } = useEpisodesStore.getState()
   const { scope, picked } = get()
-  return chooseEpisodes(scope, sortEpisodes(items), filter, new Set(picked))
+  return chooseEpisodes(scope, sortEpisodes(items), filter, new Set(picked), ratingFilter)
 }
 
 /** План экспорта по текущим настройкам окна (для сводки, переключателя «С рисунками» и запуска). */

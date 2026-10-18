@@ -4,9 +4,12 @@ import {
   MAX_NOTE,
   MIN_EPISODE,
   editRange,
+  filterEpisodes,
   marksRange,
+  matchesRatingFilter,
   normalizeRange,
-  quickRange
+  quickRange,
+  toggledRating
 } from './episodes'
 
 const base = {
@@ -102,5 +105,80 @@ describe('правка эпизода', () => {
   })
   it('обрезка по длительности видео', () => {
     expect(editRange(e, { end: 99 }, 10)).toEqual({ ok: true, range: { start: 2, end: 10 } })
+  })
+})
+
+describe('оценки эпизодов', () => {
+  it('в старых данных нет полей: подставляются null и false', () => {
+    const parsed = EpisodeSchema.parse(base)
+    expect(parsed.rating).toBeNull()
+    expect(parsed.review).toBe(false)
+  })
+
+  it('принимает good, bad, null и review; остальное отклоняет', () => {
+    for (const rating of ['good', 'bad', null]) {
+      expect(EpisodeSchema.safeParse({ ...base, rating }).success).toBe(true)
+    }
+    expect(EpisodeSchema.parse({ ...base, rating: 'bad', review: true })).toMatchObject({
+      rating: 'bad',
+      review: true
+    })
+    expect(EpisodeSchema.safeParse({ ...base, rating: 'meh' }).success).toBe(false)
+    expect(EpisodeSchema.safeParse({ ...base, rating: 1 }).success).toBe(false)
+    expect(EpisodeSchema.safeParse({ ...base, review: 'yes' }).success).toBe(false)
+  })
+
+  it('переключение: повтор снимает, другая оценка заменяет', () => {
+    expect(toggledRating(null, 'good')).toBe('good')
+    expect(toggledRating('good', 'good')).toBeNull()
+    expect(toggledRating('good', 'bad')).toBe('bad')
+    expect(toggledRating('bad', 'bad')).toBeNull()
+    expect(toggledRating('bad', 'good')).toBe('good')
+  })
+})
+
+describe('фильтр по тегам и оценкам', () => {
+  const ep = (
+    id: string,
+    tagId: string,
+    rating: 'good' | 'bad' | null,
+    review = false
+  ): { id: string; tagId: string; rating: 'good' | 'bad' | null; review: boolean } => ({
+    id,
+    tagId,
+    rating,
+    review
+  })
+  const items = [
+    ep('1', 'attack', 'good'),
+    ep('2', 'attack', 'bad', true),
+    ep('3', 'goal', 'good', true),
+    ep('4', 'goal', null),
+    ep('5', 'shot', null, true)
+  ]
+  const ids = (list: { id: string }[]): string[] => list.map((e) => e.id)
+
+  it('пустые фильтры показывают всё', () => {
+    expect(ids(filterEpisodes(items, [], []))).toEqual(['1', '2', '3', '4', '5'])
+  })
+
+  it('оценки внутри группы — «или»', () => {
+    expect(ids(filterEpisodes(items, [], ['good']))).toEqual(['1', '3'])
+    expect(ids(filterEpisodes(items, [], ['good', 'bad']))).toEqual(['1', '2', '3'])
+    expect(ids(filterEpisodes(items, [], ['review']))).toEqual(['2', '3', '5'])
+    expect(ids(filterEpisodes(items, [], ['none']))).toEqual(['4', '5'])
+    expect(ids(filterEpisodes(items, [], ['bad', 'none']))).toEqual(['2', '4', '5'])
+  })
+
+  it('теги и оценки сочетаются через «и»; теги внутри группы — «или»', () => {
+    expect(ids(filterEpisodes(items, ['attack'], ['good']))).toEqual(['1'])
+    expect(ids(filterEpisodes(items, ['attack', 'goal'], ['review']))).toEqual(['2', '3'])
+    expect(ids(filterEpisodes(items, ['shot'], ['good']))).toEqual([])
+    expect(ids(filterEpisodes(items, ['goal', 'shot'], []))).toEqual(['3', '4', '5'])
+  })
+
+  it('matchesRatingFilter: эпизод без полей считается неоценённым', () => {
+    expect(matchesRatingFilter({}, ['none'])).toBe(true)
+    expect(matchesRatingFilter({}, ['good'])).toBe(false)
   })
 })

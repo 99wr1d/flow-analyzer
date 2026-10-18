@@ -44,6 +44,7 @@ function currentData(): ReturnType<typeof deriveStats> {
   return deriveStats({
     items: episodes.items,
     filter: episodes.filter,
+    ratingFilter: episodes.ratingFilter,
     respectFilter: stats.respectFilter,
     duration: usePlayerStore.getState().duration,
     tags: useSettingsStore.getState().settings.tags,

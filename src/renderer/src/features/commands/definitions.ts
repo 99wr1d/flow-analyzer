@@ -3,12 +3,20 @@ import { DEFAULT_TAG_KEYS, tagCommandId, type TagDef } from '../../../../shared/
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore, type Tool } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
-import { applyTag, markIn, markOut } from '../episodes/tagging'
+import { applyTag, markIn, markOut, rateCurrent } from '../episodes/tagging'
 import { canExport, openExportDialog } from '../export/exportActions'
 import { redoAny, undoAny } from '../history/unified'
 import { canOpenStats, openStats } from '../stats/statsActions'
 import { openVideoFromDialog } from '../player/importVideo'
-import { canSave, newProject, openProject, saveProject, saveProjectAs } from '../project/actions'
+import {
+  canSave,
+  goHome,
+  newProject,
+  openProject,
+  saveProject,
+  saveProjectAs
+} from '../project/actions'
+import { useViewStore } from '../../app/viewStore'
 import { changeRate, stepFrame, stepSecond, toggleMute, togglePlay } from '../player/videoElement'
 import { useSettingsStore } from '../settings/settingsStore'
 import { makeBinding, type Binding } from './binding'
@@ -165,6 +173,30 @@ export const STATIC_COMMANDS: readonly Command[] = [
     enabled: ready
   },
   {
+    id: 'episodes:rate-good',
+    label: 'Оценка: хорошо',
+    group: 'Эпизоды',
+    defaults: [key('Equal')],
+    run: () => rateCurrent('good'),
+    enabled: ready
+  },
+  {
+    id: 'episodes:rate-bad',
+    label: 'Оценка: плохо',
+    group: 'Эпизоды',
+    defaults: [key('Minus')],
+    run: () => rateCurrent('bad'),
+    enabled: ready
+  },
+  {
+    id: 'episodes:review',
+    label: 'Разобрать',
+    group: 'Эпизоды',
+    defaults: [key('Slash')],
+    run: () => rateCurrent('review'),
+    enabled: ready
+  },
+  {
     id: 'project:save',
     label: 'Сохранить',
     group: 'Проект',
@@ -192,8 +224,15 @@ export const STATIC_COMMANDS: readonly Command[] = [
     label: 'Новый проект',
     group: 'Проект',
     defaults: [key('KeyN', { ctrl: true })],
-    run: () => void newProject(),
-    enabled: canSave
+    run: () => void newProject()
+  },
+  {
+    id: 'project:home',
+    label: 'На главную',
+    group: 'Проект',
+    defaults: [key('KeyH', { ctrl: true })],
+    run: () => void goHome(),
+    enabled: () => useViewStore.getState().view === 'workspace'
   },
   {
     id: 'stats:open',

@@ -4,6 +4,8 @@ export interface Toast {
   text: string
   kind: 'info' | 'warn'
   color?: string
+  /** Эпизод, который можно оценить прямо из подсказки (кнопки «хорошо», «плохо», «разобрать»). */
+  episodeId?: string
   nonce: number
 }
 

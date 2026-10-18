@@ -2,7 +2,13 @@
 import type { Episode } from './episodes'
 
 /** Что нужно от эпизода для статистики (id и заметка не нужны). */
-export type StatsEpisode = Pick<Episode, 'tagId' | 'tagName' | 'tagColor' | 'start' | 'end'>
+export type StatsEpisode = Pick<Episode, 'tagId' | 'tagName' | 'tagColor' | 'start' | 'end'> &
+  Partial<Pick<Episode, 'rating' | 'review'>>
+
+/** Доля хороших среди оценённых (хорошо / (хорошо + плохо)), %. null — оценённых эпизодов нет. */
+export function goodPercent(good: number, bad: number): number | null {
+  return good + bad > 0 ? (good / (good + bad)) * 100 : null
+}
 
 /** Тег из настроек: если он ещё существует, его имя и цвет главнее снимка в эпизодах. */
 export interface StatsTagInfo {
@@ -27,6 +33,12 @@ export interface TagStat {
   /** Начало первого и последнего по времени эпизода тега, с. */
   first: number
   last: number
+  /** Оценки: сколько эпизодов хороших, плохих и помеченных «разобрать». */
+  good: number
+  bad: number
+  review: number
+  /** % хороших среди оценённых; null — оценок нет. */
+  goodPercent: number | null
 }
 
 export interface OverallStats {
@@ -42,6 +54,10 @@ export interface OverallStats {
   avg: number
   /** Длительность видео, с. */
   videoDuration: number
+  good: number
+  bad: number
+  review: number
+  goodPercent: number | null
 }
 
 export interface TimeBin {
@@ -137,6 +153,9 @@ interface TagAcc {
   total: number
   first: number
   last: number
+  good: number
+  bad: number
+  review: number
 }
 
 export interface StatsOptions {
@@ -172,7 +191,10 @@ export function computeStats(
         count: 0,
         total: 0,
         first: r.start,
-        last: r.start
+        last: r.start,
+        good: 0,
+        bad: 0,
+        review: 0
       }
       acc.set(e.tagId, t)
     } else {
@@ -181,6 +203,9 @@ export function computeStats(
       t.color = e.tagColor
     }
     t.count += 1
+    if (e.rating === 'good') t.good += 1
+    else if (e.rating === 'bad') t.bad += 1
+    if (e.review) t.review += 1
     t.total += len
     if (r.start < t.first) t.first = r.start
     if (r.start > t.last) t.last = r.start
@@ -199,7 +224,11 @@ export function computeStats(
       shareCount: n > 0 ? (t.count / n) * 100 : 0,
       shareTime: sumTime > EPS ? (t.total / sumTime) * 100 : 0,
       first: t.first,
-      last: t.last
+      last: t.last,
+      good: t.good,
+      bad: t.bad,
+      review: t.review,
+      goodPercent: goodPercent(t.good, t.bad)
     }
   })
   tags.sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'ru'))
@@ -212,7 +241,14 @@ export function computeStats(
     sumTime,
     tags: tags.length,
     avg: n > 0 ? sumTime / n : 0,
-    videoDuration: duration
+    videoDuration: duration,
+    good: tags.reduce((sum, t) => sum + t.good, 0),
+    bad: tags.reduce((sum, t) => sum + t.bad, 0),
+    review: tags.reduce((sum, t) => sum + t.review, 0),
+    goodPercent: goodPercent(
+      tags.reduce((sum, t) => sum + t.good, 0),
+      tags.reduce((sum, t) => sum + t.bad, 0)
+    )
   }
 
   const size = resolveBinSeconds(options.bin ?? 'auto', duration)

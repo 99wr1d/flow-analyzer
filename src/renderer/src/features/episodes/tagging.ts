@@ -76,7 +76,9 @@ function createEpisode(tag: TagDef, start: number, end: number): void {
     tagName: tag.name,
     tagColor: tag.color,
     start,
-    end
+    end,
+    rating: null,
+    review: false
   }
   useEpisodesStore.getState().add(episode)
   const feedback = useFeedbackStore.getState()
@@ -84,6 +86,52 @@ function createEpisode(tag: TagDef, start: number, end: number): void {
   feedback.show({
     text: `Эпизод «${tag.name}» ${fmtRange(start, end)}`,
     kind: 'info',
-    color: tag.color
+    color: tag.color,
+    episodeId: episode.id
   })
+}
+
+export type RateKind = 'good' | 'bad' | 'review'
+
+/** Эпизод для горячих клавиш оценки: выбранный, иначе созданный последним. */
+export function rateTarget(): Episode | null {
+  const { items, selectedId } = useEpisodesStore.getState()
+  return items.find((e) => e.id === selectedId) ?? items[items.length - 1] ?? null
+}
+
+/** Оценка эпизода с подтверждением в подсказке. Возвращает false, если оценивать нечего. */
+export function rateEpisode(id: string, kind: RateKind): boolean {
+  const store = useEpisodesStore.getState()
+  if (!store.items.some((e) => e.id === id)) return false
+  if (kind === 'review') store.toggleReview(id)
+  else store.toggleRating(id, kind)
+  const episode = useEpisodesStore.getState().items.find((e) => e.id === id)
+  if (!episode) return false
+  const text =
+    kind === 'review'
+      ? episode.review
+        ? 'Отмечено «разобрать»'
+        : 'Отметка «разобрать» снята'
+      : episode.rating
+        ? episode.rating === 'good'
+          ? 'Оценка: хорошо'
+          : 'Оценка: плохо'
+        : 'Оценка снята'
+  useFeedbackStore.getState().show({
+    text: `${text} · «${episode.tagName}» ${fmtRange(episode.start, episode.end)}`,
+    kind: 'info',
+    color: episode.tagColor,
+    episodeId: id
+  })
+  return true
+}
+
+/** Горячая клавиша оценки: применяется к выбранному эпизоду, иначе к последнему созданному. */
+export function rateCurrent(kind: RateKind): void {
+  const target = rateTarget()
+  if (!target) {
+    warn('Нет эпизода для оценки — сначала отметьте эпизод тегом')
+    return
+  }
+  rateEpisode(target.id, kind)
 }

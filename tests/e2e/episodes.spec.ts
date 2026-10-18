@@ -36,7 +36,7 @@ async function dragArrow(win: Page): Promise<void> {
 
 test.describe('эпизоды', () => {
   test('панель тегов: стандартные теги, клавиши и подсказки', async () => {
-    const { app, win } = await launch()
+    const { app, win } = await openFixture()
     try {
       const buttons = win.getByTestId('tag-button')
       await expect(buttons).toHaveCount(9)
@@ -44,9 +44,9 @@ test.describe('эпизоды', () => {
       await expect(buttons.nth(0).locator('kbd')).toHaveText('1')
       await expect(buttons.nth(8)).toContainText('Отбор')
       await expect(buttons.nth(8).locator('kbd')).toHaveText('9')
-      // Без видео разметка недоступна.
-      await expect(buttons.first()).toBeDisabled()
-      await expect(win.getByTestId('set-in')).toBeDisabled()
+      // Видео есть, эпизодов нет: теги доступны, список пуст.
+      await expect(buttons.first()).toBeEnabled()
+      await expect(win.getByTestId('set-in')).toBeEnabled()
       await expect(win.getByText('Меток пока нет').first()).toBeVisible()
       await expect(win.getByTestId('episode-count')).toHaveText('0')
     } finally {

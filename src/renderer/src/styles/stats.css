@@ -37,7 +37,7 @@
 /* Показатели. */
 .kpis {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
 }
 .kpi {
@@ -71,7 +71,7 @@
 /* Карточки. */
 .stats__pair {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
   gap: 12px;
 }
 .card {
@@ -120,7 +120,7 @@
 }
 .stats-table th,
 .stats-table td {
-  padding: 0 8px;
+  padding: 0 6px;
   height: 32px;
   border-bottom: 1px solid var(--border);
   text-align: left;

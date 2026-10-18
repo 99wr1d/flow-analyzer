@@ -8,7 +8,7 @@ import { useSettingsStore } from '../settings/settingsStore'
 import { useEpisodesStore, sortEpisodes } from './episodesStore'
 import { useFeedbackStore } from './feedbackStore'
 import { assignEpisodeLanes } from './lanes'
-import { applyTag, markIn, markOut } from './tagging'
+import { applyTag, markIn, markOut, rateCurrent } from './tagging'
 
 const ep = (n: number, start: number, end: number): Episode => ({
   id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
@@ -16,7 +16,9 @@ const ep = (n: number, start: number, end: number): Episode => ({
   tagName: 'Атака',
   tagColor: '#2bd67b',
   start,
-  end
+  end,
+  rating: null,
+  review: false
 })
 
 const E = (): ReturnType<typeof useEpisodesStore.getState> => useEpisodesStore.getState()
@@ -330,5 +332,101 @@ describe('общая отмена рисунков и эпизодов', () => {
     expect([A().items.length, E().items.length]).toEqual([0, 0])
     expect(A().past).toEqual([])
     expect(E().past).toEqual([])
+  })
+})
+
+describe('оценки эпизодов', () => {
+  const get = (n: number): Episode => E().items.find((e) => e.id === ep(n, 0, 1).id)!
+
+  it('«хорошо» и «плохо» взаимоисключающи, повторный клик снимает', () => {
+    E().add(ep(1, 1, 3))
+    const id = ep(1, 1, 3).id
+    E().toggleRating(id, 'good')
+    expect(get(1).rating).toBe('good')
+    E().toggleRating(id, 'bad')
+    expect(get(1).rating).toBe('bad')
+    E().toggleRating(id, 'bad')
+    expect(get(1).rating).toBeNull()
+  })
+
+  it('«разобрать» не зависит от оценки', () => {
+    E().add(ep(1, 1, 3))
+    const id = ep(1, 1, 3).id
+    E().toggleRating(id, 'good')
+    E().toggleReview(id)
+    expect(get(1)).toMatchObject({ rating: 'good', review: true })
+    E().toggleRating(id, 'good')
+    expect(get(1)).toMatchObject({ rating: null, review: true })
+    E().toggleReview(id)
+    expect(get(1).review).toBe(false)
+  })
+
+  it('неизвестный id ничего не меняет и не пишет в историю', () => {
+    E().add(ep(1, 1, 3))
+    const past = E().past.length
+    E().toggleRating(ep(9, 1, 3).id, 'good')
+    E().toggleReview(ep(9, 1, 3).id)
+    expect(E().past.length).toBe(past)
+  })
+
+  it('отмена и повтор работают через общую историю', () => {
+    E().add(ep(1, 1, 3))
+    const id = ep(1, 1, 3).id
+    E().toggleRating(id, 'bad')
+    E().toggleReview(id)
+    undoAny()
+    expect(get(1)).toMatchObject({ rating: 'bad', review: false })
+    undoAny()
+    expect(get(1)).toMatchObject({ rating: null, review: false })
+    redoAny()
+    redoAny()
+    expect(get(1)).toMatchObject({ rating: 'bad', review: true })
+  })
+
+  it('новый эпизод создаётся без оценки', () => {
+    loadVideo(100, 50)
+    applyTag('attack')
+    expect(E().items[0]).toMatchObject({ rating: null, review: false })
+  })
+
+  it('горячие клавиши: выбранный эпизод, иначе последний созданный, иначе подсказка', () => {
+    rateCurrent('good')
+    expect(useFeedbackStore.getState().toast).toMatchObject({ kind: 'warn' })
+    E().add(ep(1, 1, 3))
+    E().add(ep(2, 10, 12))
+    rateCurrent('bad')
+    expect(get(2).rating).toBe('bad')
+    expect(get(1).rating).toBeNull()
+    E().select(ep(1, 1, 3).id)
+    rateCurrent('review')
+    expect(get(1).review).toBe(true)
+    expect(get(2).review).toBe(false)
+    // Подсказка после оценки позволяет оценить тот же эпизод кнопками.
+    expect(useFeedbackStore.getState().toast?.episodeId).toBe(ep(1, 1, 3).id)
+  })
+
+  it('фильтры оценок: переключатель, общий сброс, замена из статистики', () => {
+    E().toggleFilter('attack')
+    E().toggleRatingFilter('good')
+    E().toggleRatingFilter('none')
+    expect(E().ratingFilter).toEqual(['good', 'none'])
+    E().toggleRatingFilter('good')
+    expect(E().ratingFilter).toEqual(['none'])
+    E().clearFilters()
+    expect(E().filter).toEqual([])
+    expect(E().ratingFilter).toEqual([])
+    E().toggleRatingFilter('bad')
+    E().setFilter(['goal'])
+    expect(E().filter).toEqual(['goal'])
+    expect(E().ratingFilter).toEqual([])
+  })
+
+  it('загрузка проекта и сброс очищают фильтр оценок', () => {
+    E().toggleRatingFilter('review')
+    E().load([ep(1, 1, 3)])
+    expect(E().ratingFilter).toEqual([])
+    E().toggleRatingFilter('review')
+    E().reset()
+    expect(E().ratingFilter).toEqual([])
   })
 })

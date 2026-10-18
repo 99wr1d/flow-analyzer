@@ -1,7 +1,17 @@
 // Сортировка таблицы по тегам.
 import type { TagStat } from '../../../../shared/stats'
 
-export type SortKey = 'name' | 'count' | 'total' | 'avg' | 'shareCount' | 'shareTime'
+export type SortKey =
+  | 'name'
+  | 'count'
+  | 'total'
+  | 'avg'
+  | 'shareCount'
+  | 'shareTime'
+  | 'good'
+  | 'bad'
+  | 'review'
+  | 'goodPercent'
 export type SortDir = 'asc' | 'desc'
 export interface SortState {
   key: SortKey
@@ -18,7 +28,11 @@ export function sortTags(tags: readonly TagStat[], sort: SortState): TagStat[] {
   const sign = sort.dir === 'asc' ? 1 : -1
   return [...tags].sort((a, b) => {
     const diff =
-      sort.key === 'name' ? a.name.localeCompare(b.name, 'ru') : a[sort.key] - b[sort.key]
+      sort.key === 'name'
+        ? a.name.localeCompare(b.name, 'ru')
+        : sort.key === 'goodPercent'
+          ? (a.goodPercent ?? -1) - (b.goodPercent ?? -1)
+          : a[sort.key] - b[sort.key]
     // При равенстве порядок один и тот же: по имени.
     return diff !== 0 ? sign * diff : a.name.localeCompare(b.name, 'ru')
   })

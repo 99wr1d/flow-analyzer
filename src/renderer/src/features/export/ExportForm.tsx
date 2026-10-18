@@ -88,12 +88,16 @@ export function ExportForm(): React.JSX.Element {
   const state = useExportStore()
   const items = useEpisodesStore((s) => s.items)
   const filter = useEpisodesStore((s) => s.filter)
+  const ratingFilter = useEpisodesStore((s) => s.ratingFilter)
   const duration = usePlayerStore((s) => s.duration)
   const set = useExportStore.setState
 
   const sorted = useMemo(() => sortEpisodes(items), [items])
-  const visibleCount = useMemo(() => visibleEpisodes(sorted, filter).length, [sorted, filter])
-  const filtered = filter.length > 0
+  const visibleCount = useMemo(
+    () => visibleEpisodes(sorted, filter, ratingFilter).length,
+    [sorted, filter, ratingFilter]
+  )
+  const filtered = filter.length > 0 || ratingFilter.length > 0
 
   const padding = parsePadding(state.padding)
   const chosen = selectedForExport()

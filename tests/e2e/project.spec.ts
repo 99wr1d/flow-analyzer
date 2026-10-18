@@ -132,13 +132,16 @@ test.describe('проекты', () => {
     let { app, win } = ctx
     const userData = ctx.userData
     try {
-      // Без видео сохранять нечего: пункты неактивны, меню показывает пустой список недавних.
-      await expect(win.getByTestId('project-name')).toHaveText('Новый проект')
+      // Стартовый экран: проекта ещё нет, меню проекта и его название не показываются.
       await expect(win).toHaveTitle('FlowAnalyzer')
+      await expect(win.getByTestId('project-menu-button')).toHaveCount(0)
+
+      await openFixture(ctx)
+      // Видео открыто, проект безымянный: меню показывает пустой список недавних.
+      await expect(win.getByTestId('project-name')).toHaveText('Новый проект')
       await openMenu(win)
-      await expect(win.getByTestId('menu-save')).toBeDisabled()
-      await expect(win.getByTestId('menu-save-as')).toBeDisabled()
-      await expect(win.getByTestId('menu-new')).toBeDisabled()
+      await expect(win.getByTestId('menu-save')).toBeEnabled()
+      await expect(win.getByTestId('menu-new')).toBeEnabled()
       await expect(win.getByTestId('menu-open')).toBeEnabled()
       await win.getByTestId('menu-recent').click()
       await expect(win.getByTestId('recent-none')).toBeDisabled()
@@ -148,8 +151,6 @@ test.describe('проекты', () => {
       await expect(win.getByTestId('recent-menu')).toHaveCount(0)
       await win.keyboard.press('Escape')
       await expect(win.getByTestId('project-menu')).toHaveCount(0)
-
-      await openFixture(ctx)
       await expect(dirtyMark(win)).toHaveCount(0)
       await makeWork(win)
       await expect(dirtyMark(win)).toBeVisible()
@@ -185,7 +186,7 @@ test.describe('проекты', () => {
       const saved = readJson(file)
       expect(saved.format).toBe('flowanalyzer-project')
       expect(saved.version).toBe(1)
-      expect(saved.appVersion).toBe('0.9.0')
+      expect(saved.appVersion).toBe('0.10.0')
       expect(saved.video.path).toBe(fixture('cfr25.mp4'))
       expect(saved.video.fileName).toBe('cfr25.mp4')
       expect(saved.video.sizeBytes).toBeGreaterThan(0)
@@ -229,6 +230,9 @@ test.describe('проекты', () => {
       const second = await launch({ userData })
       app = second.app
       win = second.win
+      // На стартовом экране проект есть в списке карточек; меню «Последние проекты» — в рабочей области.
+      await expect(win.getByTestId('project-card')).toHaveCount(1)
+      await openFixture(second)
       await openRecent(win)
       await expect(win.getByTestId('recent-item')).toHaveCount(1)
       await expect(win.getByTestId('recent-item')).toContainText('Финал')
@@ -345,7 +349,7 @@ test.describe('проекты', () => {
       await win.getByTestId('relink-cancel').click()
       await expect(dialog).toHaveCount(0)
       await expect(win.getByTestId('file-name')).toHaveCount(0)
-      await expect(win.getByTestId('play-toggle')).toBeDisabled()
+      await expect(win.getByTestId('start-screen')).toBeVisible()
 
       // Снова, теперь с указанием видео.
       await win.keyboard.press('Control+Shift+O')
@@ -382,8 +386,8 @@ test.describe('проекты', () => {
       await win.keyboard.press('Control+s')
       await expect(dirtyMark(win)).toHaveCount(0)
       await expect(win.getByTestId('project-name')).toHaveText('p')
-      await win.keyboard.press('Control+n')
-      await expect(win.getByTestId('play-toggle')).toBeDisabled()
+      await win.keyboard.press('Control+h')
+      await expect(win.getByTestId('start-screen')).toBeVisible()
       // В проекте записан другой размер видео — как будто файл заменили на другой с тем же именем.
       const saved = readJson(file)
       saved.video.sizeBytes += 1000
@@ -475,7 +479,7 @@ test.describe('проекты', () => {
     }
   })
 
-  test('Ctrl+N и открытие видео при несохранённом: вопрос с тремя ответами', async () => {
+  test('Ctrl+H (на главную) и открытие видео при несохранённом: вопрос с тремя ответами', async () => {
     const work = makeWorkDir()
     const file = join(work, 'a.flowproj')
     const ctx = await launch()
@@ -487,13 +491,13 @@ test.describe('проекты', () => {
       await expect(dirtyMark(win)).toBeVisible()
 
       // Esc и «Отмена» оставляют всё как есть.
-      await win.keyboard.press('Control+n')
+      await win.keyboard.press('Control+h')
       await expect(unsaved(win)).toBeVisible()
       await expect(unsaved(win)).toContainText('Сохранить изменения в проекте «Новый проект»?')
       await shot(win, 'project-save-prompt')
       await win.keyboard.press('Escape')
       await expect(unsaved(win)).toHaveCount(0)
-      await win.keyboard.press('Control+n')
+      await win.keyboard.press('Control+h')
       await win.getByTestId('unsaved-cancel').click()
       await expect(unsaved(win)).toHaveCount(0)
       await expect(shapes(win)).toHaveCount(1)
@@ -501,10 +505,10 @@ test.describe('проекты', () => {
       await expect(win.getByTestId('file-name')).toHaveText('cfr25.mp4')
 
       // Пока вопрос открыт, клавиши команд молчат.
-      await win.keyboard.press('Control+n')
+      await win.keyboard.press('Control+h')
       await expect(unsaved(win)).toBeVisible()
       await win.keyboard.press('Control+z')
-      await win.keyboard.press('Control+n')
+      await win.keyboard.press('Control+h')
       await expect(shapes(win)).toHaveCount(1)
       await win.getByTestId('unsaved-cancel').click()
 
@@ -516,15 +520,15 @@ test.describe('проекты', () => {
       await expect(win.getByTestId('file-name')).toHaveText('cfr25.mp4')
 
       // «Не сохранять» — новый чистый проект.
-      await win.keyboard.press('Control+n')
+      await win.keyboard.press('Control+h')
       await win.getByTestId('unsaved-discard').click()
       await expect(unsaved(win)).toHaveCount(0)
-      await expect(win.getByTestId('play-toggle')).toBeDisabled()
+      await expect(win.getByTestId('start-screen')).toBeVisible()
       await expect(win.getByTestId('file-name')).toHaveCount(0)
       await expect(shapes(win)).toHaveCount(0)
       await expect(rows(win)).toHaveCount(0)
       await expect(dirtyMark(win)).toHaveCount(0)
-      await expect(win.getByTestId('project-name')).toHaveText('Новый проект')
+      await expect(win.getByTestId('project-name')).toHaveCount(0)
       await expect.poll(() => title(app)).toBe('FlowAnalyzer')
 
       // «Сохранить» — записывает и затем очищает.
@@ -532,10 +536,10 @@ test.describe('проекты', () => {
       await seekVideo(win, 1)
       await draw(win, 'c', [0.2, 0.2], [0.5, 0.5])
       await stubSaveDialog(app, file)
-      await win.keyboard.press('Control+n')
+      await win.keyboard.press('Control+h')
       await win.getByTestId('unsaved-save').click()
       await expect(unsaved(win)).toHaveCount(0)
-      await expect(win.getByTestId('play-toggle')).toBeDisabled()
+      await expect(win.getByTestId('start-screen')).toBeVisible()
       expect(readJson(file).annotations).toHaveLength(1)
 
       // Если в диалоге сохранения пользователь передумал — ничего не очищается.
@@ -545,7 +549,7 @@ test.describe('проекты', () => {
       await app.evaluate(({ dialog }) => {
         dialog.showSaveDialog = async () => ({ canceled: true, filePath: '' })
       })
-      await win.keyboard.press('Control+n')
+      await win.keyboard.press('Control+h')
       await win.getByTestId('unsaved-save').click()
       await expect(unsaved(win)).toHaveCount(0)
       await expect(shapes(win)).toHaveCount(1)
@@ -685,7 +689,8 @@ test.describe('проекты', () => {
       await expect(banner).toBeVisible()
       await expect(banner).toContainText('Найдена несохранённая работа от')
       await shot(win, 'project-recovery-banner')
-      await expect(win.getByTestId('play-toggle')).toBeDisabled() // само ничего не загружается
+      await expect(win.getByTestId('start-screen')).toBeVisible() // само ничего не загружается; баннер и на стартовом экране
+      await expect(win.getByTestId('play-toggle')).toHaveCount(0)
 
       await win.getByTestId('recovery-restore').click()
       await expect(win.getByTestId('play-toggle')).toBeEnabled()
@@ -815,8 +820,8 @@ test.describe('проекты', () => {
     // Мусор в аргументах (нет файла, не тот тип) игнорируется.
     const plain = await launch({ args: [join(work, 'нет.flowproj'), join(work, 'x.txt')] })
     try {
-      await expect(plain.win.getByTestId('play-toggle')).toBeDisabled()
-      await expect(plain.win.getByTestId('project-name')).toHaveText('Новый проект')
+      await expect(plain.win.getByTestId('start-screen')).toBeVisible()
+      await expect(plain.win.getByTestId('project-name')).toHaveCount(0)
     } finally {
       await plain.app.close()
     }

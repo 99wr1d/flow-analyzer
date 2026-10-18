@@ -1,18 +1,26 @@
 // Логика сохранения и открытия проектов (без диалогов — они в ipc/project.ts).
 // Хранит состояние сеанса: какие пути выбрал сам пользователь, проекты, ожидающие указания видео, имя безымянной копии.
 import { randomBytes, randomUUID } from 'crypto'
+import { existsSync } from 'fs'
 import { stat } from 'fs/promises'
-import { basename } from 'path'
+import { basename, join } from 'path'
+import type { CreateProjectRequest } from '../../shared/library'
 import {
+  PROJECT_EXTENSION,
   PROJECT_FORMAT,
   PROJECT_VERSION,
   UNTITLED_PROJECT,
   projectNameFromPath,
   type LoadedProject,
   type Project,
+  type ProjectMeta,
   type ProjectOpenResult,
   type ProjectSaveRequest
 } from '../../shared/project'
+import { sanitizeFileStem, uniqueFileName } from '../ffmpeg/names'
+import { ensureProjectsFolder } from '../library/scan'
+import { readLibrary, rememberInLibrary } from '../library/store'
+import { scheduleThumb } from '../library/thumbs'
 import { grantVideo } from '../media/registry'
 import { MEDIA_ERRORS } from '../media/validate'
 import { readProjectFile, writeProjectFile } from './files'
@@ -33,7 +41,8 @@ export function trustPath(path: string): void {
 export async function isTrustedPath(userData: string, path: string): Promise<boolean> {
   if (trusted.has(pathKey(path))) return true
   const key = pathKey(path)
-  return (await readRecent(userData)).some((r) => pathKey(r.path) === key)
+  if ((await readRecent(userData)).some((r) => pathKey(r.path) === key)) return true
+  return (await readLibrary(userData)).some((i) => pathKey(i.path) === key)
 }
 
 // --- Имя копии для безымянного проекта ---
@@ -78,14 +87,22 @@ export function buildProject(
       fileName: basename(video.path),
       sizeBytes: video.sizeBytes,
       ...(request.fps !== undefined ? { fps: request.fps } : {}),
-      ...(request.fpsSource !== undefined ? { fpsSource: request.fpsSource } : {})
+      ...(request.fpsSource !== undefined ? { fpsSource: request.fpsSource } : {}),
+      ...(request.duration !== undefined ? { duration: request.duration } : {})
     },
     annotations: request.annotations,
     episodes: request.episodes,
     tags: request.tags,
-    ui: { lastTime: request.lastTime }
+    ui: { lastTime: request.lastTime },
+    ...(request.meta ? { meta: request.meta } : {})
   }
 }
+
+/** Имя проекта для показа: название из описания, иначе имя файла (или «Новый проект»). */
+export const displayName = (
+  projectPath: string | null,
+  meta: ProjectMeta | null | undefined
+): string => meta?.title ?? (projectPath ? projectNameFromPath(projectPath) : UNTITLED_PROJECT)
 
 export async function videoFacts(path: string): Promise<VideoFacts> {
   let info
@@ -122,10 +139,12 @@ async function doSave(
   await writeProjectFile(target, buildProject(request, video, target, appVersion, createdAt, now))
   trustPath(target)
   await rememberProject(userData, target, now)
+  await rememberInLibrary(userData, target, now)
+  scheduleThumb(userData, target, video.path, request.lastTime, request.duration)
   await Promise.all(
     [request.currentPath, target, null].map((p) => deleteRecovery(userData, keyForPath(p)))
   )
-  return { path: target, name: projectNameFromPath(target), savedAt: now.toISOString() }
+  return { path: target, name: displayName(target, request.meta), savedAt: now.toISOString() }
 }
 
 /** Автосохранение: копия работы в папке данных, сам проект не трогается. */
@@ -175,8 +194,8 @@ function addTicket(pending: Pending): string {
   return ticket
 }
 
-const nameOf = (projectPath: string | null): string =>
-  projectPath ? projectNameFromPath(projectPath) : UNTITLED_PROJECT
+const nameOf = (projectPath: string | null, project: Project): string =>
+  displayName(projectPath, project.meta)
 
 async function finishLoad(
   userData: string,
@@ -200,7 +219,8 @@ async function finishLoad(
       : null
   const loaded: LoadedProject = {
     path: projectPath,
-    name: nameOf(projectPath),
+    name: nameOf(projectPath, project),
+    meta: project.meta ?? null,
     source,
     annotations: project.annotations,
     episodes: project.episodes,
@@ -214,7 +234,10 @@ async function finishLoad(
   }
   if (projectPath) {
     trustPath(projectPath)
-    if (!pending.dirty) await rememberProject(userData, projectPath)
+    if (!pending.dirty) {
+      await rememberProject(userData, projectPath)
+      await rememberInLibrary(userData, projectPath)
+    }
   }
   return { status: 'opened', project: loaded }
 }
@@ -225,7 +248,7 @@ async function resolvePending(userData: string, pending: Pending): Promise<Proje
     return {
       status: 'video-missing',
       ticket: addTicket(pending),
-      name: nameOf(pending.projectPath),
+      name: nameOf(pending.projectPath, pending.project),
       videoFileName: pending.project.video.fileName
     }
   }
@@ -272,4 +295,52 @@ export async function restoreFromRecovery(
     project: file.project,
     dirty: true
   })
+}
+
+// --- Создание проекта из окна «Новый проект» ---
+
+/** Создаёт файл проекта в папке проектов (имя из названия, при совпадении — «(2)») и открывает его. */
+export async function createProject(
+  userData: string,
+  folder: string,
+  request: CreateProjectRequest,
+  videoPath: string,
+  appVersion: string,
+  now: Date = new Date()
+): Promise<ProjectOpenResult> {
+  const video = await videoFacts(videoPath)
+  await ensureProjectsFolder(folder)
+  const stem = sanitizeFileStem(request.title)
+  const fileName = uniqueFileName(stem, PROJECT_EXTENSION, (name) => existsSync(join(folder, name)))
+  const target = join(folder, fileName)
+  const meta: ProjectMeta = {
+    title: request.title,
+    type: request.type,
+    ...(request.date ? { date: request.date } : {}),
+    ...(request.notes ? { notes: request.notes } : {})
+  }
+  const project = buildProject(
+    {
+      videoId: request.videoId,
+      annotations: [],
+      episodes: [],
+      tags: [],
+      lastTime: 0,
+      currentPath: target,
+      meta
+    },
+    video,
+    target,
+    appVersion,
+    now.toISOString(),
+    now
+  )
+  await serial(async () => {
+    await writeProjectFile(target, project)
+    trustPath(target)
+    await rememberProject(userData, target, now)
+    await rememberInLibrary(userData, target, now)
+  })
+  scheduleThumb(userData, target, video.path, 0, undefined)
+  return finishLoad(userData, { projectPath: target, project, dirty: false }, video.path, false)
 }

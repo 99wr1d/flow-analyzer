@@ -1,12 +1,13 @@
 // Данные окна: какие эпизоды учитываются, сама статистика и запрос на выгрузку CSV.
-import type { Episode } from '../../../../shared/episodes'
-import { computeStats, filterByTags, type BinChoice, type Stats } from '../../../../shared/stats'
+import { filterEpisodes, type Episode, type RatingFilter } from '../../../../shared/episodes'
+import { computeStats, type BinChoice, type Stats } from '../../../../shared/stats'
 import type { TagDef } from '../../../../shared/settings'
 import type { StatsExport } from '../../../../shared/statsExport'
 
 export interface StatsInput {
   items: readonly Episode[]
   filter: readonly string[]
+  ratingFilter?: readonly RatingFilter[]
   respectFilter: boolean
   duration: number
   tags: readonly TagDef[]
@@ -15,16 +16,20 @@ export interface StatsInput {
 
 /** Эпизоды, по которым считается статистика, по порядку начала. */
 export function episodesForStats(
-  input: Pick<StatsInput, 'items' | 'filter' | 'respectFilter'>
+  input: Pick<StatsInput, 'items' | 'filter' | 'ratingFilter' | 'respectFilter'>
 ): Episode[] {
-  const picked = input.respectFilter ? filterByTags(input.items, input.filter) : [...input.items]
+  const picked = input.respectFilter
+    ? filterEpisodes(input.items, input.filter, input.ratingFilter ?? [])
+    : [...input.items]
   return picked.sort((a, b) => a.start - b.start || a.end - b.end)
 }
 
 export function deriveStats(input: StatsInput): { episodes: Episode[]; stats: Stats } {
   const episodes = episodesForStats(input)
   // Для имён тегов нужен порядок создания (последний снимок — самый свежий), он сохранён в items.
-  const ordered = input.respectFilter ? filterByTags(input.items, input.filter) : input.items
+  const ordered = input.respectFilter
+    ? filterEpisodes(input.items, input.filter, input.ratingFilter ?? [])
+    : input.items
   const stats = computeStats(ordered, input.duration, {
     knownTags: input.tags,
     bin: input.bin
@@ -54,7 +59,10 @@ export function buildExportPayload(
       shareCount: Math.min(100, t.shareCount),
       shareTime: Math.min(100, t.shareTime),
       first: t.first,
-      last: t.last
+      last: t.last,
+      good: t.good,
+      bad: t.bad,
+      review: t.review
     })),
     episodes: episodes.map((e) => {
       const start = clamp(e.start, hi)
@@ -62,6 +70,8 @@ export function buildExportPayload(
         tag: names.get(e.tagId) ?? e.tagName,
         start,
         end: Math.max(start, clamp(e.end, hi)),
+        rating: e.rating,
+        review: e.review,
         ...(e.note ? { note: e.note } : {})
       }
     })

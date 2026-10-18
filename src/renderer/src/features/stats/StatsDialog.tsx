@@ -1,5 +1,6 @@
 // Окно «Статистика»: показатели, таблица по тегам и две диаграммы. Весь расчёт — в shared/stats.ts.
 import { useMemo, useRef } from 'react'
+import { filterEpisodes } from '../../../../shared/episodes'
 import { BIN_CHOICES, resolveBinSeconds, type BinChoice } from '../../../../shared/stats'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
@@ -105,14 +106,16 @@ function SaveStatus(): React.JSX.Element {
 function StatsContent(): React.JSX.Element {
   const items = useEpisodesStore((s) => s.items)
   const filter = useEpisodesStore((s) => s.filter)
+  const ratingFilter = useEpisodesStore((s) => s.ratingFilter)
   const duration = usePlayerStore((s) => s.duration)
   const tagSettings = useSettingsStore((s) => s.settings.tags)
   const bin = useStatsStore((s) => s.bin)
   const respectFilter = useStatsStore((s) => s.respectFilter)
 
   const { stats, episodes } = useMemo(
-    () => deriveStats({ items, filter, respectFilter, duration, tags: tagSettings, bin }),
-    [items, filter, respectFilter, duration, tagSettings, bin]
+    () =>
+      deriveStats({ items, filter, ratingFilter, respectFilter, duration, tags: tagSettings, bin }),
+    [items, filter, ratingFilter, respectFilter, duration, tagSettings, bin]
   )
 
   if (episodes.length === 0) {
@@ -140,6 +143,16 @@ function StatsContent(): React.JSX.Element {
         />
         <Kpi id="tags" label={ru.stats.kpiTags} value={String(overall.tags)} />
         <Kpi id="avg" label={ru.stats.kpiAvg} value={fmtDuration(overall.avg)} />
+        <Kpi
+          id="good"
+          label={ru.stats.kpiGood}
+          value={overall.goodPercent === null ? '—' : fmtPercent(overall.goodPercent)}
+          sub={
+            overall.goodPercent === null
+              ? ru.stats.kpiGoodNone
+              : ru.stats.kpiGoodSub(overall.good, overall.bad)
+          }
+        />
       </div>
 
       <div className="stats__pair">
@@ -207,13 +220,14 @@ export function StatsDialog(): React.JSX.Element | null {
 
 function StatsDialogInner(): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
-  const hasFilter = useEpisodesStore((s) => s.filter.length > 0)
+  const hasFilter = useEpisodesStore((s) => s.filter.length > 0 || s.ratingFilter.length > 0)
   const respectFilter = useStatsStore((s) => s.respectFilter)
   const saving = useStatsStore((s) => s.save.kind === 'saving')
   const hasEpisodes = useEpisodesStore((s) => s.items.length > 0)
   const empty = useEpisodesStore(
     (s) =>
-      s.items.length === 0 || (respectFilter && !s.items.some((e) => s.filter.includes(e.tagId)))
+      s.items.length === 0 ||
+      (respectFilter && filterEpisodes(s.items, s.filter, s.ratingFilter).length === 0)
   )
   useFocusTrap(ref, true, closeStats)
 

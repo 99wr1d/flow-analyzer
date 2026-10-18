@@ -1,6 +1,8 @@
 // Единый контракт IPC между main, preload и renderer.
 // Здесь только имена каналов, типы и константы — никакой логики.
+import type { CreateProjectRequest, LibraryListing } from './library'
 import type {
+  ProjectMeta,
   ProjectOpenResult,
   ProjectSaveRequest,
   ProjectSaveResult,
@@ -28,6 +30,13 @@ export const IPC_CHANNELS = {
   projectRecoveryDiscard: 'project:recovery-discard',
   projectClearRecovery: 'project:clear-recovery',
   projectTakeLaunchPath: 'project:take-launch-path',
+  projectCreate: 'project:create',
+  libraryList: 'library:list',
+  libraryRemove: 'library:remove',
+  libraryReveal: 'library:reveal',
+  libraryDelete: 'library:delete',
+  libraryRelocate: 'library:relocate',
+  libraryUpdateMeta: 'library:update-meta',
   exportStageOverlays: 'export:stage-overlays',
   exportStart: 'export:start',
   exportCancel: 'export:cancel',
@@ -107,6 +116,20 @@ export interface FlowApi {
   clearRecovery(path: string | null): Promise<void>
   /** Проект, переданный в командной строке при запуске (выдаётся один раз). */
   takeLaunchProject(): Promise<string | null>
+  /** Создаёт файл проекта в папке проектов по умолчанию и открывает его. Видео — из videoId (выдано диалогом). */
+  createProject(request: CreateProjectRequest): Promise<ProjectOpenResult>
+  /** Все известные проекты со сводкой для стартового экрана. */
+  listLibrary(): Promise<LibraryListing>
+  /** Убирает проект из списка (файл не удаляется). */
+  removeFromLibrary(path: string): Promise<void>
+  /** Переносит файл проекта из списка в Корзину (не навсегда) и убирает его из списка. */
+  deleteProject(path: string): Promise<void>
+  /** Показывает файл проекта из списка в проводнике. */
+  revealProject(path: string): Promise<void>
+  /** Диалог «Найти проект»: заменяет в списке путь пропавшего проекта. Возвращает новый путь или null при отмене. */
+  relocateProject(oldPath: string): Promise<string | null>
+  /** Меняет название, тип, дату и заметки проекта прямо в его файле (проект не открыт). */
+  updateProjectMeta(path: string, meta: ProjectMeta): Promise<void>
   /**
    * Вырезает клипы. Видео задаётся идентификатором; папку или файл пользователь выбирает в диалоге main.
    * Ход работы приходит через onExportProgress, а промис завершается, когда экспорт закончен, отменён или не удался.

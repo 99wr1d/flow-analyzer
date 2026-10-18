@@ -3,9 +3,11 @@ import {
   autoBinSeconds,
   computeStats,
   filterByTags,
+  goodPercent,
   resolveBinSeconds,
   unionLength,
-  type StatsEpisode
+  type StatsEpisode,
+  type TagStat
 } from './stats'
 
 const ep = (
@@ -212,5 +214,47 @@ describe('производительность и фильтр', () => {
     const items = [ep('a', 0, 1), ep('b', 0, 1)]
     expect(filterByTags(items, [])).toHaveLength(2)
     expect(filterByTags(items, ['b']).map((e) => e.tagId)).toEqual(['b'])
+  })
+})
+
+describe('computeStats: оценки', () => {
+  const rated = (
+    tagId: string,
+    start: number,
+    rating: 'good' | 'bad' | null,
+    review = false
+  ): StatsEpisode => ({ ...ep(tagId, start, start + 5), rating, review })
+
+  it('считает хорошие, плохие, «разобрать» и % хороших по тегам и в целом', () => {
+    const s = computeStats(
+      [
+        rated('a', 0, 'good'),
+        rated('a', 10, 'good', true),
+        rated('a', 20, 'bad'),
+        rated('a', 30, null, true),
+        rated('b', 40, 'bad'),
+        rated('c', 50, null)
+      ],
+      100
+    )
+    const by = (id: string): TagStat => s.tags.find((t) => t.tagId === id)!
+    expect(by('a')).toMatchObject({ good: 2, bad: 1, review: 2 })
+    expect(by('a').goodPercent).toBeCloseTo(66.667, 2)
+    expect(by('b')).toMatchObject({ good: 0, bad: 1, goodPercent: 0 })
+    // Нет ни одной оценки — «—» (null), а не 0 %.
+    expect(by('c')).toMatchObject({ good: 0, bad: 0, review: 0, goodPercent: null })
+    expect(s.overall).toMatchObject({ good: 2, bad: 2, review: 2, goodPercent: 50 })
+  })
+
+  it('эпизоды без полей оценок (старые данные) не ломают подсчёт', () => {
+    const s = computeStats([ep('a', 0, 5), ep('a', 6, 9)], 60)
+    expect(s.tags[0]).toMatchObject({ good: 0, bad: 0, review: 0, goodPercent: null })
+    expect(s.overall.goodPercent).toBeNull()
+  })
+
+  it('goodPercent: good / (good + bad)', () => {
+    expect(goodPercent(3, 1)).toBe(75)
+    expect(goodPercent(0, 0)).toBeNull()
+    expect(goodPercent(0, 2)).toBe(0)
   })
 })

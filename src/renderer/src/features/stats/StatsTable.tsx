@@ -2,14 +2,20 @@
 import { useMemo } from 'react'
 import type { TagStat } from '../../../../shared/stats'
 import { ru } from '../../i18n/ru'
-import { ArrowDownIcon, ArrowUpIcon } from '../../ui/icons'
+import { ArrowDownIcon, ArrowUpIcon, ReviewIcon, ThumbDownIcon, ThumbUpIcon } from '../../ui/icons'
 import { needsOutline } from './chartKit'
 import { fmtDuration, fmtPercent } from './format'
 import { showTagEpisodes } from './statsActions'
 import { useStatsStore } from './statsStore'
 import { nextSort, sortTags, type SortKey } from './tableSort'
 
-const COLUMNS: { key: SortKey; label: string; title?: string; numeric: boolean }[] = [
+const COLUMNS: {
+  key: SortKey
+  label: string
+  title?: string
+  numeric: boolean
+  icon?: React.JSX.Element
+}[] = [
   { key: 'name', label: ru.stats.colTag, numeric: false },
   { key: 'count', label: ru.stats.colCount, numeric: true },
   { key: 'total', label: ru.stats.colTotal, numeric: true },
@@ -19,6 +25,15 @@ const COLUMNS: { key: SortKey; label: string; title?: string; numeric: boolean }
     key: 'shareTime',
     label: ru.stats.colShareTime,
     title: ru.stats.colShareTimeTitle,
+    numeric: true
+  },
+  { key: 'good', label: ru.stats.colGood, numeric: true, icon: <ThumbUpIcon size={14} /> },
+  { key: 'bad', label: ru.stats.colBad, numeric: true, icon: <ThumbDownIcon size={14} /> },
+  { key: 'review', label: ru.stats.colReview, numeric: true, icon: <ReviewIcon size={14} /> },
+  {
+    key: 'goodPercent',
+    label: ru.stats.colGoodPercent,
+    title: ru.stats.colGoodPercentTitle,
     numeric: true
   }
 ]
@@ -47,7 +62,14 @@ export function StatsTable({ tags }: { tags: readonly TagStat[] }): React.JSX.El
                   data-testid={`stats-sort-${c.key}`}
                   onClick={() => useStatsStore.setState({ sort: nextSort(sort, c.key) })}
                 >
-                  {c.label}
+                  {c.icon ? (
+                    <>
+                      {c.icon}
+                      <span className="sr-only">{c.label}</span>
+                    </>
+                  ) : (
+                    c.label
+                  )}
                   {active &&
                     (sort.dir === 'asc' ? <ArrowUpIcon size={12} /> : <ArrowDownIcon size={12} />)}
                 </button>
@@ -98,6 +120,18 @@ export function StatsTable({ tags }: { tags: readonly TagStat[] }): React.JSX.El
             </td>
             <td className="is-num" data-col="shareTime">
               {fmtPercent(t.shareTime)}
+            </td>
+            <td className="is-num" data-col="good">
+              {t.good}
+            </td>
+            <td className="is-num" data-col="bad">
+              {t.bad}
+            </td>
+            <td className="is-num" data-col="review">
+              {t.review}
+            </td>
+            <td className="is-num" data-col="goodPercent">
+              {t.goodPercent === null ? '—' : fmtPercent(t.goodPercent)}
             </td>
           </tr>
         ))}

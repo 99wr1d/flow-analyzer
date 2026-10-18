@@ -21,7 +21,9 @@ export const sampleEpisode = (n = 1): Episode => ({
   tagColor: '#ff4d6d',
   start: 2,
   end: 7.5,
-  note: 'Хороший момент'
+  note: 'Хороший момент',
+  rating: null,
+  review: false
 })
 
 export function sampleProject(videoPath = '/video/match.mp4'): Project {

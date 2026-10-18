@@ -1,6 +1,6 @@
 // Запрос на выгрузку статистики в CSV: структурированные данные (не готовый CSV). Файл собирает и записывает main.
 import { z } from 'zod'
-import { MAX_NOTE } from './episodes'
+import { MAX_NOTE, RATINGS } from './episodes'
 
 export const STATS_EXPORT_LIMITS = {
   maxEpisodes: 10_000,
@@ -23,7 +23,10 @@ const TagRowSchema = z.strictObject({
   shareCount: percent,
   shareTime: percent,
   first: seconds,
-  last: seconds
+  last: seconds,
+  good: z.number().int().min(0).max(L.maxEpisodes).default(0),
+  bad: z.number().int().min(0).max(L.maxEpisodes).default(0),
+  review: z.number().int().min(0).max(L.maxEpisodes).default(0)
 })
 
 const EpisodeRowSchema = z
@@ -31,7 +34,9 @@ const EpisodeRowSchema = z
     tag: name,
     start: seconds,
     end: seconds,
-    note: z.string().max(L.maxNote).optional()
+    note: z.string().max(L.maxNote).optional(),
+    rating: z.enum(RATINGS).nullable().default(null),
+    review: z.boolean().default(false)
   })
   .refine((e) => e.end >= e.start, { message: 'Конец раньше начала', path: ['end'] })
 

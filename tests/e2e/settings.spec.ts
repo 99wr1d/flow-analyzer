@@ -214,6 +214,7 @@ test.describe('настройки', () => {
     const ctx = await launch()
     const { app, win, userData } = ctx
     try {
+      await openVideo(ctx) // панель тегов есть только в рабочей области
       await openSettings(win)
       const name = win.getByTestId('tag-name').first()
       await name.fill('Что-то другое')
@@ -356,12 +357,12 @@ test.describe('настройки', () => {
 
     const second = await launch({ userData })
     try {
+      await expect(second.win.getByTestId('settings-warning')).toHaveCount(0)
+      await openVideo(second)
       await expect(second.win.getByTestId('tag-button').nth(6)).toContainText('Гол!')
       await expect(
         second.win.locator('[data-testid="tag-button"][data-tag-id="attack"] kbd')
       ).toHaveText('Q')
-      await expect(second.win.getByTestId('settings-warning')).toHaveCount(0)
-      await openVideo(second)
       await seekVideo(second.win, 2.0)
       await second.win.keyboard.press('KeyQ')
       await expect(rows(second.win)).toHaveCount(1)
@@ -385,6 +386,7 @@ test.describe('настройки', () => {
       await expect(warning).toBeVisible()
       await expect(warning).toContainText('Файл настроек повреждён')
       await expect(warning).toContainText('settings.corrupt-')
+      await openVideo(ctx)
       await expect(win.getByTestId('tag-button')).toHaveCount(9)
       await expect(win.getByTestId('tag-button').first()).toContainText('Атака')
       await win.screenshot({ path: join(SHOTS, `settings-corrupt${SUFFIX}.png`) })
@@ -396,7 +398,6 @@ test.describe('настройки', () => {
       expect(files).not.toContain('settings.json')
 
       // Работать можно, сохранение создаёт новый файл.
-      await openVideo(ctx)
       await seekVideo(win, 2.0)
       await win.keyboard.press('Digit1')
       await expect(rows(win)).toHaveCount(1)
@@ -408,6 +409,7 @@ test.describe('настройки', () => {
       await win.reload()
       await win.locator('.app[data-settings="loaded"]').waitFor()
       await expect(win.getByTestId('settings-warning')).toHaveCount(0)
+      await openVideo(ctx)
       await expect(win.getByTestId('tag-button')).toHaveCount(9)
     } finally {
       await app.close()
@@ -423,6 +425,7 @@ test.describe('настройки', () => {
     })
     try {
       await expect(bad.win.getByTestId('settings-warning')).toBeVisible()
+      await openVideo(bad)
       await expect(bad.win.getByTestId('tag-button')).toHaveCount(9)
       expect(readdirSync(bad.userData).some((f) => f.startsWith('settings.corrupt-'))).toBe(true)
     } finally {
@@ -432,6 +435,7 @@ test.describe('настройки', () => {
     const old = await launch({ settingsFile: { version: 1 } })
     try {
       await expect(old.win.getByTestId('settings-warning')).toHaveCount(0)
+      await openVideo(old)
       await expect(old.win.getByTestId('tag-button')).toHaveCount(9)
     } finally {
       await old.app.close()

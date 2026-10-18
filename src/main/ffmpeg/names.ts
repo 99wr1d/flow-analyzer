@@ -33,6 +33,19 @@ export function sanitizeName(text: string, fallback = 'клип'): string {
   return name
 }
 
+/** Имя файла из названия проекта: пробелы сохраняются, запрещённые для Windows символы убираются. */
+export function sanitizeFileStem(text: string, fallback = 'Проект'): string {
+  const clean = Array.from(text.normalize('NFC'))
+    .filter((ch) => !isForbidden(ch))
+    .join('')
+    .replace(/\s+/g, ' ')
+    .replace(/^[. ]+|[. ]+$/g, '')
+    .slice(0, MAX_STEM)
+    .replace(/[. ]+$/g, '')
+  if (clean === '') return fallback
+  return RESERVED.test(clean.split('.')[0]) ? `_${clean}` : clean
+}
+
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 
 /** ММ-СС начала эпизода. Минуты не обрезаются до 59: для 90-минутного матча будет, например, 87-05. */

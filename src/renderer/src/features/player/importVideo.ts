@@ -1,6 +1,7 @@
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { confirmLeaveProject, startUntitledProject } from '../project/actions'
+import { useViewStore } from '../../app/viewStore'
 import { probeFps } from './probeFps'
 import type { VideoSource } from '../../../../shared/ipc-contract'
 
@@ -8,6 +9,7 @@ function accept(source: VideoSource): void {
   // Рисунки и эпизоды принадлежат видео: новое видео — новый чистый проект (прежний уже сохранён или сброшен по решению пользователя).
   startUntitledProject(true)
   usePlayerStore.getState().loadSource(source)
+  useViewStore.getState().setView('workspace')
   void probeFps(source)
   // Фокус не должен оставаться на кнопке «Открыть видео»: иначе Пробел откроет диалог снова.
   if (document.activeElement instanceof HTMLElement) document.activeElement.blur()

@@ -4,7 +4,8 @@ import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { ChevronDownIcon, ChevronRightIcon } from '../../ui/icons'
 import { useFirstKey } from '../commands/useKeys'
-import { newProject, openProject, saveProject, saveProjectAs } from './actions'
+import { useDialogsStore } from '../library/dialogsStore'
+import { goHome, newProject, openProject, saveProject, saveProjectAs } from './actions'
 
 function Item({
   label,
@@ -47,6 +48,7 @@ export function ProjectMenu(): React.JSX.Element {
   const openKey = useFirstKey('project:open')
   const saveKey = useFirstKey('project:save')
   const saveAsKey = useFirstKey('project:save-as')
+  const homeKey = useFirstKey('project:home')
 
   const close = (returnFocus: boolean): void => {
     setOpen(false)
@@ -162,7 +164,6 @@ export function ProjectMenu(): React.JSX.Element {
             label={ru.project.new}
             hint={newKey}
             testId="menu-new"
-            disabled={!hasVideo}
             onClick={() => run(newProject)}
           />
           <Item
@@ -235,6 +236,21 @@ export function ProjectMenu(): React.JSX.Element {
             testId="menu-save-as"
             disabled={!hasVideo}
             onClick={() => run(() => saveProjectAs())}
+          />
+          <Item
+            label={ru.properties.menu}
+            testId="menu-properties"
+            disabled={!hasVideo}
+            onClick={() =>
+              run(() => useDialogsStore.setState({ properties: { kind: 'workspace' } }))
+            }
+          />
+          <div className="menu__sep" role="separator" />
+          <Item
+            label={ru.topBar.home}
+            hint={homeKey}
+            testId="menu-home"
+            onClick={() => run(goHome)}
           />
         </div>
       )}

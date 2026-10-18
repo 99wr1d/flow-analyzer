@@ -1,9 +1,13 @@
 // Действия с проектом: сохранить, открыть, новый, восстановить. Их вызывают и команды (клавиши), и кнопки меню.
+import type { CreateProjectRequest } from '../../../../shared/library'
 import type { LoadedProject, ProjectOpenResult, RecoveryItem } from '../../../../shared/project'
+import { useViewStore } from '../../app/viewStore'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { useFeedbackStore } from '../episodes/feedbackStore'
 import { loadWork, resetWork } from '../history/unified'
+import { refreshLibrary } from '../library/libraryActions'
+import { useDialogsStore } from '../library/dialogsStore'
 import { probeFps } from '../player/probeFps'
 import { seekTo } from '../player/videoElement'
 import { withoutDirty } from './dirty'
@@ -87,10 +91,38 @@ export function startUntitledProject(keepVideo: boolean): void {
   })
 }
 
-/** «Новый проект»: спрашивает про несохранённое, затем убирает видео, рисунки и эпизоды. */
+/**
+ * «Новый проект» (Ctrl+N): открывает окно с названием, типом и видео. Если в рабочей области есть несохранённое,
+ * сначала спрашивает про него; сама работа заменится, только когда проект будет создан.
+ */
 export async function newProject(): Promise<void> {
+  if (useViewStore.getState().view === 'workspace' && !(await confirmLeaveProject())) return
+  useDialogsStore.setState({ newProject: true })
+}
+
+/** Окно «Новый проект»: создаёт файл в папке проектов и открывает его. true — проект создан. */
+export async function createProjectFromDialog(request: CreateProjectRequest): Promise<boolean> {
+  try {
+    const result = await window.api.createProject(request)
+    if (result.status === 'error') {
+      fail(result.message, result.details)
+      return false
+    }
+    return applyOpenResult(result, null)
+  } catch (error) {
+    fail(ru.project.createFailed, messageOf(error))
+    return false
+  }
+}
+
+/** «На главную»: спрашивает про несохранённое, закрывает проект и показывает список проектов. */
+export async function goHome(): Promise<void> {
+  if (useViewStore.getState().view !== 'workspace') return
   if (!(await confirmLeaveProject())) return
   startUntitledProject(false)
+  useViewStore.getState().setView('start')
+  if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+  void refreshLibrary()
 }
 
 // --- Открытие ---
@@ -127,7 +159,8 @@ function applyLoaded(loaded: LoadedProject): void {
     usePlayerStore.getState().setFps(loaded.fps, loaded.fpsSource)
   }
   const store = useProjectStore.getState()
-  store.setLoaded({ path: loaded.path, name: loaded.name, dirty: loaded.dirty })
+  store.setLoaded({ path: loaded.path, name: loaded.name, dirty: loaded.dirty, meta: loaded.meta })
+  useViewStore.getState().setView('workspace')
   store.setWarning(loaded.warning)
   void probeFps(loaded.source)
   restoreTimeWhenReady(loaded.source.id, loaded.lastTime)

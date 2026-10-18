@@ -5,6 +5,10 @@ import { z } from 'zod'
 export const MIN_EPISODE = 0.2
 export const MAX_NOTE = 500
 
+/** Оценка эпизода: хорошо или плохо (взаимоисключающие). Флаг «разобрать» от оценки не зависит. */
+export const RATINGS = ['good', 'bad'] as const
+export type Rating = (typeof RATINGS)[number]
+
 const EPS = 1e-6
 
 export const EpisodeSchema = z
@@ -15,7 +19,11 @@ export const EpisodeSchema = z
     tagColor: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     start: z.number().min(0),
     end: z.number().min(0),
-    note: z.string().max(MAX_NOTE).optional()
+    note: z.string().max(MAX_NOTE).optional(),
+    /** null — оценки нет. В старых файлах поля нет: подставляется null. */
+    rating: z.enum(RATINGS).nullable().default(null),
+    /** «Разобрать позже». В старых файлах поля нет: подставляется false. */
+    review: z.boolean().default(false)
   })
   .refine((e) => e.end - e.start >= MIN_EPISODE - EPS, {
     message: 'Эпизод короче 0.2 с',
@@ -80,4 +88,38 @@ export function editRange(
   const end = clamp(patch.end ?? episode.end, 0, duration)
   if (end - start < MIN_EPISODE - EPS) return { ok: false, error: 'short' }
   return { ok: true, range: { start: round3(start), end: round3(end) } }
+}
+
+// --- Оценки и фильтры ---
+
+/** Что показывает чип фильтра по оценке: хорошо, плохо, «разобрать» или «без оценки». */
+export const RATING_FILTERS = ['good', 'bad', 'review', 'none'] as const
+export type RatingFilter = (typeof RATING_FILTERS)[number]
+
+/** Новая оценка после клика по кнопке: повторный клик по активной снимает её, другая заменяет. */
+export function toggledRating(current: Rating | null, clicked: Rating): Rating | null {
+  return current === clicked ? null : clicked
+}
+
+type Rated = { rating?: Rating | null; review?: boolean }
+
+/** Подходит ли эпизод под выбранные чипы оценок (внутри группы — «или»; пустая группа — любой эпизод). */
+export function matchesRatingFilter(e: Rated, filter: readonly RatingFilter[]): boolean {
+  if (filter.length === 0) return true
+  return filter.some((f) => {
+    if (f === 'good') return e.rating === 'good'
+    if (f === 'bad') return e.rating === 'bad'
+    if (f === 'review') return e.review === true
+    return !e.rating
+  })
+}
+
+/** Фильтр эпизодов: теги (или) и оценки (или); между группами — «и». */
+export function filterEpisodes<T extends Rated & { tagId: string }>(
+  items: readonly T[],
+  tags: readonly string[],
+  ratings: readonly RatingFilter[]
+): T[] {
+  const set = tags.length > 0 ? new Set(tags) : null
+  return items.filter((e) => (!set || set.has(e.tagId)) && matchesRatingFilter(e, ratings))
 }

@@ -8,16 +8,76 @@ import {
 } from '../../../../shared/episodes'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
-import { ExportIcon, TrashIcon } from '../../ui/icons'
+import { filterEpisodes, RATING_FILTERS, type RatingFilter } from '../../../../shared/episodes'
+import { ExportIcon, ReviewIcon, ThumbDownIcon, ThumbUpIcon, TrashIcon } from '../../ui/icons'
 import { openExportDialog } from '../export/exportActions'
 import { getCurrentTime, playVideo, seekTo } from '../player/videoElement'
 import { selectedEpisode, sortEpisodes, useEpisodesStore } from './episodesStore'
-import { fmt, fmtRange } from './tagging'
+import { RatingButtons } from './RatingButtons'
+import { fmt, fmtRange, type RateKind } from './tagging'
+
+const RATING_ICONS: Record<RatingFilter, React.JSX.Element | null> = {
+  good: <ThumbUpIcon size={13} />,
+  bad: <ThumbDownIcon size={13} />,
+  review: <ReviewIcon size={13} />,
+  none: null
+}
+const RATING_NAMES: Record<RatingFilter, string> = {
+  good: ru.ratings.good,
+  bad: ru.ratings.bad,
+  review: ru.ratings.review,
+  none: ru.ratings.none
+}
+
+/** Фильтр по оценке: несколько чипов — «или»; вместе с тегами — «и». */
+function RatingChips({ episodes }: { episodes: readonly Episode[] }): React.JSX.Element {
+  const active = useEpisodesStore((s) => s.ratingFilter)
+  const toggle = useEpisodesStore((s) => s.toggleRatingFilter)
+  const counts = useMemo(() => {
+    const c: Record<RatingFilter, number> = { good: 0, bad: 0, review: 0, none: 0 }
+    for (const e of episodes) {
+      if (e.rating === 'good') c.good += 1
+      else if (e.rating === 'bad') c.bad += 1
+      else c.none += 1
+      if (e.review) c.review += 1
+    }
+    return c
+  }, [episodes])
+  return (
+    <div
+      className="chips chips--ratings"
+      role="group"
+      aria-label={ru.ratings.filterLabel}
+      data-testid="rating-filter"
+    >
+      {RATING_FILTERS.map((kind) => (
+        <button
+          key={kind}
+          type="button"
+          className={`chip chip--rating chip--${kind}${active.includes(kind) ? ' chip--active' : ''}`}
+          aria-pressed={active.includes(kind)}
+          title={ru.ratings.filterTitle(RATING_NAMES[kind])}
+          data-testid="rating-chip"
+          data-rating={kind}
+          onClick={(e) => {
+            toggle(kind)
+            e.currentTarget.blur()
+          }}
+        >
+          {RATING_ICONS[kind]}
+          {kind === 'none' && <span>{ru.ratings.none}</span>}
+          <span className="chip__count">{counts[kind]}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
 
 function FilterChips({ episodes }: { episodes: readonly Episode[] }): React.JSX.Element | null {
   const filter = useEpisodesStore((s) => s.filter)
+  const ratingFilter = useEpisodesStore((s) => s.ratingFilter)
   const toggle = useEpisodesStore((s) => s.toggleFilter)
-  const clear = useEpisodesStore((s) => s.clearFilter)
+  const clear = useEpisodesStore((s) => s.clearFilters)
 
   // По одному чипу на тег, встречающийся среди эпизодов (имя и цвет берём из самих эпизодов).
   const tags = useMemo(() => {
@@ -57,7 +117,7 @@ function FilterChips({ episodes }: { episodes: readonly Episode[] }): React.JSX.
           <span className="chip__count">{t.count}</span>
         </button>
       ))}
-      {filter.length > 0 && (
+      {(filter.length > 0 || ratingFilter.length > 0) && (
         <button
           type="button"
           className="chip chip--reset"
@@ -170,6 +230,12 @@ function EpisodeRow({
 }): React.JSX.Element {
   const select = useEpisodesStore((s) => s.select)
   const remove = useEpisodesStore((s) => s.remove)
+  const toggleRating = useEpisodesStore((s) => s.toggleRating)
+  const toggleReview = useEpisodesStore((s) => s.toggleReview)
+  const rate = (kind: RateKind): void => {
+    if (kind === 'review') toggleReview(episode.id)
+    else toggleRating(episode.id, kind)
+  }
   const rowRef = useRef<HTMLLIElement>(null)
 
   // Выбрали на таймлайне — строка должна быть видна в списке.
@@ -212,6 +278,7 @@ function EpisodeRow({
           <span className="ep-row__time">{fmtRange(episode.start, episode.end)}</span>
           {episode.note && <span className="ep-row__note">{episode.note}</span>}
         </button>
+        <RatingButtons episodeId={episode.id} onToggle={rate} />
         <button
           type="button"
           className="icon-btn icon-btn--small"
@@ -232,13 +299,14 @@ function EpisodeRow({
 export function EpisodeList(): React.JSX.Element {
   const items = useEpisodesStore((s) => s.items)
   const filter = useEpisodesStore((s) => s.filter)
+  const ratingFilter = useEpisodesStore((s) => s.ratingFilter)
   const selected = useEpisodesStore(selectedEpisode)
   const ready = usePlayerStore((s) => s.status === 'ready')
 
   const sorted = useMemo(() => sortEpisodes(items), [items])
   const visible = useMemo(
-    () => (filter.length === 0 ? sorted : sorted.filter((e) => filter.includes(e.tagId))),
-    [sorted, filter]
+    () => filterEpisodes(sorted, filter, ratingFilter),
+    [sorted, filter, ratingFilter]
   )
 
   return (
@@ -264,6 +332,7 @@ export function EpisodeList(): React.JSX.Element {
         </button>
       </div>
       <FilterChips episodes={sorted} />
+      {items.length > 0 && <RatingChips episodes={sorted} />}
       {items.length === 0 ? (
         <div className="side-panel__body">
           <div className="episodes__empty">
@@ -278,7 +347,7 @@ export function EpisodeList(): React.JSX.Element {
           ))}
           {visible.length === 0 && (
             <li className="episodes__empty-hint episodes__filter-empty">
-              {ru.episodes.filterEmpty}
+              {ratingFilter.length > 0 ? ru.episodes.filterEmptyRated : ru.episodes.filterEmpty}
             </li>
           )}
         </ul>

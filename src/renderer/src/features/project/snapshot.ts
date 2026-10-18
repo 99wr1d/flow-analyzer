@@ -7,6 +7,7 @@ import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
 import { getCurrentTime } from '../player/videoElement'
 import { useSettingsStore } from '../settings/settingsStore'
+import { useProjectStore } from './projectStore'
 
 /**
  * Теги для файла: все теги из настроек плюс теги, которые остались только в эпизодах (их удалили из настроек).
@@ -38,6 +39,7 @@ export function buildSaveRequest(currentPath: string | null): ProjectSaveRequest
   if (!player.source) return null
   const episodes = useEpisodesStore.getState().items
   const knownFps = player.fpsSource !== 'default'
+  const meta = useProjectStore.getState().meta
   return {
     videoId: player.source.id,
     annotations: useAnnotationsStore.getState().items,
@@ -45,6 +47,8 @@ export function buildSaveRequest(currentPath: string | null): ProjectSaveRequest
     tags: buildTagSnapshot(useSettingsStore.getState().settings.tags, episodes),
     lastTime: Math.max(0, getCurrentTime()),
     ...(knownFps ? { fps: player.fps, fpsSource: player.fpsSource } : {}),
+    ...(player.status === 'ready' && player.duration > 0 ? { duration: player.duration } : {}),
+    ...(meta ? { meta } : {}),
     currentPath
   }
 }

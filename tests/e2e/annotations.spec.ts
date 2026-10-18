@@ -90,12 +90,12 @@ const near = (value: number, expected: number, tol = 0.015): void => {
 const TOOLS = ['select', 'arrow', 'line', 'circle', 'text'] as const
 
 test.describe('рисунки поверх видео', () => {
-  test('инструменты недоступны без видео, потом выбираются кнопками и клавишами', async () => {
+  test('инструментов нет на стартовом экране; с видео они выбираются кнопками и клавишами', async () => {
     const { app, win } = await launch()
     try {
-      for (const tool of TOOLS) await expect(win.getByTestId(`tool-${tool}`)).toBeDisabled()
-      await win.keyboard.press('a')
-      await expect(win.getByTestId('tool-arrow')).toHaveAttribute('aria-pressed', 'false')
+      for (const tool of TOOLS) await expect(win.getByTestId(`tool-${tool}`)).toHaveCount(0)
+      await win.keyboard.press('a') // горячие клавиши рисования без видео молчат
+      await expect(win.getByTestId('tool-arrow')).toHaveCount(0)
 
       await stubDialog(app, fixture('cfr25.mp4'))
       await win.getByTestId('open-video').click()

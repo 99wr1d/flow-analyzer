@@ -10,6 +10,7 @@ import {
   type RecentProject,
   type RecoveryItem
 } from '../../shared/project'
+import { resolveProjectsFolder } from '../library/folder'
 import { getMediaEntry } from '../media/registry'
 import { MEDIA_ERRORS } from '../media/validate'
 import { isTrustedSender } from '../security'
@@ -84,7 +85,9 @@ async function saveProject(
     const base = basename(videoPath).replace(/\.[^.]*$/, '') || 'Проект'
     const options: Electron.SaveDialogOptions = {
       title: 'Сохранить проект',
-      defaultPath: target ?? join(app.getPath('documents'), `${base}.${PROJECT_EXTENSION}`),
+      defaultPath:
+        target ??
+        join(resolveProjectsFolder(app.getPath('documents')), `${base}.${PROJECT_EXTENSION}`),
       filters: [PROJECT_FILTER]
     }
     const result = parentWindow

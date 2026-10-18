@@ -44,9 +44,13 @@ export interface LaunchOptions {
   env?: Record<string, string>
 }
 
-export async function launch(
-  options: LaunchOptions = {}
-): Promise<{ app: ElectronApplication; win: Page; userData: string }> {
+export async function launch(options: LaunchOptions = {}): Promise<{
+  app: ElectronApplication
+  win: Page
+  userData: string
+  /** Папка проектов по умолчанию (FLOW_LIBRARY_DIR) — временная. */
+  projectsDir: string
+}> {
   const userData = options.userData ?? makeUserData()
   if (options.settingsFile !== undefined) {
     const text =
@@ -55,9 +59,12 @@ export async function launch(
         : JSON.stringify(options.settingsFile)
     writeFileSync(join(userData, 'settings.json'), text, 'utf8')
   }
+  // Папка проектов по умолчанию — тоже временная: настоящие «Документы» тесты не трогают.
+  const projectsDir = join(userData, 'Projects')
   const env = {
     ...cleanEnv(),
     FLOW_USER_DATA: userData,
+    FLOW_LIBRARY_DIR: projectsDir,
     // FLOW_SHOW_WINDOW=1 — показать окно на экране при отладке тестов.
     ...(process.env.FLOW_SHOW_WINDOW === '1' ? {} : { FLOW_BACKGROUND_WINDOW: '1' }),
     ...options.env
@@ -74,7 +81,7 @@ export async function launch(
   await win.getByTestId('open-video').waitFor()
   await win.locator('.app[data-settings="loaded"]').waitFor()
   await win.waitForTimeout(100)
-  return { app, win, userData }
+  return { app, win, userData, projectsDir }
 }
 
 /** Подменяет системный диалог выбора файла: он «выбирает» указанный путь. */

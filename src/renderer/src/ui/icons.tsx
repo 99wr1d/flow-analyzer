@@ -221,3 +221,67 @@ export const BarChartIcon = (p: IconProps): React.JSX.Element => (
     <path d="M3.5 19.5h17" />
   </Svg>
 )
+
+export const HomeIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M4 11.2 12 4.5l8 6.7" />
+    <path d="M6.2 9.8V19a.8.8 0 0 0 .8.8h3.2v-5.4h3.6v5.4H17a.8.8 0 0 0 .8-.8V9.8" />
+  </Svg>
+)
+
+export const MoreIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="5.5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+    <circle cx="18.5" cy="12" r="1.5" fill="currentColor" stroke="none" />
+  </Svg>
+)
+
+export const SearchIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="10.5" cy="10.5" r="5.8" />
+    <path d="m15 15 4.8 4.8" />
+  </Svg>
+)
+
+export const FilmIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <rect x="3.5" y="5.5" width="17" height="13" rx="2.2" />
+    <path d="M10.2 9.6v4.8l4-2.4z" fill="currentColor" />
+  </Svg>
+)
+
+export const ThumbUpIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M7.6 10.6v8.2H4.9a.9.9 0 0 1-.9-.9v-6.4a.9.9 0 0 1 .9-.9z" />
+    <path d="M7.6 10.6 11 4.4c.3-.6 1-.8 1.6-.6.9.3 1.4 1.200 1.200 2.100l-.6 3.100h4.900c1.200 0 2.100 1.100 1.900 2.300l-1 6.100a2 2 0 0 1-2 1.700H7.600" />
+  </Svg>
+)
+
+export const ThumbDownIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M7.600 13.400V5.200H4.900a.9.9 0 0 0-.9.900v6.400c0 .5.4.9.9.9z" />
+    <path d="M7.600 13.400 11 19.600c.3.600 1 .8 1.600.6.9-.3 1.400-1.200 1.200-2.100l-.6-3.100h4.900c1.200 0 2.100-1.100 1.900-2.300l-1-6.100a2 2 0 0 0-2-1.700H7.600" />
+  </Svg>
+)
+
+export const ReviewIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="10.500" cy="10.500" r="5.800" />
+    <path d="m15 15 4.800 4.800" />
+    <path d="M10.500 8v5M8 10.500h5" strokeWidth="1.500" />
+  </Svg>
+)
+
+export const FolderIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M3.500 17.500v-10A1.500 1.500 0 0 1 5 6h4l2 2.200h8A1.500 1.500 0 0 1 20.500 9.700v7.800A1.500 1.500 0 0 1 19 19H5a1.500 1.500 0 0 1-1.500-1.500z" />
+  </Svg>
+)
+
+export const EditIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 19h3.500L19 8.500 15.500 5 5 15.500z" />
+    <path d="m13.500 7 3.500 3.500" />
+  </Svg>
+)

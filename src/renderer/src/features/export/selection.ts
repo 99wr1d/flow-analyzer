@@ -1,25 +1,30 @@
 // Выбор эпизодов для экспорта, проверка запаса по краям, подсчёт итогов и оставшегося времени. Чистые функции.
 import { MAX_PADDING } from '../../../../shared/export'
 import { prepareClips, totalDuration } from '../../../../shared/exportRanges'
-import type { Episode } from '../../../../shared/episodes'
+import { filterEpisodes, type Episode, type RatingFilter } from '../../../../shared/episodes'
 
 /** Что экспортировать: эпизоды (видимые по фильтру, все, отмеченные вручную) или всё видео целиком. */
 export type Scope = 'visible' | 'all' | 'pick' | 'whole'
 
 /** Эпизоды, которые сейчас видны в списке (по порядку начала). */
-export function visibleEpisodes(sorted: readonly Episode[], filter: readonly string[]): Episode[] {
-  return filter.length === 0 ? [...sorted] : sorted.filter((e) => filter.includes(e.tagId))
+export function visibleEpisodes(
+  sorted: readonly Episode[],
+  filter: readonly string[],
+  ratings: readonly RatingFilter[] = []
+): Episode[] {
+  return filterEpisodes(sorted, filter, ratings)
 }
 
 export function chooseEpisodes(
   scope: Scope,
   sorted: readonly Episode[],
   filter: readonly string[],
-  picked: ReadonlySet<string>
+  picked: ReadonlySet<string>,
+  ratings: readonly RatingFilter[] = []
 ): Episode[] {
   if (scope === 'whole') return []
   if (scope === 'all') return [...sorted]
-  if (scope === 'visible') return visibleEpisodes(sorted, filter)
+  if (scope === 'visible') return visibleEpisodes(sorted, filter, ratings)
   return sorted.filter((e) => picked.has(e.id))
 }
 

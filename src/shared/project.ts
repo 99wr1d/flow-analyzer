@@ -35,10 +35,52 @@ const VideoRefSchema = z.object({
   fileName: z.string().min(1).max(255),
   sizeBytes: z.number().int().min(0),
   fps: z.number().gt(0).max(1000).optional(),
-  fpsSource: z.enum(FPS_SOURCES).optional()
+  fpsSource: z.enum(FPS_SOURCES).optional(),
+  /** Длительность видео, с (если была известна при сохранении). */
+  duration: z.number().gt(0).max(1e7).optional()
 })
 
 const UiSchema = z.object({ lastTime: z.number().min(0).max(1e7) })
+
+export const PROJECT_TYPES = ['match', 'training', 'scouting', 'other'] as const
+export type ProjectType = (typeof PROJECT_TYPES)[number]
+export const MAX_META_TITLE = 80
+export const MAX_META_NOTES = 500
+
+const isRealDate = (value: string): boolean => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!m) return false
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])))
+  return (
+    d.getUTCFullYear() === Number(m[1]) &&
+    d.getUTCMonth() === Number(m[2]) - 1 &&
+    d.getUTCDate() === Number(m[3])
+  )
+}
+
+/** Описание проекта: название, тип, дата матча и заметки. В старых файлах его нет — берутся значения по умолчанию. */
+export const ProjectMetaSchema = z.object({
+  title: z
+    .string()
+    .trim()
+    .min(1, 'Введите название')
+    // eslint-disable-next-line no-control-regex
+    .regex(/^[^\u0000-\u001f\u007f]+$/, 'Название содержит недопустимые символы')
+    .max(MAX_META_TITLE),
+  type: z.enum(PROJECT_TYPES),
+  date: z.string().refine(isRealDate, 'Дата должна быть вида ГГГГ-ММ-ДД').optional(),
+  notes: z.string().max(MAX_META_NOTES).optional()
+})
+export type ProjectMeta = z.infer<typeof ProjectMetaSchema>
+
+/** Описание с учётом старых файлов: нет названия — имя файла, нет типа — «Другое». */
+export function resolveMeta(
+  meta: ProjectMeta | undefined | null,
+  fallbackTitle: string
+): ProjectMeta {
+  if (meta) return meta
+  return { title: fallbackTitle.slice(0, MAX_META_TITLE) || UNTITLED_PROJECT, type: 'other' }
+}
 
 const timestamp = z.iso.datetime()
 
@@ -54,7 +96,8 @@ export const ProjectSchema = z
     episodes: EpisodeListSchema.max(MAX_EPISODES),
     /** Теги, известные на момент сохранения (настройки + теги, использованные в эпизодах). */
     tags: z.array(TagDefSchema).max(MAX_PROJECT_TAGS),
-    ui: UiSchema.optional()
+    ui: UiSchema.optional(),
+    meta: ProjectMetaSchema.optional()
   })
   .superRefine((p, ctx) => {
     const unique = (key: 'annotations' | 'episodes' | 'tags'): void => {
@@ -87,6 +130,8 @@ export const ProjectSaveRequestSchema = z.object({
   lastTime: z.number().min(0).max(1e7),
   fps: z.number().gt(0).max(1000).optional(),
   fpsSource: z.enum(FPS_SOURCES).optional(),
+  duration: z.number().gt(0).max(1e7).optional(),
+  meta: ProjectMetaSchema.optional(),
   /** Файл, в который проект уже сохранялся (null — ещё нет). */
   currentPath: path.nullable()
 })
@@ -108,6 +153,8 @@ export interface LoadedProject {
   lastTime: number
   fps?: number
   fpsSource?: (typeof FPS_SOURCES)[number]
+  /** Описание проекта; null — в файле его нет (имя берётся из имени файла). */
+  meta: ProjectMeta | null
   /** Есть несохранённые изменения (восстановление из автосохранения, перепривязка видео). */
   dirty: boolean
   /** Неблокирующее предупреждение (например, размер видео отличается от сохранённого). */

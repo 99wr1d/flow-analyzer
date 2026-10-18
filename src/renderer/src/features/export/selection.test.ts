@@ -19,7 +19,9 @@ const ep = (id: string, tagId: string, start: number, end: number): Episode => (
   tagName: tagId,
   tagColor: '#2bd67b',
   start,
-  end
+  end,
+  rating: null,
+  review: false
 })
 const sorted = [ep('a', 'goal', 1, 3), ep('b', 'attack', 10, 14), ep('c', 'goal', 20, 22)]
 

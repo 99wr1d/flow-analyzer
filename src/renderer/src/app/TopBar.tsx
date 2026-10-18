@@ -6,7 +6,8 @@ import { useSettingsStore } from '../features/settings/settingsStore'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
 import { canOpenStats, openStats } from '../features/stats/statsActions'
-import { BarChartIcon, FolderOpenIcon, GearIcon } from '../ui/icons'
+import { BarChartIcon, FolderOpenIcon, GearIcon, HomeIcon } from '../ui/icons'
+import { goHome } from '../features/project/actions'
 import { Logo } from '../ui/Logo'
 
 function FileName(): React.JSX.Element | null {
@@ -52,6 +53,7 @@ export function TopBar(): React.JSX.Element {
   const openHint = useKeyHint('general:open-video')
   const settingsHint = useKeyHint('general:settings')
   const statsHint = useKeyHint('stats:open')
+  const homeHint = useKeyHint('project:home')
   const openSettings = useSettingsStore((s) => s.openDialog)
   const hasVideo = usePlayerStore((s) => s.status === 'ready')
   return (
@@ -60,6 +62,19 @@ export function TopBar(): React.JSX.Element {
         <Logo />
         <span className="top-bar__name">{ru.appName}</span>
       </div>
+      <button
+        type="button"
+        className="btn btn--home"
+        onClick={(e) => {
+          void goHome()
+          e.currentTarget.blur()
+        }}
+        title={`${ru.topBar.homeTitle}${homeHint}`}
+        data-testid="go-home"
+      >
+        <HomeIcon size={16} />
+        {ru.topBar.home}
+      </button>
       <div className="top-bar__sep" aria-hidden="true" />
       <div className="top-bar__project">
         <ProjectMenu />

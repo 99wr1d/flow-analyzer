@@ -10,6 +10,8 @@ const ep = (id: number, tagId: string, start: number, end: number, note?: string
   tagColor: '#2bd67b',
   start,
   end,
+  rating: null,
+  review: false,
   ...(note ? { note } : {})
 })
 const base = { duration: 100, tags: [], bin: 'auto' as const }

@@ -1,6 +1,6 @@
 // Состояние проекта: путь, имя, признак «есть несохранённые изменения». Сами данные (рисунки, эпизоды) лежат в своих хранилищах.
 import { create } from 'zustand'
-import { UNTITLED_PROJECT, type RecoveryItem } from '../../../../shared/project'
+import { UNTITLED_PROJECT, type ProjectMeta, type RecoveryItem } from '../../../../shared/project'
 
 export interface ProjectProblem {
   message: string
@@ -21,6 +21,8 @@ export interface ProjectState {
   /** Файл проекта; null — проект ещё не сохранялся. */
   path: string | null
   name: string
+  /** Описание проекта (название, тип, дата, заметки). null — не задано: имя берётся из имени файла. */
+  meta: ProjectMeta | null
   dirty: boolean
   /** Растёт при каждом изменении работы: по нему видно, изменилось ли что-то за время сохранения. */
   version: number
@@ -37,7 +39,14 @@ export interface ProjectActions {
   /** Проект сохранён. Если за время записи работа ещё менялась (version ушла вперёд), он остаётся «грязным». */
   markSaved: (path: string, name: string, savedAt: number, versionAtSave: number) => void
   /** Проект загружен целиком (открытие или восстановление). */
-  setLoaded: (info: { path: string | null; name: string; dirty: boolean }) => void
+  setLoaded: (info: {
+    path: string | null
+    name: string
+    dirty: boolean
+    meta: ProjectMeta | null
+  }) => void
+  /** Правка описания в окне «Свойства проекта»: имя проекта следует за названием, проект становится «грязным». */
+  setMeta: (meta: ProjectMeta) => void
   /** Чистый безымянный проект (новое видео или «Новый проект»). */
   reset: () => void
   setSaving: (saving: boolean) => void
@@ -50,6 +59,7 @@ export interface ProjectActions {
 export const useProjectStore = create<ProjectState & ProjectActions>()((set) => ({
   path: null,
   name: UNTITLED_PROJECT,
+  meta: null,
   dirty: false,
   version: 0,
   lastSavedAt: null,
@@ -62,10 +72,12 @@ export const useProjectStore = create<ProjectState & ProjectActions>()((set) => 
   markDirty: () => set((s) => ({ dirty: true, version: s.version + 1 })),
   markSaved: (path, name, savedAt, versionAtSave) =>
     set((s) => ({ path, name, lastSavedAt: savedAt, dirty: s.version !== versionAtSave })),
-  setLoaded: ({ path, name, dirty }) =>
+  setMeta: (meta) => set((s) => ({ meta, name: meta.title, dirty: true, version: s.version + 1 })),
+  setLoaded: ({ path, name, dirty, meta }) =>
     set((s) => ({
       path,
       name,
+      meta,
       dirty,
       version: s.version + 1,
       lastSavedAt: null,
@@ -76,6 +88,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()((set) => 
     set((s) => ({
       path: null,
       name: UNTITLED_PROJECT,
+      meta: null,
       dirty: false,
       version: s.version + 1,
       lastSavedAt: null,

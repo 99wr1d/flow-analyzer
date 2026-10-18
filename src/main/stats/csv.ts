@@ -47,10 +47,14 @@ export const CSV_HEADERS = {
     'Доля эпизодов, %',
     'Доля времени, %',
     'Первое начало',
-    'Последнее начало'
+    'Последнее начало',
+    'Хорошо',
+    'Плохо',
+    'Разобрать',
+    'Хороших, %'
   ],
   episodesTitle: 'Эпизоды',
-  episodes: ['№', 'Тег', 'Начало', 'Конец', 'Длительность, с', 'Заметка']
+  episodes: ['№', 'Тег', 'Начало', 'Конец', 'Длительность, с', 'Оценка', 'Разобрать', 'Заметка']
 } as const
 
 /** Один файл: заголовок раздела, строка столбцов, строки; между разделами пустая строка. */
@@ -68,7 +72,11 @@ export function buildStatsCsv(data: StatsExport): string {
         numberCell(t.shareCount),
         numberCell(t.shareTime),
         textCell(clock(t.first)),
-        textCell(clock(t.last))
+        textCell(clock(t.last)),
+        String(t.good),
+        String(t.bad),
+        String(t.review),
+        t.good + t.bad > 0 ? numberCell((t.good / (t.good + t.bad)) * 100) : '—'
       ])
     )
   }
@@ -83,6 +91,8 @@ export function buildStatsCsv(data: StatsExport): string {
         textCell(clock(e.start)),
         textCell(clock(e.end)),
         numberCell(e.end - e.start),
+        textCell(e.rating === 'good' ? 'Хорошо' : e.rating === 'bad' ? 'Плохо' : '—'),
+        textCell(e.review ? 'да' : 'нет'),
         textCell(e.note ?? '')
       ])
     )

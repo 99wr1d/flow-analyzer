@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ProjectSaveRequest } from '../../shared/project'
 import { sampleAnnotation, sampleEpisode, uuid } from '../../shared/project.testkit'
 import { getMediaEntry } from '../media/registry'
+import { readLibrary } from '../library/store'
 import { readProjectFile } from './files'
 import { listRecent } from './recent'
 import { listRecovery, recoveryFileName, RECOVERY_DIR } from './recovery'
 import {
   autosave,
   buildProject,
+  createProject,
   isTrustedPath,
   keyForPath,
   openProjectFile,
@@ -277,5 +279,72 @@ describe('восстановление', () => {
   it('имя файла копии и папка соответствуют договорённости', () => {
     expect(recoveryFileName('untitled-0a0a0a0a')).toBe('untitled-0a0a0a0a.flowproj.recovery')
     expect(basename(dirname(join(userData, RECOVERY_DIR, 'x')))).toBe('recovery')
+  })
+})
+
+describe('библиотека и описание проекта', () => {
+  it('сохранение добавляет проект в библиотеку; путь становится доверенным без списка недавних', async () => {
+    await save()
+    const library = await readLibrary(userData)
+    expect(library.map((i) => i.path)).toEqual([projectPath])
+    await rm(join(userData, 'recent.json'), { force: true })
+    expect(await isTrustedPath(userData, projectPath.toUpperCase())).toBe(
+      process.platform === 'win32'
+    )
+    expect(await isTrustedPath(userData, projectPath)).toBe(true)
+  })
+
+  it('описание и длительность попадают в файл и возвращаются при открытии; название — имя проекта', async () => {
+    const meta = { title: 'Финал', type: 'match' as const, date: '2026-05-17', notes: 'заметка' }
+    const res = await saveToPath(
+      userData,
+      request({ meta, duration: 5400 }),
+      await videoFacts(videoPath),
+      projectPath,
+      '0.10.0'
+    )
+    expect(res.name).toBe('Финал')
+    const parsed = await readProjectFile(projectPath)
+    expect(parsed.ok && parsed.project.meta).toEqual(meta)
+    expect(parsed.ok && parsed.project.video.duration).toBe(5400)
+    const opened = await openProjectFile(userData, projectPath)
+    expect(opened.status === 'opened' && opened.project.meta).toEqual(meta)
+    expect(opened.status === 'opened' && opened.project.name).toBe('Финал')
+  })
+
+  it('проект без описания: meta = null, имя — имя файла', async () => {
+    await save()
+    const opened = await openProjectFile(userData, projectPath)
+    expect(opened.status).toBe('opened')
+    if (opened.status !== 'opened') return
+    expect(opened.project.meta).toBeNull()
+    expect(opened.project.name).toBe('game')
+  })
+
+  it('createProject: файл в папке проектов, уникальное имя, проект открыт и записан в библиотеку', async () => {
+    const folder = join(root, 'Документы', 'FlowAnalyzer')
+    const make = (): ReturnType<typeof createProject> =>
+      createProject(
+        userData,
+        folder,
+        { title: 'Матч: Динамо / Спартак', type: 'match', date: '2026-05-17', videoId: uuid(1) },
+        videoPath,
+        '0.10.0'
+      )
+    const first = await make()
+    const second = await make()
+    expect(first.status).toBe('opened')
+    expect(second.status).toBe('opened')
+    if (first.status !== 'opened' || second.status !== 'opened') return
+    expect(first.project.path).toBe(join(folder, 'Матч Динамо Спартак.flowproj'))
+    expect(second.project.path).toBe(join(folder, 'Матч Динамо Спартак (2).flowproj'))
+    expect(first.project.dirty).toBe(false)
+    expect(first.project.name).toBe('Матч: Динамо / Спартак')
+    expect(first.project.meta).toMatchObject({ type: 'match', date: '2026-05-17' })
+    const onDisk = await readProjectFile(first.project.path as string)
+    expect(onDisk.ok && onDisk.project.episodes).toEqual([])
+    expect((await readLibrary(userData)).map((i) => i.path).sort()).toEqual(
+      [first.project.path, second.project.path].sort()
+    )
   })
 })

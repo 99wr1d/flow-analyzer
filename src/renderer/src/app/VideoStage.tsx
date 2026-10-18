@@ -2,13 +2,13 @@ import { AnnotationLayer } from '../features/annotations/AnnotationLayer'
 import { StyleBar } from '../features/annotations/StyleBar'
 import { Toast } from '../features/episodes/Toast'
 import { openVideoFromDialog } from '../features/player/importVideo'
-import { useSettingsStore } from '../features/settings/settingsStore'
 import { ProjectBanners } from '../features/project/ProjectBanners'
 import { VideoView } from '../features/player/VideoView'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
-import { CloseIcon, FolderOpenIcon } from '../ui/icons'
+import { FolderOpenIcon } from '../ui/icons'
 import { EmptyState } from '../ui/EmptyState'
+import { ImportBanner, SettingsWarning } from './NoticeBanners'
 
 function VideoIcon(): React.JSX.Element {
   return (
@@ -23,50 +23,6 @@ function VideoIcon(): React.JSX.Element {
       <rect x="3" y="5" width="18" height="14" rx="2.5" />
       <path d="M10.2 9.4v5.2l4.4-2.6z" strokeLinejoin="round" />
     </svg>
-  )
-}
-
-function ImportBanner(): React.JSX.Element | null {
-  const message = usePlayerStore((s) => s.importError)
-  if (!message) return null
-  return (
-    <div className="banner" role="alert" data-testid="import-error">
-      <span>{message}</span>
-      <button
-        type="button"
-        className="icon-btn icon-btn--small"
-        onClick={() => usePlayerStore.getState().setImportError(null)}
-        aria-label={ru.stage.dismiss}
-        title={ru.stage.dismiss}
-      >
-        <CloseIcon size={14} />
-      </button>
-    </div>
-  )
-}
-
-/** Разовое предупреждение о настройках (например, файл был повреждён). */
-function SettingsWarning(): React.JSX.Element | null {
-  const warning = useSettingsStore((s) => s.warning)
-  if (!warning) return null
-  return (
-    <div
-      className="banner banner--warn"
-      role="alert"
-      aria-label={ru.settings.warningLabel}
-      data-testid="settings-warning"
-    >
-      <span>{warning}</span>
-      <button
-        type="button"
-        className="icon-btn icon-btn--small"
-        onClick={() => useSettingsStore.getState().dismissWarning()}
-        aria-label={ru.stage.dismiss}
-        title={ru.stage.dismiss}
-      >
-        <CloseIcon size={14} />
-      </button>
-    </div>
   )
 }
 

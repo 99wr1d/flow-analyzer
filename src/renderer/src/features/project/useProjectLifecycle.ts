@@ -1,6 +1,7 @@
 // Всё, что проект делает «само»: следит за изменениями, обновляет заголовок окна, автосохраняет копию работы,
 // защищает от закрытия с потерей данных и принимает проект, переданный снаружи.
 import { useEffect } from 'react'
+import { useViewStore } from '../../app/viewStore'
 import { usePlayerStore } from '../../store/playerStore'
 import { UNTITLED_PROJECT } from '../../../../shared/project'
 import { askStopForClose, cancelExportAndWait, isExportRunning } from '../export/exportActions'
@@ -101,6 +102,7 @@ export function useProjectLifecycle(): void {
       .takeLaunchProject()
       .then((path) => (path ? openProject(path) : undefined))
       .catch(() => undefined)
+      .finally(() => useViewStore.getState().setBooting(false))
     void refreshRecovery()
 
     return () => {
