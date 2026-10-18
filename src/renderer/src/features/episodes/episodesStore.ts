@@ -20,6 +20,8 @@ export interface EpisodesActions {
   select: (id: string | null) => void
   toggleFilter: (tagId: string) => void
   clearFilter: () => void
+  /** Заменяет фильтр целиком (например, из окна статистики). */
+  setFilter: (tagIds: string[]) => void
   setIn: (time: number) => void
   setOut: (time: number) => void
   clearMarks: () => void
@@ -88,6 +90,7 @@ export const useEpisodesStore = create<EpisodesState & EpisodesActions>()((set) 
       filter: s.filter.includes(tagId) ? s.filter.filter((t) => t !== tagId) : [...s.filter, tagId]
     })),
   clearFilter: () => set({ filter: [] }),
+  setFilter: (filter) => set({ filter: [...filter] }),
 
   setIn: (inPoint) => set({ inPoint }),
   setOut: (outPoint) => set({ outPoint }),

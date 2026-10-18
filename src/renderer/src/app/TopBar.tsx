@@ -5,7 +5,8 @@ import { useProjectStore } from '../features/project/projectStore'
 import { useSettingsStore } from '../features/settings/settingsStore'
 import { ru } from '../i18n/ru'
 import { usePlayerStore } from '../store/playerStore'
-import { FolderOpenIcon, GearIcon } from '../ui/icons'
+import { canOpenStats, openStats } from '../features/stats/statsActions'
+import { BarChartIcon, FolderOpenIcon, GearIcon } from '../ui/icons'
 import { Logo } from '../ui/Logo'
 
 function FileName(): React.JSX.Element | null {
@@ -50,7 +51,9 @@ function ProjectName(): React.JSX.Element {
 export function TopBar(): React.JSX.Element {
   const openHint = useKeyHint('general:open-video')
   const settingsHint = useKeyHint('general:settings')
+  const statsHint = useKeyHint('stats:open')
   const openSettings = useSettingsStore((s) => s.openDialog)
+  const hasVideo = usePlayerStore((s) => s.status === 'ready')
   return (
     <header className="top-bar">
       <div className="top-bar__brand">
@@ -73,6 +76,20 @@ export function TopBar(): React.JSX.Element {
       >
         <FolderOpenIcon />
         {ru.topBar.openVideo}
+      </button>
+      <button
+        type="button"
+        className="btn"
+        disabled={!hasVideo}
+        onClick={(e) => {
+          if (canOpenStats()) openStats()
+          e.currentTarget.blur()
+        }}
+        title={hasVideo ? `${ru.stats.openTitle}${statsHint}` : ru.stats.openNeedVideo}
+        data-testid="stats-open"
+      >
+        <BarChartIcon />
+        {ru.stats.open}
       </button>
       <button
         type="button"

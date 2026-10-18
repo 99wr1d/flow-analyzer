@@ -2,6 +2,7 @@
 import { useEffect } from 'react'
 import type { Settings } from '../../../../shared/settings'
 import { useExportStore } from '../export/exportStore'
+import { useStatsStore } from '../stats/statsStore'
 import { useProjectStore } from '../project/projectStore'
 import { useUnsavedStore } from '../project/unsavedStore'
 import { useSettingsStore } from '../settings/settingsStore'
@@ -52,6 +53,7 @@ export function handleKeyDown(e: KeyboardEvent): void {
   const state = useSettingsStore.getState()
   if (state.dialogOpen) return
   if (useExportStore.getState().open) return
+  if (useStatsStore.getState().open) return
   // Вопросы о проекте — модальные окна: пока они открыты, клавиши команд молчат.
   if (useUnsavedStore.getState().open || useProjectStore.getState().relink) return
   if (isTyping(e.target)) return

@@ -214,3 +214,10 @@ export const AlertIcon = (p: IconProps): React.JSX.Element => (
     <path d="M12 10v4M12 16.6v.1" />
   </Svg>
 )
+
+export const BarChartIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 19.5V11M12 19.5V5M19 19.5v-6" />
+    <path d="M3.5 19.5h17" />
+  </Svg>
+)

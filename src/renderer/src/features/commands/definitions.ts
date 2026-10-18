@@ -6,6 +6,7 @@ import { useEpisodesStore } from '../episodes/episodesStore'
 import { applyTag, markIn, markOut } from '../episodes/tagging'
 import { canExport, openExportDialog } from '../export/exportActions'
 import { redoAny, undoAny } from '../history/unified'
+import { canOpenStats, openStats } from '../stats/statsActions'
 import { openVideoFromDialog } from '../player/importVideo'
 import { canSave, newProject, openProject, saveProject, saveProjectAs } from '../project/actions'
 import { changeRate, stepFrame, stepSecond, toggleMute, togglePlay } from '../player/videoElement'
@@ -193,6 +194,14 @@ export const STATIC_COMMANDS: readonly Command[] = [
     defaults: [key('KeyN', { ctrl: true })],
     run: () => void newProject(),
     enabled: canSave
+  },
+  {
+    id: 'stats:open',
+    label: 'Статистика',
+    group: 'Анализ',
+    defaults: [key('KeyI', { ctrl: true })],
+    run: openStats,
+    enabled: canOpenStats
   },
   {
     id: 'export:open',

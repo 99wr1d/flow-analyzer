@@ -17,6 +17,7 @@ import type {
   RecoveryItem
 } from '../shared/project'
 import type { Settings, SettingsLoadResult } from '../shared/settings'
+import type { StatsExport, StatsExportResult } from '../shared/statsExport'
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result: IpcResult<T> = await ipcRenderer.invoke(channel, ...args)
@@ -49,6 +50,9 @@ const api: FlowApi = {
     invoke<{ token: string }>(IPC_CHANNELS.exportStageOverlays, overlays),
   cancelExport: () => invoke<void>(IPC_CHANNELS.exportCancel),
   revealExport: () => invoke<void>(IPC_CHANNELS.exportReveal),
+  exportStatsCsv: (data: StatsExport) =>
+    invoke<StatsExportResult>(IPC_CHANNELS.statsExportCsv, data),
+  revealStatsFile: () => invoke<void>(IPC_CHANNELS.statsReveal),
   onExportProgress(callback: (progress: ExportProgress) => void): () => void {
     const listener = (_event: Electron.IpcRendererEvent, progress: unknown): void => {
       if (progress && typeof progress === 'object') callback(progress as ExportProgress)

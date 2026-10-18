@@ -6,6 +6,7 @@ import './styles/episodes.css'
 import './styles/settings.css'
 import './styles/project.css'
 import './styles/export.css'
+import './styles/stats.css'
 
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'

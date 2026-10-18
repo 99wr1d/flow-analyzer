@@ -9,6 +9,7 @@ import type {
 } from './project'
 import type { ExportProgress, ExportRequest, ExportResult, StageOverlays } from './export'
 import type { Settings, SettingsLoadResult } from './settings'
+import type { StatsExport, StatsExportResult } from './statsExport'
 
 export const IPC_CHANNELS = {
   appGetInfo: 'app:get-info',
@@ -31,6 +32,8 @@ export const IPC_CHANNELS = {
   exportStart: 'export:start',
   exportCancel: 'export:cancel',
   exportReveal: 'export:reveal',
+  statsExportCsv: 'stats:export-csv',
+  statsReveal: 'stats:reveal',
   windowSetTitle: 'window:set-title',
   appCloseResponse: 'app:close-response',
   appConfirmClose: 'app:confirm-close',
@@ -118,6 +121,10 @@ export interface FlowApi {
   cancelExport(): Promise<void>
   /** Показывает в проводнике файл, созданный последним экспортом (путь выбирает main, не интерфейс). */
   revealExport(): Promise<void>
+  /** Сохраняет статистику в CSV (UTF-8 с BOM, «;»). Файл и папку выбирает пользователь в диалоге main. */
+  exportStatsCsv(data: StatsExport): Promise<StatsExportResult>
+  /** Показывает в проводнике файл, созданный последней выгрузкой статистики. */
+  revealStatsFile(): Promise<void>
   onExportProgress(callback: (progress: ExportProgress) => void): () => void
   /** Заголовок окна задаёт main: name = null — просто «FlowAnalyzer». */
   setWindowTitle(name: string | null, dirty: boolean): Promise<void>

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { ExportDialog } from '../features/export/ExportDialog'
+import { StatsDialog } from '../features/stats/StatsDialog'
 import { installExportProgress } from '../features/export/exportActions'
 import { useCommandDispatcher } from '../features/commands/dispatcher'
 import { installUnifiedHistory } from '../features/history/unified'
@@ -43,6 +44,7 @@ export function App(): React.JSX.Element {
       <StatusBar />
       {dialogOpen && <SettingsDialog />}
       <ExportDialog />
+      <StatsDialog />
       <UnsavedDialog />
       <RelinkDialog />
     </div>
