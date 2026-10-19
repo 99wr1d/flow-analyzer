@@ -1,5 +1,6 @@
 // Попадание курсора в рисунки. Всё считается в пикселях картинки (координаты нормализованы по осям по-разному).
 import type { ScreenAnnotation, Point } from '../../../../shared/annotations'
+import { isScreenTool, paintScreenTool } from '../../../../shared/tools/screenPaint'
 import { handlesOf, type HandleId, type Rect, type Size } from './geometry'
 
 export interface PxPoint {
@@ -37,6 +38,27 @@ export function distToEllipseArea(
   return d <= 1 ? 0 : (d - 1) * Math.min(ex, ey)
 }
 
+export function pointInPolygon(p: PxPoint, poly: readonly PxPoint[]): boolean {
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i, i += 1) {
+    const a = poly[i]
+    const b = poly[j]
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+export function distToPolygon(p: PxPoint, poly: readonly PxPoint[]): number {
+  if (pointInPolygon(p, poly)) return 0
+  let best = Infinity
+  for (let i = 0; i < poly.length; i += 1) {
+    best = Math.min(best, distToSegment(p, poly[i], poly[(i + 1) % poly.length]))
+  }
+  return best
+}
+
 /** Прямоугольник подписи в пикселях картинки (по размеру текста width в пикселях). */
 export function textRect(
   a: Extract<ScreenAnnotation, { type: 'text' }>,
@@ -69,6 +91,9 @@ export function hitAnnotation(
       p.y >= r.y - tolerance / 2 &&
       p.y <= r.y + r.h + tolerance / 2
     )
+  }
+  if (isScreenTool(a)) {
+    return paintScreenTool(a, size).hit.some((poly) => distToPolygon(p, poly) <= tolerance)
   }
   const p1 = toPx(a.p1, size)
   const p2 = toPx(a.p2, size)
@@ -105,6 +130,16 @@ export function handleAt(
 ): HandleId | null {
   let best: HandleId | null = null
   let bestDist = radius
+  if (isScreenTool(a)) {
+    for (const h of paintScreenTool(a, size).handles) {
+      const d = Math.hypot(p.x - h.point.x, p.y - h.point.y)
+      if (d <= bestDist) {
+        best = h.id
+        bestDist = d
+      }
+    }
+    return best
+  }
   for (const h of handlesOf(a)) {
     const d = Math.hypot(p.x - h.point.x * size.w, p.y - h.point.y * size.h)
     if (d <= bestDist) {

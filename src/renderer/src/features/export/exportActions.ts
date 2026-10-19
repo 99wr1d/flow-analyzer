@@ -143,7 +143,10 @@ async function prepareDrawings(
       images: images.map((i) => ({ key: i.key, data: i.data }))
     })
     if (prepareCancelled) return 'cancelled'
-    return { token, fps, timings: annotations.map((a) => a.timing) }
+    const loupes = annotations.flatMap((a, index) =>
+      a.type === 'loupe' ? [{ index, pos: a.pos, src: a.src, radius: a.radius, zoom: a.zoom }] : []
+    )
+    return { token, fps, timings: annotations.map((a) => a.timing), loupes }
   } catch (error) {
     if (error instanceof RenderCancelled) return 'cancelled'
     // Понятное сообщение от main (например, «слишком много рисунков») показываем как есть.

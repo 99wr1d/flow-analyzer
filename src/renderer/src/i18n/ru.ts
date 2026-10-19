@@ -159,7 +159,19 @@ export const ru = {
     line: 'Линия',
     circle: 'Круг',
     text: 'Текст',
-    ruler: 'Линейка'
+    ruler: 'Линейка',
+    spot: 'Прожектор',
+    curve: 'Изогнутая стрелка',
+    pen: 'Перо',
+    zone: 'Зона',
+    loupe: 'Лупа',
+    chain: 'Связи игроков',
+    groups: {
+      basic: 'Основные инструменты',
+      field: 'Поле и анализ',
+      advanced: 'Дополнительные инструменты'
+    } as Record<string, string>,
+    needPitchHint: 'Сначала разметьте поле'
   },
   annotations: {
     styleBar: 'Стиль рисунка',
@@ -182,7 +194,18 @@ export const ru = {
       parrow: 'Стрелка на поле',
       pline: 'Линия на поле',
       ptext: 'Подпись на поле',
-      ruler: 'Линейка'
+      ruler: 'Линейка',
+      spot: 'Прожектор',
+      curve: 'Изогнутая стрелка',
+      pen: 'Перо',
+      zone: 'Зона',
+      loupe: 'Лупа',
+      chain: 'Связи игроков',
+      pspot: 'Прожектор на поле',
+      pcurve: 'Изогнутая стрелка на поле',
+      ppen: 'Перо на поле',
+      pzone: 'Зона на поле',
+      pchain: 'Связи игроков на поле'
     } as Record<string, string>,
     trackLabel: 'Рисунки',
     trackEmpty: 'Рисунков пока нет',
@@ -208,6 +231,26 @@ export const ru = {
       nan: 'Нужно число, например 2.5',
       range: 'Допустимо от 0.5 до 30 секунд'
     } as Record<string, string>,
+    props: 'Свойства',
+    dim: 'Затемнение',
+    dimValue: (percent: number): string => `${percent}%`,
+    zoom: 'Увеличение',
+    opacity: 'Прозрачность заливки',
+    fillOpacity: 'Заливка',
+    areaLabel: 'Площадь на зоне, м²',
+    beam: 'Луч вверх (рост игрока)',
+    arrowHead: 'Стрелка на конце',
+    chainFill: 'Заливка между игроками',
+    chainLabels: 'Расстояния и ширина линии',
+    zoomHint: 'Во сколько раз лупа увеличивает участок под собой',
+    polyHintZone:
+      'Зона: щёлкайте по углам · Enter или двойной щелчок — замкнуть · Backspace — убрать точку · Esc — отмена',
+    polyHintChain:
+      'Связи: щёлкайте по игрокам (по ногам) · Enter или двойной щелчок — завершить · Backspace — убрать точку · Esc — отмена',
+    zoneNeedPoints: 'Для зоны нужно минимум три точки не на одной прямой',
+    chainNeedPoints: 'Для связи нужно минимум две точки',
+    nodeMin: 'Нельзя убрать точку: так останется слишком мало точек',
+    nodeHint: 'Alt+щелчок по линии добавляет точку, Delete убирает выбранную',
     startsAt: 'Начало',
     startFromNow: 'Начать с текущего момента',
     remove: 'Удалить'

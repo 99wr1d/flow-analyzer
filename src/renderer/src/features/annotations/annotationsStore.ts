@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import type { Annotation, Timing } from '../../../../shared/annotations'
+import {
+  DEFAULT_DIM,
+  DEFAULT_LOUPE_ZOOM,
+  DEFAULT_ZONE_OPACITY,
+  type Annotation,
+  type Timing
+} from '../../../../shared/annotations'
+import { minVertices } from '../../../../shared/tools/points'
 import {
   commit,
   commitFrom,
@@ -11,17 +18,101 @@ import {
 } from './history'
 import { DEFAULT_STYLE, LEVELS, type CurrentStyle } from './styles'
 
-export type Tool = 'select' | 'arrow' | 'line' | 'circle' | 'text' | 'ruler'
-export const TOOLS: Tool[] = ['select', 'arrow', 'line', 'circle', 'text', 'ruler']
+export type Tool =
+  | 'select'
+  | 'arrow'
+  | 'line'
+  | 'circle'
+  | 'text'
+  | 'ruler'
+  | 'spot'
+  | 'curve'
+  | 'pen'
+  | 'zone'
+  | 'loupe'
+  | 'chain'
+export const TOOLS: Tool[] = [
+  'select',
+  'arrow',
+  'curve',
+  'line',
+  'circle',
+  'text',
+  'ruler',
+  'spot',
+  'zone',
+  'chain',
+  'pen',
+  'loupe'
+]
+/** Инструменты рейки по группам: основные, разметка поля и анализ, дополнительные. */
+export const TOOL_GROUPS: Array<{ id: string; tools: Tool[] }> = [
+  { id: 'basic', tools: ['select', 'arrow', 'curve', 'line', 'circle', 'text'] },
+  { id: 'field', tools: ['ruler', 'spot', 'zone', 'chain'] },
+  { id: 'advanced', tools: ['pen', 'loupe'] }
+]
+
+/** Свойства новых рисунков (запоминаются: последнее выбранное значение действует для следующих рисунков). */
+export interface ToolOptions {
+  dim: number
+  zoom: number
+  opacity: number
+  areaLabel: boolean
+  beam: boolean
+  arrow: boolean
+  fill: boolean
+  labels: boolean
+}
+export const DEFAULT_OPTIONS: ToolOptions = {
+  dim: DEFAULT_DIM,
+  zoom: DEFAULT_LOUPE_ZOOM,
+  opacity: DEFAULT_ZONE_OPACITY,
+  areaLabel: true,
+  beam: true,
+  arrow: false,
+  fill: false,
+  labels: true
+}
+/** Свойство рисунка → поле в ToolOptions. */
+const PROP_TO_OPTION: Record<string, keyof ToolOptions> = {
+  dim: 'dim',
+  zoom: 'zoom',
+  opacity: 'opacity',
+  showArea: 'areaLabel',
+  beam: 'beam',
+  arrow: 'arrow',
+  fill: 'fill',
+  labels: 'labels'
+}
+/** Свойства рисунка, которые можно менять в панели «Рисунок». */
+export type PropPatch = Partial<{
+  dim: number
+  zoom: number
+  opacity: number
+  showArea: boolean
+  beam: boolean
+  arrow: boolean
+  fill: boolean
+  labels: boolean
+}>
 
 export interface AnnotationsState extends HistoryState {
   selectedId: string | null
   tool: Tool
   /** Стиль для новых рисунков; при выбранном рисунке изменения применяются и к нему. */
   style: CurrentStyle
+  /** Свойства новых рисунков (прожектор, лупа, зона…). */
+  options: ToolOptions
+  /** Выбранная вершина зоны или связи игроков (Delete удаляет её). */
+  selectedNode: number | null
 }
 
 export interface AnnotationsActions {
+  selectNode: (index: number | null) => void
+  /** Меняет свойства выбранного рисунка (и запоминает их для новых). */
+  setProps: (id: string, patch: PropPatch) => void
+  /** Удаляет выбранную вершину; false — нельзя (мало вершин) или вершина не выбрана. */
+  removeSelectedNode: () => boolean
   setTool: (tool: Tool) => void
   select: (id: string | null) => void
   setStyle: (patch: Partial<CurrentStyle>) => void
@@ -71,14 +162,57 @@ const initial = (): AnnotationsState => ({
   ...createHistory(),
   selectedId: null,
   tool: 'select',
-  style: DEFAULT_STYLE
+  style: DEFAULT_STYLE,
+  options: DEFAULT_OPTIONS,
+  selectedNode: null
 })
 
 export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>()((set) => ({
   ...initial(),
 
   setTool: (tool) => set((s) => ({ tool, selectedId: tool === 'select' ? s.selectedId : null })),
-  select: (selectedId) => set({ selectedId }),
+  select: (selectedId) =>
+    set((s) => ({ selectedId, selectedNode: selectedId === s.selectedId ? s.selectedNode : null })),
+  selectNode: (selectedNode) => set({ selectedNode }),
+
+  setProps: (id, patch) =>
+    set((s) => {
+      const target = s.items.find((a) => a.id === id)
+      if (!target) return {}
+      const options = { ...s.options }
+      for (const [prop, value] of Object.entries(patch)) {
+        const option = PROP_TO_OPTION[prop]
+        if (option) (options as Record<string, unknown>)[option] = value
+      }
+      const items = s.items.map((a) => (a.id === id ? ({ ...a, ...patch } as Annotation) : a))
+      return {
+        options,
+        ...commit(s, items, { key: 'prop:' + id + ':' + Object.keys(patch).join(',') })
+      }
+    }),
+
+  removeSelectedNode: () => {
+    let done = false
+    set((s) => {
+      const target = s.items.find((a) => a.id === s.selectedId)
+      const index = s.selectedNode
+      if (
+        !target ||
+        index === null ||
+        !('points' in target) ||
+        target.points.length - 1 < minVertices(target)
+      ) {
+        return {}
+      }
+      done = true
+      const points = (target.points as Array<{ x: number; y: number }>).filter(
+        (_, i) => i !== index
+      )
+      const items = s.items.map((a) => (a.id === target.id ? ({ ...a, points } as Annotation) : a))
+      return { selectedNode: null, ...commit(s, items) }
+    })
+    return done
+  },
 
   setStyle: (patch) =>
     set((s) => {
@@ -91,7 +225,11 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
     }),
 
   add: (annotation) =>
-    set((s) => ({ ...commit(s, [...s.items, annotation]), selectedId: annotation.id })),
+    set((s) => ({
+      ...commit(s, [...s.items, annotation]),
+      selectedId: annotation.id,
+      selectedNode: null
+    })),
 
   remove: (id) =>
     set((s) => {
@@ -123,9 +261,15 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
   commitFrom: (before) => set((s) => ({ ...commitFrom(s, before) })),
   undo: () => set((s) => withSelection(s, undo(s))),
   redo: () => set((s) => withSelection(s, redo(s))),
-  reset: () => set((s) => ({ ...initial(), tool: s.tool, style: s.style })),
+  reset: () => set((s) => ({ ...initial(), tool: s.tool, style: s.style, options: s.options })),
   load: (items) =>
-    set((s) => ({ ...initial(), ...createHistory(items), tool: s.tool, style: s.style }))
+    set((s) => ({
+      ...initial(),
+      ...createHistory(items),
+      tool: s.tool,
+      style: s.style,
+      options: s.options
+    }))
 }))
 
 export const selectedAnnotation = (s: AnnotationsState): Annotation | null =>

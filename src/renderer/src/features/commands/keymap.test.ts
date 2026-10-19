@@ -109,6 +109,25 @@ describe('команды приложения', () => {
     ])
   })
 
+  it('клавиши новых инструментов: группа «Рисование», свободные клавиши, Enter завершает зону', () => {
+    const expected: Record<string, string> = {
+      'draw:spot': 'KeyS',
+      'draw:curve': 'KeyB',
+      'draw:pen': 'KeyD',
+      'draw:zone': 'KeyZ',
+      'draw:chain': 'KeyN',
+      'draw:loupe': 'KeyG',
+      'draw:finish': 'Enter'
+    }
+    for (const [id, code] of Object.entries(expected)) {
+      const command = STATIC_COMMANDS.find((c) => c.id === id)!
+      expect(command, id).toBeTruthy()
+      expect(command.group).toBe('Рисование')
+      expect(command.defaults.map((b) => b.code)).toEqual([code])
+      expect(command.defaults[0].ctrl).toBe(false)
+    }
+  })
+
   it('автоповтор разрешён только для покадрового шага', () => {
     const repeating = STATIC_COMMANDS.filter((c) => c.repeat).map((c) => c.id)
     expect(repeating.sort()).toEqual([

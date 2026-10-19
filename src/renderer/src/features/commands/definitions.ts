@@ -3,6 +3,7 @@ import { DEFAULT_TAG_KEYS, tagCommandId, type TagDef } from '../../../../shared/
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore, type Tool } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
+import { cancelPolyDraft, finishPolyDraft, polyDraftActive } from '../annotations/polyDraft'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { canCalibrate, explainNeedCalibration, startCalibration } from '../pitch/pitchActions'
 import { applyTag, markIn, markOut, rateCurrent } from '../episodes/tagging'
@@ -44,8 +45,22 @@ function runRuler(): void {
   else useAnnotationsStore.getState().setTool('ruler')
 }
 
+/** Команда выбора нового инструмента этапа 15. */
+function tool(id: Tool, name: string, code: string): Command {
+  return {
+    id: `draw:${id}`,
+    label: `Инструмент «${name}»`,
+    group: 'Рисование',
+    defaults: [key(code)],
+    run: setTool(id),
+    enabled: ready
+  }
+}
+
 /** Esc: сначала инструмент → «Выбор», затем снять выделение рисунка, затем сбросить метки, затем снять выделение эпизода. */
 function escape(): void {
+  // Недорисованная зона или связь: Esc отменяет только её, инструмент остаётся.
+  if (cancelPolyDraft()) return
   const annotations = useAnnotationsStore.getState()
   if (annotations.tool !== 'select') return annotations.setTool('select')
   if (annotations.selectedId) return annotations.select(null)
@@ -170,6 +185,20 @@ export const STATIC_COMMANDS: readonly Command[] = [
     defaults: [key('KeyR')],
     run: runRuler,
     enabled: ready
+  },
+  tool('spot', 'Прожектор', 'KeyS'),
+  tool('curve', 'Изогнутая стрелка', 'KeyB'),
+  tool('pen', 'Перо', 'KeyD'),
+  tool('zone', 'Зона', 'KeyZ'),
+  tool('chain', 'Связи игроков', 'KeyN'),
+  tool('loupe', 'Лупа', 'KeyG'),
+  {
+    id: 'draw:finish',
+    label: 'Завершить зону или связи',
+    group: 'Рисование',
+    defaults: [key('Enter')],
+    run: () => void finishPolyDraft(),
+    enabled: () => ready() && polyDraftActive()
   },
   {
     id: 'pitch:calibrate',

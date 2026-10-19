@@ -2,6 +2,7 @@
 // Фигуры строятся на плоскости поля в метрах (постоянная ширина в метрах), обрезаются по горизонту и только потом
 // проецируются — поэтому вдали они сужаются, а кольцо превращается в эллипс.
 import type { PitchAnnotation } from '../annotations'
+import { isToolAnnotation, paintPitchTool } from './pitchTools'
 import type { Pt } from './linalg'
 import type { Projector } from './projector'
 
@@ -15,16 +16,17 @@ export interface PaintSize {
   h: number
 }
 
-export type PitchHandleId = 'p1' | 'p2' | 'radius'
+/** Ручки: концы p1/p2, радиус, середина кривой c, вершины v0, v1, …, у лупы — src, lens, size. */
+export type PitchHandleId = string
 
 /** Ширина линии в метрах для каждого вида рисунка: (доля высоты кадра из стиля) × множитель. */
 export const WORLD_WIDTH_FACTOR = { arrow: 32, line: 14, ring: 11, ruler: 12 } as const
 const RULER_TICK_HALF = 0.6
-const DASH_LENGTH = 7.5
-const DASH_GAP = 4.5
+export const DASH_LENGTH = 7.5
+export const DASH_GAP = 4.5
 
 export interface LabelPaint {
-  kind: 'ruler' | 'text'
+  kind: 'ruler' | 'text' | 'area' | 'segment' | 'width'
   text: string
   /** Центр плашки, пиксели. */
   x: number
@@ -34,6 +36,33 @@ export interface LabelPaint {
   fontPx: number
   /** Отрезок от точки земли до плашки (подпись над игроком). */
   stem?: { x1: number; y1: number; x2: number; y2: number }
+}
+
+/** Линия, которую рисует сам SVG (рисунки на экране): толщина в пикселях. */
+export interface StrokePaint {
+  points: PxPt[]
+  closed: boolean
+  widthPx: number
+  dashed: boolean
+}
+
+/** «Луч» над светлым пятном прожектора: силуэт и границы по вертикали (для градиента). */
+export interface BeamPaint {
+  poly: PxPt[]
+  top: number
+  bottom: number
+}
+
+/** Лупа на экране: линза, исходный участок и соединительная линия. Всё в пикселях кадра. */
+export interface LensPaint {
+  cx: number
+  cy: number
+  r: number
+  sx: number
+  sy: number
+  /** Радиус исходного участка (r / увеличение). */
+  sr: number
+  connector: [PxPt, PxPt] | null
 }
 
 export interface PitchPaint {
@@ -49,11 +78,25 @@ export interface PitchPaint {
   handles: Array<{ id: PitchHandleId; point: PxPt }>
   /** Что-то видно (фигура не целиком за горизонтом). */
   visible: boolean
+  /** Линии, которые рисует сам SVG (рисунки на экране). */
+  strokes: StrokePaint[]
+  /** Полупрозрачная заливка (зона, связи). */
+  fills: PxPt[][]
+  fillOpacity: number
+  /** Узлы связи: центры и радиус маркеров (рисунок на экране). */
+  nodes: PxPt[]
+  nodeRadius: number
+  /** Дополнительные подписи (звенья, ширина линии, площадь). */
+  labels: LabelPaint[]
+  beam: BeamPaint | null
+  /** Освещённые области прожектора. */
+  lit: PxPt[][]
+  lens: LensPaint | null
 }
 
 export type Measure = (text: string, fontPx: number) => number
 
-const toPx = (p: Pt, size: PaintSize): PxPt => ({ x: p.x * size.w, y: p.y * size.h })
+export const toPx = (p: Pt, size: PaintSize): PxPt => ({ x: p.x * size.w, y: p.y * size.h })
 
 function signedArea(poly: readonly Pt[]): number {
   let a = 0
@@ -66,7 +109,7 @@ function signedArea(poly: readonly Pt[]): number {
 }
 
 /** Многоугольник с положительным обходом (против часовой стрелки в метрах). */
-const ccw = (poly: Pt[]): Pt[] => (signedArea(poly) < 0 ? [...poly].reverse() : poly)
+export const ccw = (poly: Pt[]): Pt[] => (signedArea(poly) < 0 ? [...poly].reverse() : poly)
 
 /** Лента вдоль отрезка a→b полушириной hw. */
 export function ribbon(a: Pt, b: Pt, hw: number): Pt[] {
@@ -164,18 +207,35 @@ export function circleAngles(
   return angles
 }
 
-const onCircle = (c: Pt, r: number, a: number): Pt => ({
+export const onCircle = (c: Pt, r: number, a: number): Pt => ({
   x: c.x + r * Math.cos(a),
   y: c.y + r * Math.sin(a)
 })
 
-function labelBox(text: string, fontPx: number, measure: Measure): { w: number; h: number } {
+export function labelBox(text: string, fontPx: number, measure: Measure): { w: number; h: number } {
   const pad = fontPx * 0.3
   return { w: measure(text, fontPx) + pad * 2, h: fontPx * 1.2 + pad * 2 }
 }
 
-function emptyPaint(): PitchPaint {
-  return { body: [], disc: [], dot: null, label: null, hit: [], handles: [], visible: false }
+export function emptyPaint(): PitchPaint {
+  return {
+    body: [],
+    disc: [],
+    dot: null,
+    label: null,
+    hit: [],
+    handles: [],
+    visible: false,
+    strokes: [],
+    fills: [],
+    fillOpacity: 0,
+    nodes: [],
+    nodeRadius: 0,
+    labels: [],
+    beam: null,
+    lit: [],
+    lens: null
+  }
 }
 
 /** Размер шрифта подписи линейки, пиксели. */
@@ -185,15 +245,25 @@ export const rulerFontPx = (styleWidth: number, size: PaintSize): number =>
 /** Ширина линии рисунка на поле, метры. */
 export const worldWidthOf = (a: PitchAnnotation): number => {
   const f =
-    a.type === 'parrow'
+    a.type === 'pcurve'
       ? WORLD_WIDTH_FACTOR.arrow
-      : a.type === 'pline'
+      : a.type === 'ppen'
         ? WORLD_WIDTH_FACTOR.line
-        : a.type === 'ring'
-          ? WORLD_WIDTH_FACTOR.ring
-          : a.type === 'ruler'
-            ? WORLD_WIDTH_FACTOR.ruler
-            : 0
+        : a.type === 'pchain'
+          ? WORLD_WIDTH_FACTOR.line * 1.4
+          : a.type === 'pzone'
+            ? WORLD_WIDTH_FACTOR.line * 0.8
+            : a.type === 'pspot'
+              ? WORLD_WIDTH_FACTOR.ring * 0.7
+              : a.type === 'parrow'
+                ? WORLD_WIDTH_FACTOR.arrow
+                : a.type === 'pline'
+                  ? WORLD_WIDTH_FACTOR.line
+                  : a.type === 'ring'
+                    ? WORLD_WIDTH_FACTOR.ring
+                    : a.type === 'ruler'
+                      ? WORLD_WIDTH_FACTOR.ruler
+                      : 0
   return a.type === 'ptext' ? 0 : a.style.width * f
 }
 
@@ -204,6 +274,7 @@ export function paintPitch(
   size: PaintSize,
   measure: Measure
 ): PitchPaint {
+  if (isToolAnnotation(a)) return paintPitchTool(a, proj, size, measure)
   const out = emptyPaint()
   const px = (poly: Pt[]): PxPt[] => poly.map((p) => toPx(p, size))
   const pushBody = (worldPoly: Pt[]): void => {

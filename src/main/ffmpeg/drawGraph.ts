@@ -9,8 +9,16 @@
 //   стоп-кадр: один кадр «основы» (trim) + overlay + tpad (клон кадра) на нужное время;
 //   звук: atrim тех же кусков; на стоп-кадре — тишина той же длины (anullsrc), поэтому звук и картинка не расходятся;
 //   всё вместе — concat.
-import type { FreezePoint, OverlaySegment, RangePlan } from '../../shared/exportOverlays'
+import type { Timing } from '../../shared/annotations'
+import {
+  parseKey,
+  type FreezePoint,
+  type OverlaySegment,
+  type RangePlan
+} from '../../shared/exportOverlays'
+import type { LoupeGeometry } from '../../shared/tools/loupe'
 import { sec } from './args'
+import { loupeLines } from './loupe'
 
 /** Чётные размеры кадра: yuv420p иначе не кодируется. */
 const EVEN_SIZE = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
@@ -22,6 +30,13 @@ export interface GraphAudio {
   mono: boolean
 }
 
+/** Лупа в экспорте: номер рисунка, пиксельная геометрия и время показа. */
+export interface GraphLoupe {
+  index: number
+  geometry: LoupeGeometry
+  timing: Timing
+}
+
 export interface GraphInput {
   ranges: readonly RangePlan[]
   segments: readonly OverlaySegment[]
@@ -31,6 +46,8 @@ export interface GraphInput {
   /** Размер картинки видео после поворота, если он известен, и размер PNG: при расхождении PNG масштабируется. */
   videoSize?: { w: number; h: number } | null
   pngSize?: { w: number; h: number } | null
+  /** Лупы: содержимое линзы делает ffmpeg, а рамку рисует PNG. */
+  loupes?: readonly GraphLoupe[]
 }
 
 export interface GraphPlan {
@@ -164,6 +181,27 @@ export function planDrawn(input: GraphInput): GraphPlan {
   const rangeEnds = ranges.map((r) => r.end)
   const windowEnd = (s: OverlaySegment): number =>
     rangeEnds.some((e) => Math.abs(e - s.end) < 1e-6) ? s.end + frame : s.end
+  // Лупы «Отрезок»: линза накладывается на основной поток раньше картинок с рисунками (рамка ложится поверх неё).
+  const loupes = input.loupes ?? []
+  let lensCount = 0
+  for (const l of loupes) {
+    if (l.timing.mode !== 'range') continue
+    const from = l.timing.start
+    const to = from + l.timing.duration
+    if (!ranges.some((r) => from < r.end && to > r.start)) continue
+    const out = `[lm${lensCount}]`
+    lines.push(
+      ...loupeLines({
+        id: `lm${lensCount}`,
+        input: main,
+        output: out,
+        geometry: l.geometry,
+        window: { from: from - offset - shift, to: to - offset - shift }
+      })
+    )
+    main = out
+    lensCount += 1
+  }
   let n = 0
   for (const key of inputKeys) {
     const w = windows.get(key)
@@ -233,8 +271,26 @@ export function planDrawn(input: GraphInput): GraphPlan {
       lines.push(
         `${freezeSrc[j]}trim=start=${from}:end=${to},setpts=PTS-STARTPTS,trim=end_frame=1[fz${j}]`
       )
+      // Лупы стоп-кадра: те рисунки набора, что являются лупами.
+      const members = parseKey(f.key) ?? []
+      let current = `[fz${j}]`
+      loupes
+        .filter((l) => members.includes(l.index))
+        .forEach((l, k) => {
+          const id = `lz${j}_${k}`
+          lines.push(
+            ...loupeLines({
+              id,
+              input: current,
+              output: `[${id}o]`,
+              geometry: l.geometry,
+              single: true
+            })
+          )
+          current = `[${id}o]`
+        })
       lines.push(
-        `[fz${j}]${pad}overlay=x=0:y=0:eof_action=repeat,tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
+        `${current}${pad}overlay=x=0:y=0:eof_action=repeat,tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
       )
       if (audio) {
         const silence = sec((frames - 1) / fps)

@@ -19,7 +19,8 @@ import {
   buildProbeArgs,
   planCompilation
 } from './args'
-import { planDrawn, type GraphPlan } from './drawGraph'
+import { loupeGeometry } from '../../shared/tools/loupe'
+import { planDrawn, type GraphLoupe, type GraphPlan } from './drawGraph'
 import { clipStem, uniqueFileName } from './names'
 import { EXPORT_MESSAGES, friendlyFfmpegError, parseMediaInfo, type MediaFacts } from './progress'
 import { runFfmpeg, type RunResult } from './runner'
@@ -161,7 +162,18 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
     onTime: (seconds: number) => void
   ): Promise<{ run: RunResult; seconds: number }> {
     const overlays = input.overlays!
+    // Лупы: размер кадра — по файлу, а если он неизвестен, по размеру картинок с рисунками.
+    const frameW = facts.width && facts.height ? facts.width : overlays.width
+    const frameH = facts.width && facts.height ? facts.height : overlays.height
+    const loupes: GraphLoupe[] = (drawings?.loupes ?? [])
+      .filter((l) => l.index < (drawings?.timings.length ?? 0))
+      .map((l) => ({
+        index: l.index,
+        geometry: loupeGeometry(l, frameW, frameH),
+        timing: drawings!.timings[l.index]
+      }))
     const graph: GraphPlan = planDrawn({
+      loupes,
       ranges: plan.ranges,
       segments: plan.segments,
       fps,

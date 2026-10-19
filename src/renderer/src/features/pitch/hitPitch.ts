@@ -13,28 +13,9 @@ import {
   type PitchPaint,
   type PxPt
 } from '../../../../shared/pitch/shapes'
-import { HANDLE_RADIUS, HIT_TOLERANCE, distToSegment } from '../annotations/hit'
+import { HANDLE_RADIUS, HIT_TOLERANCE, distToPolygon, pointInPolygon } from '../annotations/hit'
 
-export function pointInPolygon(p: PxPt, poly: readonly PxPt[]): boolean {
-  let inside = false
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i, i += 1) {
-    const a = poly[i]
-    const b = poly[j]
-    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
-      inside = !inside
-    }
-  }
-  return inside
-}
-
-export function distToPolygon(p: PxPt, poly: readonly PxPt[]): number {
-  if (pointInPolygon(p, poly)) return 0
-  let best = Infinity
-  for (let i = 0; i < poly.length; i += 1) {
-    best = Math.min(best, distToSegment(p, poly[i], poly[(i + 1) % poly.length]))
-  }
-  return best
-}
+export { distToPolygon, pointInPolygon }
 
 /** Попадает ли точка (пиксели картинки) в уже построенный рисунок. */
 export function hitPaint(paint: PitchPaint, p: PxPt, tolerance: number = HIT_TOLERANCE): boolean {

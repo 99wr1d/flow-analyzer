@@ -1,14 +1,19 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import {
   isPitchAnnotation,
   type Annotation,
   type ScreenAnnotation
 } from '../../../../shared/annotations'
 import type { Projector } from '../../../../shared/pitch/projector'
+import {
+  paintScreenTool,
+  isScreenTool,
+  type ScreenToolAnnotation
+} from '../../../../shared/tools/screenPaint'
 import { arrowShape } from './arrowGeometry'
 import { bboxOf, handlesOf, type Size } from './geometry'
 import { textRect, toPx } from './hit'
-import { PitchBody, PitchHandlesView } from './PitchShapeView'
+import { PaintHandles, PaintParts, PitchBody, PitchHandlesView } from './PitchShapeView'
 import { isDarkColor } from './styles'
 import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
 
@@ -31,11 +36,42 @@ interface ShapeProps {
   dimmed?: boolean
 }
 
+/** Новые рисунки на экране (прожектор, кривая, перо, зона, лупа, связи): геометрию считает paintScreenTool. */
+function ScreenToolBody({
+  annotation: a,
+  size,
+  selected,
+  shadowClass
+}: {
+  annotation: ScreenToolAnnotation
+  size: Size
+  selected: boolean
+  shadowClass?: string
+}): React.JSX.Element {
+  const paint = useMemo(() => paintScreenTool(a, size), [a, size])
+  return (
+    <PaintParts
+      paint={paint}
+      id={a.id}
+      color={a.style.color}
+      size={size}
+      selected={selected}
+      shadowClass={shadowClass}
+    />
+  )
+}
+
 function ShapeBody({
   annotation: a,
   size,
-  selected
-}: ShapeProps & { annotation: ScreenAnnotation }): React.JSX.Element {
+  selected,
+  shadowClass
+}: ShapeProps & { annotation: ScreenAnnotation; shadowClass?: string }): React.JSX.Element {
+  if (isScreenTool(a)) {
+    return (
+      <ScreenToolBody annotation={a} size={size} selected={selected} shadowClass={shadowClass} />
+    )
+  }
   if (a.type === 'text') {
     const font = a.style.size * size.h
     const width = measureTextWidth(a.text, font)
@@ -193,19 +229,42 @@ function geometryOf(a: Annotation): string {
       return JSON.stringify({ pos: a.pos })
     case 'ring':
       return JSON.stringify({ center: a.center, radius: a.radius })
+    case 'pspot':
+      return JSON.stringify({ center: a.center, radius: a.radius, dim: a.dim, beam: a.beam })
+    case 'spot':
+      return JSON.stringify({ p1: a.p1, p2: a.p2, dim: a.dim })
+    case 'curve':
+    case 'pcurve':
+      return JSON.stringify({ p1: a.p1, p2: a.p2, c: a.c })
+    case 'pen':
+    case 'ppen':
+      return JSON.stringify({ points: a.points, arrow: a.arrow })
+    case 'zone':
+    case 'chain':
+    case 'pzone':
+    case 'pchain':
+      return JSON.stringify({ points: a.points })
+    case 'loupe':
+      return JSON.stringify({ pos: a.pos, src: a.src, radius: a.radius, zoom: a.zoom })
     default:
       return JSON.stringify({ p1: a.p1, p2: a.p2 })
   }
 }
+
+/** Виды рисунков с полупрозрачной подложкой (заливка зоны и связей, луч прожектора). */
+const HAS_UNDERLAY = new Set(['zone', 'chain', 'pzone', 'pchain', 'spot', 'pspot'])
 
 export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.Element | null {
   const a = props.annotation
   const dark = isDarkColor(a.style.color)
   // Рисунок на поле без рабочей разметки (её удалили или точки некорректны) не показывается.
   if (isPitchAnnotation(a) && !props.projector) return null
+  const shadow = dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
+  // У рисунков с полупрозрачной заливкой тень на группе просвечивала бы сквозь заливку: тень получают только линии и подписи.
+  const split = HAS_UNDERLAY.has(a.type)
   return (
     <g
-      className={dark ? 'anno-shape anno-shape--dark' : 'anno-shape'}
+      className={split ? undefined : shadow}
       data-testid="annotation"
       data-id={a.id}
       data-type={a.type}
@@ -223,9 +282,10 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
           size={props.size}
           selected={props.selected}
           projector={props.projector}
+          shadowClass={split ? shadow : undefined}
         />
       ) : (
-        <ShapeBody {...props} annotation={a} />
+        <ShapeBody {...props} annotation={a} shadowClass={split ? shadow : undefined} />
       )}
     </g>
   )
@@ -235,14 +295,47 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
 export function HandlesView({
   annotation,
   size,
-  projector
+  projector,
+  selectedNode
 }: {
   annotation: Annotation
   size: Size
   projector?: Projector | null
+  /** Выбранная вершина зоны или связи (подсвечивается). */
+  selectedNode?: number | null
 }): React.JSX.Element | null {
   if (isPitchAnnotation(annotation)) {
-    return <PitchHandlesView annotation={annotation} size={size} projector={projector} />
+    return (
+      <PitchHandlesView
+        annotation={annotation}
+        size={size}
+        projector={projector}
+        selectedNode={selectedNode}
+      />
+    )
+  }
+  if (isScreenTool(annotation)) {
+    const paint = paintScreenTool(annotation, size)
+    const box = annotation.type === 'spot' ? bboxOf(annotation) : null
+    return (
+      <>
+        {box && (
+          <rect
+            x={box.x0 * size.w}
+            y={box.y0 * size.h}
+            width={(box.x1 - box.x0) * size.w}
+            height={(box.y1 - box.y0) * size.h}
+            fill="none"
+            stroke={ACCENT}
+            strokeWidth={1}
+            strokeDasharray="4 4"
+            opacity={0.8}
+            pointerEvents="none"
+          />
+        )}
+        <PaintHandles paint={paint} selectedNode={selectedNode} />
+      </>
+    )
   }
   const handles = handlesOf(annotation)
   if (handles.length === 0) return null

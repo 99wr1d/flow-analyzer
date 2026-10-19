@@ -5,6 +5,11 @@ import {
   MAX_FREEZE,
   MIN_DURATION,
   MIN_FREEZE,
+  LOUPE_ZOOMS,
+  MAX_DIM,
+  MAX_ZONE_OPACITY,
+  MIN_DIM,
+  MIN_ZONE_OPACITY,
   defaultDuration,
   frameCenter,
   parseDuration,
@@ -144,6 +149,189 @@ function FreezeField({ annotation }: { annotation: Annotation }): React.JSX.Elem
   )
 }
 
+/** Ползунок в процентах: затемнение прожектора и прозрачность заливки зоны. */
+function PercentSlider({
+  label,
+  testId,
+  value,
+  min,
+  max,
+  onChange
+}: {
+  label: string
+  testId: string
+  value: number
+  min: number
+  max: number
+  onChange: (value: number) => void
+}): React.JSX.Element {
+  const percent = Math.round(value * 100)
+  return (
+    <div className="inspector__slider">
+      <span className="field__label">{label}</span>
+      <span className="inspector__value" data-testid={`${testId}-value`}>
+        {ru.annotations.dimValue(percent)}
+      </span>
+      <input
+        type="range"
+        min={Math.round(min * 100)}
+        max={Math.round(max * 100)}
+        step={1}
+        value={percent}
+        aria-label={label}
+        data-testid={testId}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        onPointerUp={(e) => e.currentTarget.blur()}
+      />
+    </div>
+  )
+}
+
+function CheckField({
+  label,
+  testId,
+  checked,
+  onChange
+}: {
+  label: string
+  testId: string
+  checked: boolean
+  onChange: (value: boolean) => void
+}): React.JSX.Element {
+  return (
+    <label className="inspector__check">
+      <input
+        type="checkbox"
+        checked={checked}
+        data-testid={testId}
+        onChange={(e) => {
+          onChange(e.target.checked)
+          e.currentTarget.blur()
+        }}
+      />
+      <span>{label}</span>
+    </label>
+  )
+}
+
+/** Свойства, которые есть только у новых видов рисунков (прожектор, лупа, зона, перо, связи). */
+function ToolProps({ annotation: a }: { annotation: Annotation }): React.JSX.Element | null {
+  const setProps = useAnnotationsStore((s) => s.setProps)
+  let body: React.JSX.Element | null = null
+  if (a.type === 'spot' || a.type === 'pspot') {
+    body = (
+      <>
+        <PercentSlider
+          label={ru.annotations.dim}
+          testId="prop-dim"
+          value={a.dim}
+          min={MIN_DIM}
+          max={MAX_DIM}
+          onChange={(dim) => setProps(a.id, { dim })}
+        />
+        {a.type === 'pspot' && (
+          <CheckField
+            label={ru.annotations.beam}
+            testId="prop-beam"
+            checked={a.beam}
+            onChange={(beam) => setProps(a.id, { beam })}
+          />
+        )}
+      </>
+    )
+  } else if (a.type === 'loupe') {
+    body = (
+      <div>
+        <span className="field__label" title={ru.annotations.zoomHint}>
+          {ru.annotations.zoom}
+        </span>
+        <div
+          className="segmented segmented--three"
+          role="group"
+          aria-label={ru.annotations.zoom}
+          title={ru.annotations.zoomHint}
+        >
+          {LOUPE_ZOOMS.map((z) => (
+            <button
+              key={z}
+              type="button"
+              className={a.zoom === z ? 'segmented__btn segmented__btn--active' : 'segmented__btn'}
+              aria-pressed={a.zoom === z}
+              data-testid={`zoom-${String(z).replace('.', '')}`}
+              onClick={(e) => {
+                setProps(a.id, { zoom: z })
+                e.currentTarget.blur()
+              }}
+            >
+              ×{z}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  } else if (a.type === 'zone' || a.type === 'pzone') {
+    body = (
+      <>
+        <PercentSlider
+          label={ru.annotations.fillOpacity}
+          testId="prop-opacity"
+          value={a.opacity}
+          min={MIN_ZONE_OPACITY}
+          max={MAX_ZONE_OPACITY}
+          onChange={(opacity) => setProps(a.id, { opacity })}
+        />
+        {a.type === 'pzone' && (
+          <CheckField
+            label={ru.annotations.areaLabel}
+            testId="prop-area"
+            checked={a.showArea}
+            onChange={(showArea) => setProps(a.id, { showArea })}
+          />
+        )}
+        <p className="field__hint">{ru.annotations.nodeHint}</p>
+      </>
+    )
+  } else if (a.type === 'pen' || a.type === 'ppen') {
+    body = (
+      <CheckField
+        label={ru.annotations.arrowHead}
+        testId="prop-arrow"
+        checked={a.arrow}
+        onChange={(arrow) => setProps(a.id, { arrow })}
+      />
+    )
+  } else if (a.type === 'chain' || a.type === 'pchain') {
+    body = (
+      <>
+        <CheckField
+          label={ru.annotations.chainFill}
+          testId="prop-fill"
+          checked={a.fill}
+          onChange={(fill) => setProps(a.id, { fill })}
+        />
+        {a.type === 'pchain' && (
+          <CheckField
+            label={ru.annotations.chainLabels}
+            testId="prop-labels"
+            checked={a.labels}
+            onChange={(labels) => setProps(a.id, { labels })}
+          />
+        )}
+        <p className="field__hint">{ru.annotations.nodeHint}</p>
+      </>
+    )
+  }
+  if (!body) return null
+  return (
+    <>
+      <div className="inspector__section">{ru.annotations.props}</div>
+      <div className="inspector__props" data-testid="tool-props">
+        {body}
+      </div>
+    </>
+  )
+}
+
 export function Inspector(): React.JSX.Element | null {
   const selected = useAnnotationsStore(selectedAnnotation)
   const setTiming = useAnnotationsStore((s) => s.setTiming)
@@ -217,6 +405,7 @@ export function Inspector(): React.JSX.Element | null {
           {ru.pitch.stale}
         </p>
       )}
+      <ToolProps annotation={selected} />
       <div className="inspector__section">{ru.annotations.timing}</div>
       <div className="segmented" role="group" aria-label={ru.annotations.timing}>
         <button

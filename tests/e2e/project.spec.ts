@@ -186,7 +186,7 @@ test.describe('проекты', () => {
       const saved = readJson(file)
       expect(saved.format).toBe('flowanalyzer-project')
       expect(saved.version).toBe(1)
-      expect(saved.appVersion).toBe('0.11.0')
+      expect(saved.appVersion).toBe('0.12.0')
       expect(saved.video.path).toBe(fixture('cfr25.mp4'))
       expect(saved.video.fileName).toBe('cfr25.mp4')
       expect(saved.video.sizeBytes).toBeGreaterThan(0)

@@ -1,25 +1,41 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_FREEZE,
+  DEFAULT_LOUPE_RADIUS,
   DEFAULT_RING_RADIUS,
+  DEFAULT_SPOT_RADIUS,
+  MAX_PEN_POINTS,
   MAX_TEXT_LENGTH,
   MIN_RING_RADIUS,
+  MIN_SPOT_RADIUS,
   defaultDuration,
   frameCenter,
   isPitchAnnotation,
+  isSpotlight,
   isVisible,
   type Annotation,
   type GroundText,
+  type Loupe,
   type PitchAnnotation,
   type Point,
   type ScreenAnnotation,
   type TextAnnotation
 } from '../../../../shared/annotations'
 import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
-import { moveWorld, moveWorldHandle, snapWorldAngle } from '../../../../shared/pitch/edit'
+import {
+  handleAnchor,
+  moveWorld,
+  moveWorldHandle,
+  snapWorldAngle
+} from '../../../../shared/pitch/edit'
 import type { Pt } from '../../../../shared/pitch/linalg'
 import type { Projector } from '../../../../shared/pitch/projector'
 import { worldDistance, type PitchHandleId } from '../../../../shared/pitch/shapes'
+import { defaultControl } from '../../../../shared/tools/curve'
+import { hasVertices, vertexIndex } from '../../../../shared/tools/points'
+import { insertionPoint, pushVertex } from '../../../../shared/tools/polygon'
+import { simplifyStroke } from '../../../../shared/tools/simplify'
+import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { gridPath, gridPrimitives } from '../pitch/gridPaths'
@@ -41,7 +57,16 @@ import {
   type Size
 } from './geometry'
 import { handleAt, textRect, topHit, type PxPoint } from './hit'
+import { LoupeLenses } from './LoupeLenses'
+import {
+  cancelPolyDraft,
+  draftAnnotation,
+  finishPolyDraft,
+  usePolyDraft,
+  type PolyTool
+} from './polyDraft'
 import { HandlesView, ShapeView } from './ShapeView'
+import { SpotlightDim } from './SpotlightDim'
 import { shapeStyleOf, textStyleOf } from './styles'
 import { TextEditor } from './TextEditor'
 import { measureTextWidth } from './textMetrics'
@@ -54,13 +79,39 @@ const MIN_BOX_PX = 8
 const MIN_GROUND_LENGTH = 0.3
 /** Пока курсор ушёл от центра кольца меньше, чем на столько пикселей, радиус остаётся стандартным (клик = кольцо 1 м). */
 const RING_DRAG_PX = 6
+/** Щелчок без протягивания: прожектор и лупа получают размер по умолчанию. */
+const CLICK_PX = 6
+/** Размеры прожектора по умолчанию (доли высоты кадра): высокий эллипс вокруг игрока. */
+const SPOT_RX = 0.042
+const SPOT_RY = 0.08
+/** Перо: точки ближе друг к другу (в пикселях) не собираются; допуск упрощения. */
+const PEN_STEP_PX = 1.5
+const PEN_TOLERANCE_PX = 1.8
+const PEN_RAW_LIMIT = 3000
+/** Следующая вершина ближе этого (в пикселях) к последней — это второй щелчок двойного щелчка. */
+const VERTEX_MIN_PX = 4
+/** Щелчок ближе этого к первой вершине зоны замыкает её. */
+const CLOSE_PX = 10
+/** Alt+щелчок добавляет вершину, если курсор не дальше этого от линии. */
+const INSERT_PX = 12
+/** Кривая новой стрелки изогнута на эту долю её длины. */
+const CURVE_BEND = 0.28
 
-type DrawTool = 'arrow' | 'line' | 'circle'
-type PitchDrawTool = DrawTool | 'ruler'
+type DrawTool = 'arrow' | 'line' | 'circle' | 'spot' | 'curve' | 'loupe'
+type PitchDrawTool = 'arrow' | 'line' | 'circle' | 'ruler' | 'spot' | 'curve'
+/** Инструменты, которые умеют рисовать на поле, когда включено «На поле». */
+const PITCH_TOOLS = ['arrow', 'line', 'circle', 'text', 'spot', 'curve', 'pen', 'zone', 'chain']
 
 interface PitchTarget {
   calibrationId: string
   projector: Projector
+}
+
+interface PenSample {
+  x: number
+  y: number
+  norm: Point
+  world: Pt | null
 }
 
 type Gesture =
@@ -73,6 +124,13 @@ type Gesture =
       target: PitchTarget
       start: number
       last: Pt
+    }
+  | {
+      kind: 'pen'
+      target: PitchTarget | null
+      start: number
+      duration: number
+      raw: PenSample[]
     }
   | {
       kind: 'move'
@@ -116,7 +174,7 @@ function pauseVideo(): void {
 }
 
 function bboxFor(a: ScreenAnnotation, size: Size): BBox {
-  if (a.type !== 'text') return bboxOf(a)
+  if (a.type !== 'text') return bboxOf(a, undefined, size)
   const r = textRect(a, size, measureTextWidth(a.text, a.style.size * size.h))
   return bboxOf(a, r, size)
 }
@@ -171,15 +229,40 @@ function pitchTargetFor(tool: string, time: number): PitchTarget | null | 'missi
   const near = nearestUsable(useCalibrationsStore.getState().items, time)
   if (tool === 'ruler') {
     if (!near) return 'missing'
-  } else if (
-    !usePitchStore.getState().onPitch ||
-    !['arrow', 'line', 'circle', 'text'].includes(tool)
-  ) {
+  } else if (!usePitchStore.getState().onPitch || !PITCH_TOOLS.includes(tool)) {
     return null
   }
   if (!near) return null
   const projector = projectorMapNow().get(near.calibration.id)
   return projector ? { calibrationId: near.calibration.id, projector } : null
+}
+
+/** Shift у ручки рисунка на экране: привязка к углам относительно соседней точки (круг — к кругу). */
+function snapScreenHandle(
+  item: ScreenAnnotation,
+  handle: string,
+  target: Point,
+  size: Size
+): Point {
+  if (item.type === 'circle' || item.type === 'spot') {
+    const b = bboxOf(item)
+    const fixed = {
+      x: handle === 'nw' || handle === 'sw' ? b.x1 : b.x0,
+      y: handle === 'nw' || handle === 'ne' ? b.y1 : b.y0
+    }
+    return squareFrom(fixed, target, size)
+  }
+  if (item.type === 'arrow' || item.type === 'line' || item.type === 'curve') {
+    if (handle !== 'p1' && handle !== 'p2') return target
+    return snapAngle(handle === 'p1' ? item.p2 : item.p1, target, size)
+  }
+  if (item.type === 'zone' || item.type === 'chain') {
+    const i = vertexIndex(handle)
+    if (i === null) return target
+    const anchor = item.points[i > 0 ? i - 1 : 1]
+    return anchor ? snapAngle(anchor, target, size) : target
+  }
+  return target
 }
 
 interface SurfaceProps {
@@ -195,7 +278,9 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
 
   const items = useAnnotationsStore((s) => s.items)
   const selectedId = useAnnotationsStore((s) => s.selectedId)
+  const selectedNode = useAnnotationsStore((s) => s.selectedNode)
   const tool = useAnnotationsStore((s) => s.tool)
+  const poly = usePolyDraft((s) => s.draft)
   const visibleKey = useVisibleKey(items)
   const projectors = useProjectors()
   const gridId = useGridCalibrationId()
@@ -210,6 +295,9 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       staleIds: new Set(keys.filter((k) => k.endsWith('!')).map((k) => k.slice(0, -1)))
     }
   }, [items, visibleKey, selectedId])
+
+  // Недорисованная зона или связь отменяется, когда слой исчезает (новое видео, закрытие проекта).
+  useEffect(() => () => void cancelPolyDraft(), [])
 
   const gridPathData = useMemo(() => {
     const c = calibrations.find((x) => x.id === gridId)
@@ -241,27 +329,69 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     return null
   }
 
+  /** Размер прожектора и лупы по умолчанию вокруг точки (рисунок остаётся внутри картинки). */
+  const defaultSpot = (center: Point): { p1: Point; p2: Point } => {
+    const rx = (SPOT_RX * size.h) / size.w
+    const ry = SPOT_RY
+    const cx = Math.min(1 - rx, Math.max(rx, center.x))
+    const cy = Math.min(1 - ry, Math.max(ry, center.y))
+    return { p1: { x: cx - rx, y: cy - ry }, p2: { x: cx + rx, y: cy + ry } }
+  }
+
   const buildDraft = (
     g: Extract<Gesture, { kind: 'draw' }>,
     to: Point,
     shift: boolean
   ): Annotation => {
-    const style = useAnnotationsStore.getState().style
+    const { style, options } = useAnnotationsStore.getState()
     const clamped = clampPoint(to)
+    const moved = Math.hypot((clamped.x - g.origin.x) * size.w, (clamped.y - g.origin.y) * size.h)
+    const timing = { mode: 'range' as const, start: g.start, duration: g.duration }
+    const base = { id: crypto.randomUUID(), space: 'screen' as const, timing }
+    if (g.tool === 'spot') {
+      const box = moved < CLICK_PX ? defaultSpot(g.origin) : { p1: g.origin, p2: clamped }
+      return { ...base, type: 'spot', ...box, dim: options.dim, style: shapeStyleOf(style) }
+    }
+    if (g.tool === 'loupe') {
+      const radius = DEFAULT_LOUPE_RADIUS
+      const rx = (radius * size.h) / size.w
+      const clampLens = (p: Point): Point => ({
+        x: Math.min(1 - rx, Math.max(rx, p.x)),
+        y: Math.min(1 - radius, Math.max(radius, p.y))
+      })
+      const pos = moved < CLICK_PX ? clampLens(g.origin) : clampLens(clamped)
+      return {
+        ...base,
+        type: 'loupe',
+        pos,
+        src: g.origin,
+        radius,
+        zoom: options.zoom,
+        style: shapeStyleOf(style)
+      }
+    }
     let end = clamped
     if (shift)
       end =
         g.tool === 'circle'
           ? squareFrom(g.origin, clamped, size)
           : snapAngle(g.origin, clamped, size)
+    if (g.tool === 'curve') {
+      return {
+        ...base,
+        type: 'curve',
+        p1: g.origin,
+        p2: end,
+        c: defaultControl(g.origin, end, CURVE_BEND, size),
+        style: shapeStyleOf(style)
+      }
+    }
     return {
-      id: crypto.randomUUID(),
-      space: 'screen',
+      ...base,
       type: g.tool,
       p1: g.origin,
       p2: end,
-      style: shapeStyleOf(style),
-      timing: { mode: 'range', start: g.start, duration: g.duration }
+      style: shapeStyleOf(style)
     }
   }
 
@@ -279,7 +409,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     shift: boolean,
     id?: string
   ): PitchAnnotation => {
-    const style = shapeStyleOf(useAnnotationsStore.getState().style)
+    const { style: current, options } = useAnnotationsStore.getState()
+    const style = shapeStyleOf(current)
     const base = {
       id: id ?? crypto.randomUUID(),
       space: 'pitch' as const,
@@ -294,9 +425,122 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       }
       return { ...base, type: 'ring', center: g.origin, radius, style }
     }
+    if (g.tool === 'spot') {
+      let radius = DEFAULT_SPOT_RADIUS
+      if (movedPx >= RING_DRAG_PX) {
+        radius = Math.max(MIN_SPOT_RADIUS, worldDistance(g.origin, to))
+        if (shift) radius = Math.max(0.5, Math.round(radius * 2) / 2)
+      }
+      return {
+        ...base,
+        type: 'pspot',
+        center: g.origin,
+        radius,
+        dim: options.dim,
+        beam: options.beam,
+        style
+      }
+    }
     const end = shift ? snapWorldAngle(g.origin, to) : to
+    if (g.tool === 'curve') {
+      return {
+        ...base,
+        type: 'pcurve',
+        p1: g.origin,
+        p2: end,
+        c: defaultControl(g.origin, end, CURVE_BEND),
+        style
+      }
+    }
     const type = g.tool === 'arrow' ? 'parrow' : g.tool === 'line' ? 'pline' : 'ruler'
     return { ...base, type, p1: g.origin, p2: end, style }
+  }
+
+  /** Перо: рисунок по собранным точкам (на экране — доли кадра, на поле — метры). */
+  const buildPen = (g: Extract<Gesture, { kind: 'pen' }>, raw: PenSample[]): Annotation | null => {
+    const { style, options } = useAnnotationsStore.getState()
+    const ss = shapeStyleOf(style)
+    const pts = raw.length === 1 ? [raw[0], raw[0]] : raw
+    if (g.target) {
+      const points = pts.map((p) => p.world).filter((p): p is Pt => p !== null)
+      if (points.length < 2) return null
+      return {
+        id: 'pen-draft',
+        space: 'pitch',
+        calibrationId: g.target.calibrationId,
+        type: 'ppen',
+        points,
+        arrow: options.arrow,
+        style: ss,
+        timing: pitchTiming(g.start)
+      }
+    }
+    return {
+      id: 'pen-draft',
+      space: 'screen',
+      type: 'pen',
+      points: pts.map((p) => clampPoint(p.norm)),
+      arrow: options.arrow,
+      style: ss,
+      timing: { mode: 'range', start: g.start, duration: g.duration }
+    }
+  }
+
+  /** Щелчок инструментом «Зона» или «Связи игроков». */
+  const polyClick = (
+    toolId: PolyTool,
+    norm: Point,
+    px: PxPoint,
+    shift: boolean,
+    now: number
+  ): void => {
+    const drafts = usePolyDraft.getState()
+    let d = drafts.draft
+    if (!d) {
+      const target = pitchTargetFor(toolId, now)
+      if (target === 'missing') return
+      drafts.begin({
+        tool: toolId,
+        space: target ? 'pitch' : 'screen',
+        calibrationId: target ? target.calibrationId : null,
+        start: now
+      })
+      d = usePolyDraft.getState().draft
+    }
+    if (!d) return
+    let point: { x: number; y: number } | null
+    let projector: Projector | null | undefined = null
+    if (d.space === 'pitch') {
+      projector = d.calibrationId ? lookup(d.calibrationId) : null
+      point = projector ? projector.toWorld(norm) : null
+    } else {
+      point = norm
+    }
+    if (!point) return
+    // Для зоны щелчок рядом с первой вершиной замыкает её.
+    if (d.tool === 'zone' && d.points.length >= 3) {
+      const first = d.points[0]
+      const firstNorm = d.space === 'pitch' ? projector?.toImage(first) : first
+      if (firstNorm) {
+        const dist = Math.hypot(firstNorm.x * size.w - px.x, firstNorm.y * size.h - px.y)
+        if (dist <= CLOSE_PX) {
+          finishPolyDraft()
+          return
+        }
+      }
+    }
+    if (shift && d.points.length > 0) {
+      const prev = d.points[d.points.length - 1]
+      point =
+        d.space === 'pitch' ? snapWorldAngle(prev, point) : snapAngle(prev, clampPoint(point), size)
+    } else if (d.space === 'screen') {
+      point = clampPoint(point)
+    }
+    // Второй щелчок двойного щелчка не добавляет лишнюю вершину.
+    const minDist =
+      d.space === 'pitch' ? 0.15 : VERTEX_MIN_PX / Math.max(1, Math.min(size.w, size.h))
+    const next = pushVertex(d.points, point, minDist)
+    if (next.length !== d.points.length) usePolyDraft.getState().addPoint(point)
   }
 
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>): void => {
@@ -312,11 +556,24 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     if (store.tool === 'select') {
       const current = store.items.find((a) => a.id === store.selectedId)
       if (current && visible.some((a) => a.id === current.id)) {
+        // Alt+щелчок по линии выбранной зоны или связи добавляет вершину.
+        if (e.altKey && hasVertices(current)) {
+          const inserted = insertVertex(current, px, store.items)
+          if (inserted) {
+            gesture.current = inserted.gesture
+            store.preview(store.items.map((a) => (a.id === current.id ? inserted.item : a)))
+            store.selectNode(inserted.index)
+            svgRef.current?.setPointerCapture(e.pointerId)
+            return
+          }
+        }
         if (isPitchAnnotation(current)) {
           const proj = lookup(current.calibrationId)
           const paint = proj ? paintOf(current, lookup, size, measureTextWidth) : null
           const handle = paint ? pitchHandleAt(paint, px) : null
           if (proj && handle) {
+            const node = vertexIndex(handle)
+            if (node !== null) store.selectNode(node)
             gesture.current = {
               kind: 'phandle',
               id: current.id,
@@ -331,6 +588,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         } else {
           const handle = handleAt(current, px, size)
           if (handle) {
+            const node = vertexIndex(handle)
+            if (node !== null) store.selectNode(node)
             gesture.current = {
               kind: 'handle',
               id: current.id,
@@ -346,6 +605,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       const hit = topHitAny(px)
       if (hit) {
         store.select(hit.id)
+        store.selectNode(null)
         if (isPitchAnnotation(hit)) {
           const proj = lookup(hit.calibrationId)
           const world = proj?.toWorld(norm)
@@ -378,10 +638,34 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     }
 
     if (norm.x < 0 || norm.x > 1 || norm.y < 0 || norm.y > 1) return
+
+    if (store.tool === 'zone' || store.tool === 'chain') {
+      pauseVideo()
+      store.select(null)
+      polyClick(store.tool, norm, px, e.shiftKey, now)
+      return
+    }
+
     const target = pitchTargetFor(store.tool, now)
     if (target === 'missing') return
     pauseVideo()
     store.select(null)
+
+    if (store.tool === 'pen') {
+      const world = target ? target.projector.toWorld(norm) : null
+      if (target && !world) return
+      const g: Extract<Gesture, { kind: 'pen' }> = {
+        kind: 'pen',
+        target,
+        start: now,
+        duration: defaultDuration(now, player.duration),
+        raw: [{ x: px.x, y: px.y, norm, world }]
+      }
+      gesture.current = g
+      setDraft(buildPen(g, g.raw))
+      svgRef.current?.setPointerCapture(e.pointerId)
+      return
+    }
 
     if (target) {
       const world = target.projector.toWorld(norm)
@@ -423,6 +707,46 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     svgRef.current?.setPointerCapture(e.pointerId)
   }
 
+  /** Alt+щелчок: вставляет вершину в ближайшее звено зоны или связи; дальше её можно сразу тащить. */
+  const insertVertex = (
+    current: Annotation,
+    px: PxPoint,
+    before: Annotation[]
+  ): { item: Annotation; index: number; gesture: Gesture } | null => {
+    if (!hasVertices(current)) return null
+    const closed = current.type === 'zone' || current.type === 'pzone'
+    const projector = isPitchAnnotation(current) ? lookup(current.calibrationId) : null
+    if (isPitchAnnotation(current) && !projector) return null
+    // Ищем ближайшее звено на картинке (в пикселях).
+    const asPx = (p: { x: number; y: number }): { x: number; y: number } | null => {
+      if (!projector) return { x: p.x * size.w, y: p.y * size.h }
+      const img = projector.toImage(p)
+      return img ? { x: img.x * size.w, y: img.y * size.h } : null
+    }
+    const vertices = current.points.map(asPx)
+    if (vertices.some((v) => v === null)) return null
+    const hit = insertionPoint(vertices as Array<{ x: number; y: number }>, px, closed)
+    if (!hit || hit.dist > INSERT_PX) return null
+    const normHit = { x: hit.point.x / size.w, y: hit.point.y / size.h }
+    const newPoint = projector ? projector.toWorld(normHit) : clampPoint(normHit)
+    if (!newPoint) return null
+    const points = [...current.points]
+    points.splice(hit.index, 0, newPoint)
+    const item = { ...current, points } as Annotation
+    const handle = `v${hit.index}`
+    const g: Gesture = isPitchAnnotation(item)
+      ? {
+          kind: 'phandle',
+          id: item.id,
+          before,
+          handle,
+          item,
+          projector: projector as Projector
+        }
+      : { kind: 'handle', id: item.id, before, handle, item: item as ScreenAnnotation }
+    return { item, index: hit.index, gesture: g }
+  }
+
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>): void => {
     const g = gesture.current
     const { norm, px } = eventPoint(e)
@@ -431,6 +755,16 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       // Подсказка курсором: что лежит под мышью.
       const svg = svgRef.current
       if (!svg) return
+      const pd = usePolyDraft.getState().draft
+      if (pd) {
+        // Резиновая линия к следующей вершине.
+        if (pd.space === 'pitch') {
+          const proj = pd.calibrationId ? lookup(pd.calibrationId) : null
+          usePolyDraft.getState().setHover(proj ? proj.toWorld(norm) : null)
+        } else {
+          usePolyDraft.getState().setHover(clampPoint(norm))
+        }
+      }
       if (store.tool !== 'select') {
         svg.style.cursor = store.tool === 'text' ? 'text' : 'crosshair'
         return
@@ -451,6 +785,14 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     }
     if (g.kind === 'draw') {
       setDraft(buildDraft(g, norm, e.shiftKey))
+    } else if (g.kind === 'pen') {
+      const last = g.raw[g.raw.length - 1]
+      if (Math.hypot(px.x - last.x, px.y - last.y) < PEN_STEP_PX) return
+      if (g.raw.length >= PEN_RAW_LIMIT) return
+      const world = g.target ? g.target.projector.toWorld(norm) : null
+      if (g.target && !world) return
+      g.raw.push({ x: px.x, y: px.y, norm, world })
+      setDraft(buildPen(g, g.raw))
     } else if (g.kind === 'pdraw') {
       const world = g.target.projector.toWorld(norm) ?? g.last
       g.last = world
@@ -475,30 +817,32 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       const world = g.projector.toWorld(norm)
       if (!world) return
       let target = world
-      if (e.shiftKey && g.item.type !== 'ring' && g.item.type !== 'ptext') {
-        const anchor = g.handle === 'p1' ? g.item.p2 : g.item.p1
-        target = snapWorldAngle(anchor, world)
+      if (
+        e.shiftKey &&
+        g.item.type !== 'ring' &&
+        g.item.type !== 'ptext' &&
+        g.item.type !== 'pspot'
+      ) {
+        const anchor = handleAnchor(g.item, g.handle)
+        if (anchor) target = snapWorldAngle(anchor, world)
       }
       const moved = moveWorldHandle(g.item, g.handle, target)
       store.preview(store.items.map((a) => (a.id === g.id ? moved : a)))
     } else {
       let target = clampPoint(norm)
       if (e.shiftKey && g.item.type !== 'text') {
-        if (g.item.type === 'circle') {
-          const b = bboxOf(g.item)
-          const fixed = {
-            x: g.handle === 'nw' || g.handle === 'sw' ? b.x1 : b.x0,
-            y: g.handle === 'nw' || g.handle === 'ne' ? b.y1 : b.y0
-          }
-          target = squareFrom(fixed, target, size)
-        } else {
-          target = snapAngle(g.handle === 'p1' ? g.item.p2 : g.item.p1, target, size)
-        }
+        target = snapScreenHandle(g.item, g.handle, target, size)
       }
-      const moved = moveHandle(g.item, g.handle as HandleId, target)
+      const moved = moveHandle(g.item, g.handle, target, size)
       store.preview(store.items.map((a) => (a.id === g.id ? moved : a)))
     }
   }
+
+  /** Лупа и прожектор после создания остаются целиком внутри картинки. */
+  const keepInside = (a: Annotation): Annotation =>
+    a.type === 'loupe' || a.type === 'spot'
+      ? moveBy(a as ScreenAnnotation, 0, 0, bboxFor(a as ScreenAnnotation, size))
+      : a
 
   const finish = (e: React.PointerEvent<SVGSVGElement>, cancelled: boolean): void => {
     const g = gesture.current
@@ -511,6 +855,11 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       const d = draft
       setDraft(null)
       if (!d || d.type === 'text' || isPitchAnnotation(d) || cancelled) return
+      if (d.type === 'spot' || d.type === 'loupe') {
+        store.add(keepInside(d))
+        return
+      }
+      if (!('p1' in d) || !('p2' in d)) return
       const dx = Math.abs(d.p2.x - d.p1.x) * size.w
       const dy = Math.abs(d.p2.y - d.p1.y) * size.h
       const big =
@@ -518,15 +867,26 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
           ? dx >= MIN_BOX_PX && dy >= MIN_BOX_PX
           : Math.hypot(dx, dy) >= MIN_LINE_PX
       if (big) store.add(d)
+    } else if (g.kind === 'pen') {
+      setDraft(null)
+      if (cancelled) return
+      const pts = simplifyStroke(g.raw, PEN_TOLERANCE_PX, MAX_PEN_POINTS) as PenSample[]
+      let length = 0
+      for (let i = 1; i < pts.length; i += 1) {
+        length += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+      }
+      if (pts.length < 2 || length < MIN_LINE_PX) return
+      const pen = buildPen(g, pts)
+      if (pen) store.add({ ...pen, id: crypto.randomUUID() })
     } else if (g.kind === 'pdraw') {
       const d = draft
       setDraft(null)
       if (!d || !isPitchAnnotation(d) || cancelled) return
-      if (d.type === 'ring') {
+      if (d.type === 'ring' || d.type === 'pspot') {
         store.add(d)
         return
       }
-      if (d.type === 'ptext') return
+      if (d.type === 'ptext' || !('p1' in d)) return
       const a = g.target.projector.toImage(d.p1)
       const b = g.target.projector.toImage(d.p2)
       const longEnough =
@@ -580,6 +940,11 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
 
   const onDoubleClick = (e: React.MouseEvent<SVGSVGElement>): void => {
     const store = useAnnotationsStore.getState()
+    // Двойной щелчок завершает зону или связь.
+    if (usePolyDraft.getState().draft) {
+      finishPolyDraft()
+      return
+    }
     if (store.tool !== 'select') return
     const { px } = eventPoint(e)
     const hit = topHitAny(px)
@@ -625,9 +990,29 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
 
   const draftProjector =
     draft && isPitchAnnotation(draft) ? (projectors.get(draft.calibrationId) ?? null) : null
+  const polyPreview = poly ? draftAnnotation(poly, true) : null
+  const polyBase = poly && poly.points.length > 0 ? draftAnnotation(poly, false) : null
+  const polyProjector =
+    polyPreview && isPitchAnnotation(polyPreview)
+      ? (projectors.get(polyPreview.calibrationId) ?? null)
+      : null
+
+  // Прожекторы видны вместе: одна общая маска затемнения (в том числе черновик).
+  const spotItems = useMemo(
+    () => [...visible.filter(isSpotlight), ...(draft && isSpotlight(draft) ? [draft] : [])],
+    [visible, draft]
+  )
+  const loupes = useMemo(
+    () => [
+      ...(visible.filter((a) => a.type === 'loupe') as Loupe[]),
+      ...(draft && draft.type === 'loupe' ? [draft] : [])
+    ],
+    [visible, draft]
+  )
 
   return (
     <>
+      <LoupeLenses items={loupes} rect={rect} />
       <svg
         ref={svgRef}
         className="anno-svg"
@@ -640,9 +1025,11 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         onPointerMove={onPointerMove}
         onPointerUp={(e) => finish(e, false)}
         onPointerCancel={(e) => finish(e, true)}
+        onPointerLeave={() => usePolyDraft.getState().setHover(null)}
         onDoubleClick={onDoubleClick}
         onMouseDown={(e) => e.preventDefault()}
       >
+        <SpotlightDim items={spotItems} size={size} projectorOf={lookup} />
         {gridPathData && (
           <>
             <defs>
@@ -694,14 +1081,38 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
             projector={draftProjector}
           />
         )}
+        {polyPreview && (
+          <g data-testid="poly-draft" data-points={poly?.points.length}>
+            <ShapeView
+              annotation={polyPreview}
+              size={size}
+              selected={false}
+              showHandles={false}
+              projector={polyProjector}
+            />
+            {polyBase && (
+              <HandlesView annotation={polyBase} size={size} projector={polyProjector} />
+            )}
+          </g>
+        )}
         {selected && tool === 'select' && !editor && (
           <HandlesView
             annotation={selected}
             size={size}
             projector={isPitchAnnotation(selected) ? projectors.get(selected.calibrationId) : null}
+            selectedNode={selectedNode}
           />
         )}
       </svg>
+      {poly && (
+        <div
+          className="poly-hint"
+          data-testid="poly-hint"
+          style={{ left: rect.x + 8, top: rect.y + 8 }}
+        >
+          {poly.tool === 'zone' ? ru.annotations.polyHintZone : ru.annotations.polyHintChain}
+        </div>
+      )}
       {editorProps && (
         <TextEditor
           key={

@@ -308,3 +308,64 @@ export const TargetIcon = (p: IconProps): React.JSX.Element => (
     <path d="M12 3v4M12 17v4M3 12h4M17 12h4" strokeWidth="1.800" />
   </Svg>
 )
+
+/** Прожектор: тёмный кадр и светлое пятно с лучом. */
+export const SpotlightToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <rect x="3.500" y="4" width="17" height="16" rx="2.500" strokeWidth="1.500" opacity="0.55" />
+    <ellipse cx="12" cy="16.500" rx="5" ry="2" strokeWidth="1.800" />
+    <path d="M7 16.500 9 6h6l2 10.500" strokeWidth="1.500" />
+  </Svg>
+)
+
+/** Изогнутая стрелка. */
+export const CurveToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 18C6 9 12 6 16 7.500" strokeWidth="2.200" />
+    <path d="M14 3.800 19.500 8 13 11z" fill="currentColor" />
+  </Svg>
+)
+
+/** Перо: линия от руки. */
+export const PenToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M4 17c3-1 3-8 6-8s2 8 5 6 2-6 5-8" strokeWidth="2" />
+  </Svg>
+)
+
+/** Зона: многоугольник с вершинами. */
+export const ZoneToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path
+      d="M5 8.500 14 5l5.500 7.500L15 19l-9-2z"
+      strokeWidth="1.800"
+      fill="currentColor"
+      fillOpacity="0.2"
+    />
+    <circle cx="5" cy="8.500" r="1.200" fill="currentColor" />
+    <circle cx="14" cy="5" r="1.200" fill="currentColor" />
+    <circle cx="19.500" cy="12.500" r="1.200" fill="currentColor" />
+    <circle cx="15" cy="19" r="1.200" fill="currentColor" />
+    <circle cx="6" cy="17" r="1.200" fill="currentColor" />
+  </Svg>
+)
+
+/** Лупа. */
+export const LoupeToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="10.500" cy="10.500" r="5.800" strokeWidth="2" />
+    <path d="m15 15 5 5" strokeWidth="2.400" />
+    <path d="M8 10.500h5M10.500 8v5" strokeWidth="1.500" />
+  </Svg>
+)
+
+/** Связи игроков: ломаная с узлами. */
+export const ChainToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M4.500 15.500 9 8.500l6 4.500 4.500-6.500" strokeWidth="1.800" />
+    <circle cx="4.500" cy="15.500" r="1.900" fill="currentColor" />
+    <circle cx="9" cy="8.500" r="1.900" fill="currentColor" />
+    <circle cx="15" cy="13" r="1.900" fill="currentColor" />
+    <circle cx="19.500" cy="6.500" r="1.900" fill="currentColor" />
+  </Svg>
+)

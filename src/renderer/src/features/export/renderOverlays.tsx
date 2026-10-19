@@ -2,7 +2,7 @@
 // Рисует тот же код, что и экран (ShapeView), поэтому толщина линий, наконечники и текст совпадают: SVG собирается
 // из тех же компонентов, превращается в картинку и переносится на canvas в родном размере видео.
 import { renderToStaticMarkup } from 'react-dom/server'
-import { isPitchAnnotation, type Annotation } from '../../../../shared/annotations'
+import { isPitchAnnotation, isSpotlight, type Annotation } from '../../../../shared/annotations'
 import { parseKey } from '../../../../shared/exportOverlays'
 import {
   isCalibrationFresh,
@@ -10,6 +10,7 @@ import {
   type Calibration
 } from '../../../../shared/pitch/calibration'
 import { ShapeView } from '../annotations/ShapeView'
+import { SpotlightDim } from '../annotations/SpotlightDim'
 
 /** Высота картинки на экране, при которой тени рисунков имеют размер, заданный в CSS (2.5 px); на большем кадре тень растёт. */
 const SCREEN_REFERENCE_HEIGHT = 560
@@ -35,6 +36,14 @@ export function buildOverlaySvg(
   const byId = new Map(calibrations.map((c) => [c.id, c]))
   const markup = renderToStaticMarkup(
     <>
+      <SpotlightDim
+        items={items.filter(isSpotlight)}
+        size={size}
+        projectorOf={(id) => {
+          const cal = byId.get(id)
+          return cal ? projectorFor(cal) : null
+        }}
+      />
       {items.map((a) => {
         const cal = isPitchAnnotation(a) ? byId.get(a.calibrationId) : undefined
         return (

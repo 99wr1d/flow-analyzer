@@ -24,16 +24,19 @@ function useShownStyle(): CurrentStyle {
   }
 }
 
+/** Рисунки без пунктира и без фона под текстом: линейка, прожектор, лупа. */
+const NO_DASH = new Set(['ruler', 'spot', 'pspot', 'loupe'])
+
 /** К какому виду рисунка относятся сейчас настройки: определяет, что в панели недоступно. */
 function useContextType(): 'text' | 'shape' | 'ruler' | null {
   const selected = useAnnotationsStore(selectedAnnotation)
   const tool = useAnnotationsStore((s) => s.tool)
   if (selected) {
     if (selected.type === 'text' || selected.type === 'ptext') return 'text'
-    return selected.type === 'ruler' ? 'ruler' : 'shape'
+    return NO_DASH.has(selected.type) ? 'ruler' : 'shape'
   }
   if (tool === 'text') return 'text'
-  if (tool === 'ruler') return 'ruler'
+  if (NO_DASH.has(tool)) return 'ruler'
   if (tool === 'select') return null
   return 'shape'
 }

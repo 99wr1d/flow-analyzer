@@ -15,6 +15,8 @@ export const DEFAULT_FREEZE = 3
 const unit = z.number().min(0).max(1)
 const PointSchema = z.object({ x: unit, y: unit })
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/)
+/** Управляющая точка кривой может лежать за кадром (кривая при этом остаётся в кадре). */
+const ControlPointSchema = z.object({ x: z.number().min(-1).max(2), y: z.number().min(-1).max(2) })
 const id = z.uuid()
 
 export const TimingSchema = z.discriminatedUnion('mode', [
@@ -140,6 +142,150 @@ export const RulerSchema = z.object({
   timing: TimingSchema
 })
 
+// --- Этап 15: прожектор, изогнутая стрелка, перо, зона, лупа, связи игроков ---
+
+export const MIN_DIM = 0.2
+export const MAX_DIM = 0.8
+export const DEFAULT_DIM = 0.55
+export const MIN_ZONE_OPACITY = 0.1
+export const MAX_ZONE_OPACITY = 0.6
+export const DEFAULT_ZONE_OPACITY = 0.3
+export const MAX_PEN_POINTS = 400
+export const MAX_ZONE_VERTICES = 60
+export const MAX_CHAIN_NODES = 30
+export const MIN_LOUPE_RADIUS = 0.04
+export const MAX_LOUPE_RADIUS = 0.3
+export const DEFAULT_LOUPE_RADIUS = 0.12
+export const LOUPE_ZOOMS = [1.5, 2, 3] as const
+export const DEFAULT_LOUPE_ZOOM = 2
+export const MIN_SPOT_RADIUS = 0.5
+export const MAX_SPOT_RADIUS = 15
+export const DEFAULT_SPOT_RADIUS = 2.2
+
+const dim = z.number().min(MIN_DIM).max(MAX_DIM).default(DEFAULT_DIM)
+const zoneOpacity = z
+  .number()
+  .min(MIN_ZONE_OPACITY)
+  .max(MAX_ZONE_OPACITY)
+  .default(DEFAULT_ZONE_OPACITY)
+const zoom = z
+  .number()
+  .refine((v) => (LOUPE_ZOOMS as readonly number[]).includes(v), 'Увеличение: 1.5, 2 или 3')
+  .default(DEFAULT_LOUPE_ZOOM)
+
+/** Прожектор: затемняет всё, кроме эллипса, вписанного в прямоугольник p1–p2. */
+export const SpotlightSchema = z.object({
+  id,
+  space: screenSpace,
+  type: z.literal('spot'),
+  ...twoPoints,
+  dim,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Изогнутая стрелка: квадратичная кривая Безье p1 → p2 с управляющей точкой c. */
+export const CurveSchema = z.object({
+  id,
+  space: screenSpace,
+  type: z.literal('curve'),
+  ...twoPoints,
+  c: ControlPointSchema,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Перо: нарисованная от руки линия (точки уже упрощены). */
+export const PenSchema = z.object({
+  id,
+  space: screenSpace,
+  type: z.literal('pen'),
+  points: z.array(PointSchema).min(2).max(MAX_PEN_POINTS),
+  arrow: z.boolean().default(false),
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Зона: многоугольник с полупрозрачной заливкой. */
+export const ZoneSchema = z.object({
+  id,
+  space: screenSpace,
+  type: z.literal('zone'),
+  points: z.array(PointSchema).min(3).max(MAX_ZONE_VERTICES),
+  opacity: zoneOpacity,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Лупа: круг с центром pos показывает увеличенный участок кадра вокруг точки src. radius — доля высоты кадра. */
+export const LoupeSchema = z.object({
+  id,
+  space: screenSpace,
+  type: z.literal('loupe'),
+  pos: PointSchema,
+  src: PointSchema,
+  radius: z.number().min(MIN_LOUPE_RADIUS).max(MAX_LOUPE_RADIUS),
+  zoom,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Связи игроков / линия обороны: ломаная по точкам (ноги игроков) с узлами. */
+export const ChainSchema = z.object({
+  id,
+  space: screenSpace,
+  type: z.literal('chain'),
+  points: z.array(PointSchema).min(2).max(MAX_CHAIN_NODES),
+  fill: z.boolean().default(false),
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+
+/** Прожектор на траве: эллипс на земле радиусом radius метров и (по желанию) вертикальный «луч». */
+export const GroundSpotlightSchema = z.object({
+  ...onPitch,
+  type: z.literal('pspot'),
+  center: WorldPointSchema,
+  radius: z.number().min(MIN_SPOT_RADIUS).max(MAX_SPOT_RADIUS),
+  dim,
+  beam: z.boolean().default(true),
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Изогнутая стрелка на траве: кривая задана в метрах. */
+export const GroundCurveSchema = z.object({
+  ...onPitch,
+  type: z.literal('pcurve'),
+  ...groundTwo,
+  c: WorldPointSchema,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Перо на траве: точки в метрах. */
+export const GroundPenSchema = z.object({
+  ...onPitch,
+  type: z.literal('ppen'),
+  points: z.array(WorldPointSchema).min(2).max(MAX_PEN_POINTS),
+  arrow: z.boolean().default(false),
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Зона на траве; showArea — подпись площади в м². */
+export const GroundZoneSchema = z.object({
+  ...onPitch,
+  type: z.literal('pzone'),
+  points: z.array(WorldPointSchema).min(3).max(MAX_ZONE_VERTICES),
+  opacity: zoneOpacity,
+  showArea: z.boolean().default(true),
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Связи игроков на траве; labels — подписи длин звеньев и «Ширина линии». */
+export const GroundChainSchema = z.object({
+  ...onPitch,
+  type: z.literal('pchain'),
+  points: z.array(WorldPointSchema).min(2).max(MAX_CHAIN_NODES),
+  fill: z.boolean().default(false),
+  labels: z.boolean().default(true),
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+
 export const AnnotationSchema = z.discriminatedUnion('type', [
   ArrowSchema,
   LineSchema,
@@ -149,7 +295,18 @@ export const AnnotationSchema = z.discriminatedUnion('type', [
   GroundArrowSchema,
   GroundLineSchema,
   GroundTextSchema,
-  RulerSchema
+  RulerSchema,
+  SpotlightSchema,
+  CurveSchema,
+  PenSchema,
+  ZoneSchema,
+  LoupeSchema,
+  ChainSchema,
+  GroundSpotlightSchema,
+  GroundCurveSchema,
+  GroundPenSchema,
+  GroundZoneSchema,
+  GroundChainSchema
 ])
 export const AnnotationListSchema = z.array(AnnotationSchema)
 
@@ -167,11 +324,41 @@ export type GroundArrow = z.infer<typeof GroundArrowSchema>
 export type GroundLine = z.infer<typeof GroundLineSchema>
 export type GroundText = z.infer<typeof GroundTextSchema>
 export type Ruler = z.infer<typeof RulerSchema>
+export type Spotlight = z.infer<typeof SpotlightSchema>
+export type Curve = z.infer<typeof CurveSchema>
+export type Pen = z.infer<typeof PenSchema>
+export type Zone = z.infer<typeof ZoneSchema>
+export type Loupe = z.infer<typeof LoupeSchema>
+export type Chain = z.infer<typeof ChainSchema>
+export type GroundSpotlight = z.infer<typeof GroundSpotlightSchema>
+export type GroundCurve = z.infer<typeof GroundCurveSchema>
+export type GroundPen = z.infer<typeof GroundPenSchema>
+export type GroundZone = z.infer<typeof GroundZoneSchema>
+export type GroundChain = z.infer<typeof GroundChainSchema>
 export type Annotation = z.infer<typeof AnnotationSchema>
 export type AnnotationType = Annotation['type']
-export type ScreenAnnotation = Arrow | Line | Circle | TextAnnotation
-export type PitchAnnotation = Ring | GroundArrow | GroundLine | GroundText | Ruler
+export type ScreenAnnotation =
+  Arrow | Line | Circle | TextAnnotation | Spotlight | Curve | Pen | Zone | Loupe | Chain
+export type PitchAnnotation =
+  | Ring
+  | GroundArrow
+  | GroundLine
+  | GroundText
+  | Ruler
+  | GroundSpotlight
+  | GroundCurve
+  | GroundPen
+  | GroundZone
+  | GroundChain
 export type TwoPointAnnotation = Arrow | Line | Circle
+/** Рисунки на экране, лежащие в рамке p1–p2 (как круг). */
+export type BoxAnnotation = Circle | Spotlight
+/** Рисунки, состоящие из списка точек (экран или поле). */
+export type PointsAnnotation = Pen | Zone | Chain | GroundPen | GroundZone | GroundChain
+
+/** Рисунок — прожектор (экран или поле): затемняет всё вокруг. */
+export const isSpotlight = (a: Annotation): a is Spotlight | GroundSpotlight =>
+  a.type === 'spot' || a.type === 'pspot'
 
 /** Рисунок живёт на поле (координаты в метрах). */
 export const isPitchAnnotation = (a: Annotation): a is PitchAnnotation => a.space === 'pitch'

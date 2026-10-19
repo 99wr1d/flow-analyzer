@@ -1,5 +1,12 @@
 // Чистая геометрия рисунков: отображение «нормализованные координаты ↔ пиксели» и привязка углов.
-import type { ScreenAnnotation, Point } from '../../../../shared/annotations'
+import {
+  MAX_LOUPE_RADIUS,
+  MIN_LOUPE_RADIUS,
+  type ScreenAnnotation,
+  type Point
+} from '../../../../shared/annotations'
+import { controlFromMid, curveExtent } from '../../../../shared/tools/curve'
+import { mapToolPoints, toolPointsOf, vertexIndex } from '../../../../shared/tools/points'
 
 export interface Size {
   w: number
@@ -94,12 +101,30 @@ export function bboxOf(a: ScreenAnnotation, textBox?: Rect | null, size?: Size):
     const h = size && textBox ? textBox.h / size.h : 0
     return { x0: a.pos.x, y0: a.pos.y, x1: a.pos.x + w, y1: a.pos.y + h }
   }
-  return {
-    x0: Math.min(a.p1.x, a.p2.x),
-    y0: Math.min(a.p1.y, a.p2.y),
-    x1: Math.max(a.p1.x, a.p2.x),
-    y1: Math.max(a.p1.y, a.p2.y)
+  if (a.type === 'arrow' || a.type === 'line' || a.type === 'circle' || a.type === 'spot') {
+    return {
+      x0: Math.min(a.p1.x, a.p2.x),
+      y0: Math.min(a.p1.y, a.p2.y),
+      x1: Math.max(a.p1.x, a.p2.x),
+      y1: Math.max(a.p1.y, a.p2.y)
+    }
   }
+  const pts = a.type === 'curve' ? curveExtent(a.p1, a.c, a.p2) : toolPointsOf(a)
+  const box = {
+    x0: Math.min(...pts.map((p) => p.x)),
+    y0: Math.min(...pts.map((p) => p.y)),
+    x1: Math.max(...pts.map((p) => p.x)),
+    y1: Math.max(...pts.map((p) => p.y))
+  }
+  if (a.type === 'loupe') {
+    // Линза — круг радиуса radius × высота кадра; по горизонтали это radius × h / w долей ширины.
+    const rx = a.radius * (size ? size.h / size.w : 1)
+    box.x0 = Math.min(box.x0, a.pos.x - rx)
+    box.x1 = Math.max(box.x1, a.pos.x + rx)
+    box.y0 = Math.min(box.y0, a.pos.y - a.radius)
+    box.y1 = Math.max(box.y1, a.pos.y + a.radius)
+  }
+  return box
 }
 
 const clampRange = (v: number, lo: number, hi: number): number =>
@@ -110,14 +135,17 @@ export function moveBy(a: ScreenAnnotation, dx: number, dy: number, box: BBox): 
   const cx = clampRange(dx, -box.x0, 1 - box.x1)
   const cy = clampRange(dy, -box.y0, 1 - box.y1)
   if (a.type === 'text') return { ...a, pos: { x: a.pos.x + cx, y: a.pos.y + cy } }
-  return {
-    ...a,
-    p1: { x: a.p1.x + cx, y: a.p1.y + cy },
-    p2: { x: a.p2.x + cx, y: a.p2.y + cy }
+  if (a.type === 'arrow' || a.type === 'line' || a.type === 'circle') {
+    return {
+      ...a,
+      p1: { x: a.p1.x + cx, y: a.p1.y + cy },
+      p2: { x: a.p2.x + cx, y: a.p2.y + cy }
+    }
   }
+  return mapToolPoints(a, (p) => ({ x: p.x + cx, y: p.y + cy }))
 }
 
-export type HandleId = 'p1' | 'p2' | 'nw' | 'ne' | 'se' | 'sw'
+export type HandleId = string
 
 export interface HandlePoint {
   id: HandleId
@@ -132,7 +160,7 @@ export function handlesOf(a: ScreenAnnotation): HandlePoint[] {
       { id: 'p2', point: a.p2 }
     ]
   }
-  if (a.type === 'circle') {
+  if (a.type === 'circle' || a.type === 'spot') {
     const b = bboxOf(a)
     return [
       { id: 'nw', point: { x: b.x0, y: b.y0 } },
@@ -144,15 +172,20 @@ export function handlesOf(a: ScreenAnnotation): HandlePoint[] {
   return []
 }
 
-/** Перетаскивание ручки: двигает только её (у круга — противоположный угол остаётся на месте). */
-export function moveHandle(a: ScreenAnnotation, handle: HandleId, to: Point): ScreenAnnotation {
+/** Перетаскивание ручки: двигает только её (у круга — противоположный угол остаётся на месте). size нужен лупе. */
+export function moveHandle(
+  a: ScreenAnnotation,
+  handle: HandleId,
+  to: Point,
+  size?: Size
+): ScreenAnnotation {
   const p = clampPoint(to)
   if (a.type === 'arrow' || a.type === 'line') {
     if (handle === 'p1') return { ...a, p1: p }
     if (handle === 'p2') return { ...a, p2: p }
     return a
   }
-  if (a.type === 'circle') {
+  if (a.type === 'circle' || a.type === 'spot') {
     const b = bboxOf(a)
     const west = handle === 'nw' || handle === 'sw'
     const north = handle === 'nw' || handle === 'ne'
@@ -160,6 +193,34 @@ export function moveHandle(a: ScreenAnnotation, handle: HandleId, to: Point): Sc
     const fixedX = west ? b.x1 : b.x0
     const fixedY = north ? b.y1 : b.y0
     return { ...a, p1: { x: fixedX, y: fixedY }, p2: p }
+  }
+  if (a.type === 'curve') {
+    if (handle === 'p1') return { ...a, p1: p }
+    if (handle === 'p2') return { ...a, p2: p }
+    // Ручка стоит на самой кривой: управляющая точка подбирается так, чтобы кривая прошла через курсор.
+    if (handle === 'c') {
+      const c = controlFromMid(a.p1, p, a.p2)
+      return { ...a, c: { x: clampRange(c.x, -1, 2), y: clampRange(c.y, -1, 2) } }
+    }
+    return a
+  }
+  if (a.type === 'zone' || a.type === 'chain') {
+    const i = vertexIndex(handle)
+    if (i === null || i >= a.points.length) return a
+    return { ...a, points: a.points.map((q, k) => (k === i ? p : q)) }
+  }
+  if (a.type === 'loupe') {
+    if (handle === 'src') return { ...a, src: p }
+    if (handle === 'lens') {
+      // Ручка стоит на верхнем краю линзы; двигается только линза, источник остаётся на месте.
+      return { ...a, pos: clampPoint({ x: p.x, y: p.y + a.radius }) }
+    }
+    if (handle === 'size') {
+      const k = size ? size.w / size.h : 1
+      const r = Math.hypot((p.x - a.pos.x) * k, p.y - a.pos.y)
+      return { ...a, radius: Math.min(MAX_LOUPE_RADIUS, Math.max(MIN_LOUPE_RADIUS, r)) }
+    }
+    return a
   }
   return a
 }

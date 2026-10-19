@@ -1,5 +1,8 @@
 // Что удалять по клавише Delete: рисунок или эпизод. Побеждает тот, что выбран позже.
 import { useAnnotationsStore } from '../annotations/annotationsStore'
+import { ru } from '../../i18n/ru'
+import { useFeedbackStore } from '../episodes/feedbackStore'
+import { removeLastDraftPoint } from '../annotations/polyDraft'
 import { useEpisodesStore } from '../episodes/episodesStore'
 
 let last: 'annotation' | 'episode' | null = null
@@ -13,6 +16,16 @@ useEpisodesStore.subscribe((s, prev) => {
 
 /** Удаляет выбранное: сначала то, что выбрано последним; если оно уже не выбрано — другое. Возвращает true, если что-то удалено. */
 export function deleteSelection(): boolean {
+  // Рисуется зона или связь: Delete/Backspace убирает последнюю поставленную вершину.
+  if (removeLastDraftPoint()) return true
+  // Выбрана вершина зоны или связи: удаляется только она (если вершин остаётся достаточно).
+  const node = useAnnotationsStore.getState()
+  if (last !== 'episode' && node.selectedNode !== null) {
+    if (!node.removeSelectedNode()) {
+      useFeedbackStore.getState().show({ text: ru.annotations.nodeMin, kind: 'warn' })
+    }
+    return true
+  }
   const a = useAnnotationsStore.getState()
   const e = useEpisodesStore.getState()
   const order =

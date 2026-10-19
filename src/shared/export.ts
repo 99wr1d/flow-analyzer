@@ -1,7 +1,7 @@
 // Экспорт клипов: запрос, прогресс и результат. Общее для main, preload и интерфейса.
 // Пути к файлам в этом контракте не передаются: видео задаётся идентификатором, папку выбирает пользователь в диалоге main.
 import { z } from 'zod'
-import { TimingSchema } from './annotations'
+import { LOUPE_ZOOMS, MAX_LOUPE_RADIUS, MIN_LOUPE_RADIUS, TimingSchema } from './annotations'
 
 export const MAX_EXPORT_CLIPS = 500
 export const MAX_PADDING = 10
@@ -24,12 +24,26 @@ export const ExportClipSchema = z.object({
 
 /** Рисунки в экспорте: время показа каждого (по порядку наложения) и билет на загруженные картинки. */
 export const MAX_EXPORT_DRAWINGS = 10_000
+export const MAX_EXPORT_LOUPES = 200
+const unit = z.number().min(0).max(1)
+
+/** Лупа в экспорте: содержимое линзы делает ffmpeg (см. main/ffmpeg/loupe.ts). Координаты — доли кадра. */
+export const ExportLoupeSchema = z.object({
+  /** Номер рисунка (по порядку наложения, как в timings). */
+  index: z.number().int().min(0).max(MAX_EXPORT_DRAWINGS),
+  pos: z.object({ x: unit, y: unit }),
+  src: z.object({ x: unit, y: unit }),
+  radius: z.number().min(MIN_LOUPE_RADIUS).max(MAX_LOUPE_RADIUS),
+  zoom: z.number().refine((v) => (LOUPE_ZOOMS as readonly number[]).includes(v))
+})
 export const ExportDrawingsSchema = z.object({
   /** Билет, который main выдал при загрузке картинок (stageExportOverlays). */
   token: z.uuid(),
   /** Частота кадров, по которой интерфейс считал стоп-кадры. */
   fps: z.number().finite().gt(0).max(1000),
-  timings: z.array(TimingSchema).max(MAX_EXPORT_DRAWINGS)
+  timings: z.array(TimingSchema).max(MAX_EXPORT_DRAWINGS),
+  /** Лупы среди рисунков. Старые запросы поля не имеют. */
+  loupes: z.array(ExportLoupeSchema).max(MAX_EXPORT_LOUPES).default([])
 })
 
 /** Ограничения на картинки с рисунками (проверяет main). */

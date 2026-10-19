@@ -92,7 +92,7 @@ function request(partial: Partial<ExportRequest>, timings: Timing[], fps = 25): 
     precision: 'precise',
     padding: 0,
     projectName: null,
-    drawings: { token: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11', fps, timings },
+    drawings: { token: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11', fps, timings, loupes: [] },
     ...partial
   }
 }
