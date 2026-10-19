@@ -3,6 +3,8 @@ import { DEFAULT_TAG_KEYS, tagCommandId, type TagDef } from '../../../../shared/
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore, type Tool } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
+import { canCalibrate, explainNeedCalibration, startCalibration } from '../pitch/pitchActions'
 import { applyTag, markIn, markOut, rateCurrent } from '../episodes/tagging'
 import { canExport, openExportDialog } from '../export/exportActions'
 import { redoAny, undoAny } from '../history/unified'
@@ -35,6 +37,11 @@ const key = (code: string, mods: { ctrl?: boolean; shift?: boolean } = {}): Bind
 
 function setTool(tool: Tool): () => void {
   return () => useAnnotationsStore.getState().setTool(tool)
+}
+
+function runRuler(): void {
+  if (useCalibrationsStore.getState().items.length === 0) explainNeedCalibration()
+  else useAnnotationsStore.getState().setTool('ruler')
 }
 
 /** Esc: сначала инструмент → «Выбор», затем снять выделение рисунка, затем сбросить метки, затем снять выделение эпизода. */
@@ -155,6 +162,22 @@ export const STATIC_COMMANDS: readonly Command[] = [
     defaults: [key('KeyT')],
     run: setTool('text'),
     enabled: ready
+  },
+  {
+    id: 'draw:ruler',
+    label: 'Инструмент «Линейка»',
+    group: 'Рисование',
+    defaults: [key('KeyR')],
+    run: runRuler,
+    enabled: ready
+  },
+  {
+    id: 'pitch:calibrate',
+    label: 'Разметить поле',
+    group: 'Рисование',
+    defaults: [key('KeyP')],
+    run: startCalibration,
+    enabled: () => ready() && canCalibrate()
   },
   {
     id: 'episodes:in',

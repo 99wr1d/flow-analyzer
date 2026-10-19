@@ -1,5 +1,7 @@
 import { AnnotationLayer } from '../features/annotations/AnnotationLayer'
 import { StyleBar } from '../features/annotations/StyleBar'
+import { CalibrationMode } from '../features/pitch/CalibrationMode'
+import { usePitchStore } from '../features/pitch/pitchStore'
 import { Toast } from '../features/episodes/Toast'
 import { openVideoFromDialog } from '../features/player/importVideo'
 import { ProjectBanners } from '../features/project/ProjectBanners'
@@ -30,13 +32,20 @@ export function VideoStage(): React.JSX.Element {
   const source = usePlayerStore((s) => s.source)
   const status = usePlayerStore((s) => s.status)
   const dragActive = usePlayerStore((s) => s.dragActive)
+  // Во время разметки поля слева (или справа) откладывается место под панель: она не должна закрывать картинку.
+  const calibrationSide = usePitchStore((s) => (s.draft ? s.panelSide : null))
 
   return (
     <section className={dragActive ? 'stage stage--drop' : 'stage'} aria-label={ru.stage.label}>
       {source && status === 'ready' && <StyleBar />}
-      <div className="stage__canvas">
+      <div
+        className={
+          calibrationSide ? `stage__canvas stage__canvas--cal-${calibrationSide}` : 'stage__canvas'
+        }
+      >
         {source && <VideoView id={source.id} url={source.url} />}
         {source && <AnnotationLayer />}
+        {source && status === 'ready' && <CalibrationMode />}
         {!source && (
           <EmptyState
             icon={<VideoIcon />}

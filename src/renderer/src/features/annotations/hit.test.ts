@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Annotation } from '../../../../shared/annotations'
+import type { ScreenAnnotation as Annotation } from '../../../../shared/annotations'
 import { distToEllipseArea, distToSegment, handleAt, hitAnnotation, topHit } from './hit'
 
 const size = { w: 1000, h: 500 }
@@ -9,15 +9,23 @@ const base = {
   style: { color: '#ffffff', width: 0.01, dash: 'solid' as const },
   timing: { mode: 'range' as const, start: 0, duration: 3 }
 }
-const line: Annotation = { ...base, type: 'line', p1: { x: 0.1, y: 0.2 }, p2: { x: 0.5, y: 0.2 } }
+const line: Annotation = {
+  ...base,
+  space: 'screen',
+  type: 'line',
+  p1: { x: 0.1, y: 0.2 },
+  p2: { x: 0.5, y: 0.2 }
+}
 const circle: Annotation = {
   ...base,
+  space: 'screen',
   type: 'circle',
   p1: { x: 0.4, y: 0.4 },
   p2: { x: 0.6, y: 0.8 }
 }
 const text: Annotation = {
   id: '4f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11',
+  space: 'screen',
   type: 'text',
   pos: { x: 0.1, y: 0.7 },
   text: 'Пас',

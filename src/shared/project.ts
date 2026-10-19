@@ -2,6 +2,7 @@
 // Файл — обычный UTF-8 JSON. Разбор строгий: всё, что не проходит схему, отклоняется с понятной ошибкой.
 import { z } from 'zod'
 import { AnnotationListSchema } from './annotations'
+import { MAX_CALIBRATIONS, CalibrationListSchema } from './pitch/calibration'
 import { EpisodeListSchema } from './episodes'
 import type { VideoSource } from './ipc-contract'
 import { TagDefSchema } from './settings'
@@ -93,6 +94,8 @@ export const ProjectSchema = z
     appVersion: z.string().max(40),
     video: VideoRefSchema,
     annotations: AnnotationListSchema.max(MAX_ANNOTATIONS),
+    /** Разметки поля. В старых файлах поля нет — это пустой список (формат файла не меняется). */
+    calibrations: CalibrationListSchema.max(MAX_CALIBRATIONS).default([]),
     episodes: EpisodeListSchema.max(MAX_EPISODES),
     /** Теги, известные на момент сохранения (настройки + теги, использованные в эпизодах). */
     tags: z.array(TagDefSchema).max(MAX_PROJECT_TAGS),
@@ -100,7 +103,7 @@ export const ProjectSchema = z
     meta: ProjectMetaSchema.optional()
   })
   .superRefine((p, ctx) => {
-    const unique = (key: 'annotations' | 'episodes' | 'tags'): void => {
+    const unique = (key: 'annotations' | 'calibrations' | 'episodes' | 'tags'): void => {
       const seen = new Set<string>()
       p[key].forEach((item, index) => {
         if (seen.has(item.id)) {
@@ -114,6 +117,7 @@ export const ProjectSchema = z
       })
     }
     unique('annotations')
+    unique('calibrations')
     unique('episodes')
     unique('tags')
   })
@@ -125,6 +129,7 @@ export type ProjectVideoRef = Project['video']
 export const ProjectSaveRequestSchema = z.object({
   videoId: z.uuid(),
   annotations: AnnotationListSchema.max(MAX_ANNOTATIONS),
+  calibrations: CalibrationListSchema.max(MAX_CALIBRATIONS).default([]),
   episodes: EpisodeListSchema.max(MAX_EPISODES),
   tags: z.array(TagDefSchema).max(MAX_PROJECT_TAGS),
   lastTime: z.number().min(0).max(1e7),
@@ -148,6 +153,7 @@ export interface LoadedProject {
   name: string
   source: VideoSource
   annotations: Project['annotations']
+  calibrations: Project['calibrations']
   episodes: Project['episodes']
   tags: Project['tags']
   lastTime: number

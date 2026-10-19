@@ -11,8 +11,8 @@ import {
 } from './history'
 import { DEFAULT_STYLE, LEVELS, type CurrentStyle } from './styles'
 
-export type Tool = 'select' | 'arrow' | 'line' | 'circle' | 'text'
-export const TOOLS: Tool[] = ['select', 'arrow', 'line', 'circle', 'text']
+export type Tool = 'select' | 'arrow' | 'line' | 'circle' | 'text' | 'ruler'
+export const TOOLS: Tool[] = ['select', 'arrow', 'line', 'circle', 'text', 'ruler']
 
 export interface AnnotationsState extends HistoryState {
   selectedId: string | null
@@ -47,7 +47,7 @@ function withSelection(s: AnnotationsState, h: HistoryState): Partial<Annotation
 }
 
 function restyle(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
-  if (a.type === 'text') {
+  if (a.type === 'text' || a.type === 'ptext') {
     return {
       ...a,
       style: {
@@ -55,7 +55,7 @@ function restyle(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
         size: patch.level !== undefined ? LEVELS[patch.level].text : a.style.size,
         background: patch.textBackground ?? a.style.background
       }
-    }
+    } as Annotation
   }
   return {
     ...a,
@@ -64,7 +64,7 @@ function restyle(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
       width: patch.level !== undefined ? LEVELS[patch.level].width : a.style.width,
       dash: patch.dash ?? a.style.dash
     }
-  }
+  } as Annotation
 }
 
 const initial = (): AnnotationsState => ({
@@ -113,7 +113,9 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
 
   setText: (id, text) =>
     set((s) => {
-      const items = s.items.map((a) => (a.id === id && a.type === 'text' ? { ...a, text } : a))
+      const items = s.items.map((a) =>
+        a.id === id && (a.type === 'text' || a.type === 'ptext') ? { ...a, text } : a
+      )
       return { ...commit(s, items) }
     }),
 

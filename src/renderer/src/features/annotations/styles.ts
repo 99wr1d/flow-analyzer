@@ -48,11 +48,12 @@ export function textStyleOf(s: CurrentStyle): TextStyle {
 
 /** Ближайший уровень к сохранённому значению. */
 export function levelOf(a: Annotation): Level {
-  const value = a.type === 'text' ? a.style.size : a.style.width
+  const isText = a.type === 'text' || a.type === 'ptext'
+  const value = isText ? a.style.size : a.style.width
   let best: Level = 0
   let bestDiff = Infinity
   LEVELS.forEach((l, i) => {
-    const diff = Math.abs((a.type === 'text' ? l.text : l.width) - value)
+    const diff = Math.abs((isText ? l.text : l.width) - value)
     if (diff < bestDiff) {
       best = i as Level
       bestDiff = diff

@@ -4,6 +4,7 @@ import { MAX_PROJECT_TAGS, type ProjectSaveRequest } from '../../../../shared/pr
 import type { TagDef } from '../../../../shared/settings'
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
 import { getCurrentTime } from '../player/videoElement'
 import { useSettingsStore } from '../settings/settingsStore'
@@ -40,9 +41,15 @@ export function buildSaveRequest(currentPath: string | null): ProjectSaveRequest
   const episodes = useEpisodesStore.getState().items
   const knownFps = player.fpsSource !== 'default'
   const meta = useProjectStore.getState().meta
+  const calibrations = useCalibrationsStore.getState().items
+  const known = new Set(calibrations.map((c) => c.id))
   return {
     videoId: player.source.id,
-    annotations: useAnnotationsStore.getState().items,
+    // Рисунки на поле без разметки показать нечем — в файл не пишем.
+    annotations: useAnnotationsStore
+      .getState()
+      .items.filter((a) => a.space !== 'pitch' || known.has(a.calibrationId)),
+    calibrations,
     episodes,
     tags: buildTagSnapshot(useSettingsStore.getState().settings.tags, episodes),
     lastTime: Math.max(0, getCurrentTime()),

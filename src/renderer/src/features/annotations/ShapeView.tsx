@@ -1,8 +1,14 @@
 import { memo } from 'react'
-import type { Annotation } from '../../../../shared/annotations'
+import {
+  isPitchAnnotation,
+  type Annotation,
+  type ScreenAnnotation
+} from '../../../../shared/annotations'
+import type { Projector } from '../../../../shared/pitch/projector'
 import { arrowShape } from './arrowGeometry'
 import { bboxOf, handlesOf, type Size } from './geometry'
 import { textRect, toPx } from './hit'
+import { PitchBody, PitchHandlesView } from './PitchShapeView'
 import { isDarkColor } from './styles'
 import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
 
@@ -19,9 +25,17 @@ interface ShapeProps {
   selected: boolean
   /** Показывать ручки (только с инструментом «Выбор»). */
   showHandles: boolean
+  /** Проектор разметки поля — нужен рисункам на поле. */
+  projector?: Projector | null
+  /** Рисунок на поле показан далеко от кадра разметки: камера могла сдвинуться, рисуем бледнее. */
+  dimmed?: boolean
 }
 
-function ShapeBody({ annotation: a, size, selected }: ShapeProps): React.JSX.Element {
+function ShapeBody({
+  annotation: a,
+  size,
+  selected
+}: ShapeProps & { annotation: ScreenAnnotation }): React.JSX.Element {
   if (a.type === 'text') {
     const font = a.style.size * size.h
     const width = measureTextWidth(a.text, font)
@@ -173,25 +187,46 @@ function ShapeBody({ annotation: a, size, selected }: ShapeProps): React.JSX.Ele
 }
 
 function geometryOf(a: Annotation): string {
-  if (a.type === 'text') return JSON.stringify({ pos: a.pos })
-  return JSON.stringify({ p1: a.p1, p2: a.p2 })
+  switch (a.type) {
+    case 'text':
+    case 'ptext':
+      return JSON.stringify({ pos: a.pos })
+    case 'ring':
+      return JSON.stringify({ center: a.center, radius: a.radius })
+    default:
+      return JSON.stringify({ p1: a.p1, p2: a.p2 })
+  }
 }
 
-export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.Element {
+export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.Element | null {
   const a = props.annotation
   const dark = isDarkColor(a.style.color)
+  // Рисунок на поле без рабочей разметки (её удалили или точки некорректны) не показывается.
+  if (isPitchAnnotation(a) && !props.projector) return null
   return (
     <g
       className={dark ? 'anno-shape anno-shape--dark' : 'anno-shape'}
       data-testid="annotation"
       data-id={a.id}
       data-type={a.type}
+      data-space={a.space}
       data-color={a.style.color}
       data-geo={geometryOf(a)}
-      data-text={a.type === 'text' ? a.text : undefined}
+      data-text={a.type === 'text' || a.type === 'ptext' ? a.text : undefined}
       data-selected={props.selected}
+      data-dimmed={props.dimmed ? 'true' : undefined}
+      opacity={props.dimmed ? 0.5 : undefined}
     >
-      <ShapeBody {...props} />
+      {isPitchAnnotation(a) ? (
+        <PitchBody
+          annotation={a}
+          size={props.size}
+          selected={props.selected}
+          projector={props.projector}
+        />
+      ) : (
+        <ShapeBody {...props} annotation={a} />
+      )}
     </g>
   )
 })
@@ -199,11 +234,16 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
 /** Белые круглые ручки поверх выбранного рисунка. */
 export function HandlesView({
   annotation,
-  size
+  size,
+  projector
 }: {
   annotation: Annotation
   size: Size
+  projector?: Projector | null
 }): React.JSX.Element | null {
+  if (isPitchAnnotation(annotation)) {
+    return <PitchHandlesView annotation={annotation} size={size} projector={projector} />
+  }
   const handles = handlesOf(annotation)
   if (handles.length === 0) return null
   const box = bboxOf(annotation)

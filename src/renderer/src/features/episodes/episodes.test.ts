@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { EpisodeListSchema, type Episode } from '../../../../shared/episodes'
 import { defaultSettings } from '../../../../shared/settings'
 import { usePlayerStore } from '../../store/playerStore'
+import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { installUnifiedHistory, redoAny, resetWork, undoAny } from '../history/unified'
 import { useSettingsStore } from '../settings/settingsStore'
 import { useEpisodesStore, sortEpisodes } from './episodesStore'
@@ -34,6 +36,7 @@ function loadVideo(duration: number, time = 0): void {
 const arrow = (n: number) =>
   ({
     id: `10000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    space: 'screen',
     type: 'arrow',
     p1: { x: 0.1, y: 0.1 },
     p2: { x: 0.6, y: 0.4 },
@@ -428,5 +431,27 @@ describe('оценки эпизодов', () => {
     E().toggleRatingFilter('review')
     E().reset()
     expect(E().ratingFilter).toEqual([])
+  })
+
+  it('разметки поля входят в общую отмену вместе с рисунками и эпизодами', () => {
+    const C = useCalibrationsStore.getState
+    C().reset()
+    A().add(arrow(1)) // 1
+    C().add(sampleCalibration()) // 2
+    E().add(ep(1, 1, 3)) // 3
+    undoAny()
+    expect(E().items).toHaveLength(0)
+    expect(C().items).toHaveLength(1)
+    undoAny()
+    expect(C().items).toHaveLength(0)
+    expect(A().items).toHaveLength(1)
+    redoAny()
+    expect(C().items).toHaveLength(1)
+    // Новое действие после отмены сбрасывает «повтор» у всех хранилищ.
+    undoAny()
+    A().add(arrow(2))
+    expect(C().future).toHaveLength(0)
+    resetWork()
+    expect(C().items).toHaveLength(0)
   })
 })

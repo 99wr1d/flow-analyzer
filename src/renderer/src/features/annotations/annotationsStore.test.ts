@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { AnnotationSchema, type Annotation } from '../../../../shared/annotations'
+import {
+  AnnotationSchema,
+  type ScreenAnnotation as Annotation
+} from '../../../../shared/annotations'
 import { useAnnotationsStore } from './annotationsStore'
 import { LEVELS } from './styles'
 
 const arrow = (n: number): Annotation => ({
   id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+  space: 'screen',
   type: 'arrow',
   p1: { x: 0.1, y: 0.1 },
   p2: { x: 0.6, y: 0.4 },

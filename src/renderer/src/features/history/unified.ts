@@ -1,11 +1,14 @@
 // Единая отмена для рисунков и эпизодов: Ctrl+Z отменяет последнее действие любого вида.
 // У каждого хранилища своя история; здесь только порядок: какое хранилище сделало шаг раньше или позже.
 import type { Annotation } from '../../../../shared/annotations'
+import type { Calibration } from '../../../../shared/pitch/calibration'
 import type { Episode } from '../../../../shared/episodes'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
+import { usePitchStore } from '../pitch/pitchStore'
 
-export type HistoryKind = 'annotations' | 'episodes'
+export type HistoryKind = 'annotations' | 'episodes' | 'calibrations'
 
 export interface StepOrder {
   undo: HistoryKind[]
@@ -62,8 +65,12 @@ let order = emptyOrder()
 let busy = false
 let uninstall: (() => void) | null = null
 
-const stores = { annotations: useAnnotationsStore, episodes: useEpisodesStore }
-const other: Record<HistoryKind, HistoryKind> = { annotations: 'episodes', episodes: 'annotations' }
+const stores = {
+  annotations: useAnnotationsStore,
+  episodes: useEpisodesStore,
+  calibrations: useCalibrationsStore
+}
+const kinds: HistoryKind[] = ['annotations', 'episodes', 'calibrations']
 
 const canUndoKind = (k: HistoryKind): boolean => stores[k].getState().past.length > 0
 const canRedoKind = (k: HistoryKind): boolean => stores[k].getState().future.length > 0
@@ -79,15 +86,18 @@ function watch(kind: HistoryKind): () => void {
     }
     order = pushStep(order, kind)
     // Новое действие делает «повтор» чужой истории недоступным, как в обычном редакторе.
-    const otherStore = stores[other[kind]] as typeof useEpisodesStore
-    if (otherStore.getState().future.length > 0) otherStore.setState({ future: [] })
+    for (const k of kinds) {
+      if (k === kind) continue
+      const otherStore = stores[k] as typeof useEpisodesStore
+      if (otherStore.getState().future.length > 0) otherStore.setState({ future: [] })
+    }
   })
 }
 
 /** Подключает общую историю. Вызывать один раз при запуске; повторный вызов безопасен. */
 export function installUnifiedHistory(): () => void {
   if (!uninstall) {
-    const offs = [watch('annotations'), watch('episodes')]
+    const offs = kinds.map(watch)
     uninstall = (): void => {
       offs.forEach((off) => off())
       uninstall = null
@@ -128,6 +138,9 @@ export function resetWork(): void {
   try {
     useAnnotationsStore.getState().reset()
     useEpisodesStore.getState().reset()
+    useCalibrationsStore.getState().reset()
+    // Недоделанная разметка поля относилась к прежнему видео.
+    usePitchStore.getState().closeDraft()
   } finally {
     busy = false
   }
@@ -135,11 +148,21 @@ export function resetWork(): void {
 }
 
 /** Загрузка проекта: рисунки и эпизоды заменяются, общая история очищается. */
-export function loadWork(annotations: Annotation[], episodes: Episode[]): void {
+export function loadWork(
+  annotations: Annotation[],
+  episodes: Episode[],
+  calibrations: Calibration[] = []
+): void {
   busy = true
   try {
-    useAnnotationsStore.getState().load(annotations)
+    // Рисунки на поле без разметки показать нечем: лишние отбрасываем (в файле они не нужны).
+    const known = new Set(calibrations.map((c) => c.id))
+    useAnnotationsStore
+      .getState()
+      .load(annotations.filter((a) => a.space !== 'pitch' || known.has(a.calibrationId)))
     useEpisodesStore.getState().load(episodes)
+    useCalibrationsStore.getState().load(calibrations)
+    usePitchStore.getState().closeDraft()
   } finally {
     busy = false
   }
@@ -149,11 +172,13 @@ export function loadWork(annotations: Annotation[], episodes: Episode[]): void {
 export function useCanUndo(): boolean {
   const a = useAnnotationsStore((s) => s.past.length > 0)
   const e = useEpisodesStore((s) => s.past.length > 0)
-  return a || e
+  const c = useCalibrationsStore((s) => s.past.length > 0)
+  return a || e || c
 }
 
 export function useCanRedo(): boolean {
   const a = useAnnotationsStore((s) => s.future.length > 0)
   const e = useEpisodesStore((s) => s.future.length > 0)
-  return a || e
+  const c = useCalibrationsStore((s) => s.future.length > 0)
+  return a || e || c
 }

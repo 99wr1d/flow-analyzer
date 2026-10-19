@@ -4,6 +4,7 @@ import type { Settings } from '../../../../shared/settings'
 import { useExportStore } from '../export/exportStore'
 import { useDialogsStore } from '../library/dialogsStore'
 import { useStatsStore } from '../stats/statsStore'
+import { usePitchStore } from '../pitch/pitchStore'
 import { useProjectStore } from '../project/projectStore'
 import { useUnsavedStore } from '../project/unsavedStore'
 import { useSettingsStore } from '../settings/settingsStore'
@@ -64,7 +65,11 @@ export function handleKeyDown(e: KeyboardEvent): void {
   if (!binding) return
   const candidates = keymapFor(state.settings).get(serializeBinding(binding))
   if (!candidates || handledNatively(e)) return
-  const command = candidates.find((c) => c.enabled?.() ?? true)
+  // Пока размечается поле, работают только команды воспроизведения (кадр вперёд/назад): остальное — после разметки.
+  const calibrating = usePitchStore.getState().draft !== null
+  const command = candidates.find(
+    (c) => (c.enabled?.() ?? true) && (!calibrating || c.group === 'Воспроизведение')
+  )
   if (!command) return
   e.preventDefault()
   // Автоповтор при удержании — только у команд, которые это разрешают (шаг по кадрам).

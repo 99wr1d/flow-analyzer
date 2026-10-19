@@ -2,6 +2,7 @@
 // выбор, инструменты и метки Начало/Конец проект не «пачкают».
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { useProjectStore } from './projectStore'
 
 let suspended = 0
@@ -29,6 +30,9 @@ export function installDirtyTracking(): () => void {
         if (s.items !== prev.items) mark()
       }),
       useEpisodesStore.subscribe((s, prev) => {
+        if (s.items !== prev.items) mark()
+      }),
+      useCalibrationsStore.subscribe((s, prev) => {
         if (s.items !== prev.items) mark()
       })
     ]

@@ -10,6 +10,7 @@ import {
 } from './annotations'
 
 const base = {
+  space: 'screen' as const,
   id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11',
   style: { color: '#ffd60a', width: 0.008, dash: 'solid' as const }
 }

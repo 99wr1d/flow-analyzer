@@ -91,6 +91,7 @@ export function buildProject(
       ...(request.duration !== undefined ? { duration: request.duration } : {})
     },
     annotations: request.annotations,
+    calibrations: request.calibrations,
     episodes: request.episodes,
     tags: request.tags,
     ui: { lastTime: request.lastTime },
@@ -223,6 +224,7 @@ async function finishLoad(
     meta: project.meta ?? null,
     source,
     annotations: project.annotations,
+    calibrations: project.calibrations,
     episodes: project.episodes,
     tags: project.tags,
     lastTime: project.ui?.lastTime ?? 0,
@@ -323,6 +325,7 @@ export async function createProject(
     {
       videoId: request.videoId,
       annotations: [],
+      calibrations: [],
       episodes: [],
       tags: [],
       lastTime: 0,

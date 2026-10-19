@@ -4,6 +4,7 @@ import { OVERLAY_LIMITS, type ExportRequest } from '../../../../shared/export'
 import { UNTITLED_PROJECT } from '../../../../shared/project'
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { sortEpisodes, useEpisodesStore } from '../episodes/episodesStore'
 import { getVideoElement } from '../player/videoElement'
 import { useProjectStore } from '../project/projectStore'
@@ -128,6 +129,7 @@ async function prepareDrawings(
     set({ preparing: { done: 0, total: plan.keys.length } })
     const images = await renderOverlayImages({
       annotations,
+      calibrations: useCalibrationsStore.getState().items,
       keys: plan.keys,
       width,
       height,

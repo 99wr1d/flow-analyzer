@@ -45,9 +45,12 @@ const TextStyleSchema = z.object({
 })
 
 const twoPoints = { p1: PointSchema, p2: PointSchema }
+/** Где живёт рисунок: на экране (координаты кадра) или на поле (метры; нужна разметка поля). Старые файлы — «screen». */
+const screenSpace = z.literal('screen').default('screen')
 
 export const ArrowSchema = z.object({
   id,
+  space: screenSpace,
   type: z.literal('arrow'),
   ...twoPoints,
   style: ShapeStyleSchema,
@@ -55,6 +58,7 @@ export const ArrowSchema = z.object({
 })
 export const LineSchema = z.object({
   id,
+  space: screenSpace,
   type: z.literal('line'),
   ...twoPoints,
   style: ShapeStyleSchema,
@@ -63,6 +67,7 @@ export const LineSchema = z.object({
 /** Эллипс, вписанный в прямоугольник с противоположными углами p1 и p2. */
 export const CircleSchema = z.object({
   id,
+  space: screenSpace,
   type: z.literal('circle'),
   ...twoPoints,
   style: ShapeStyleSchema,
@@ -71,6 +76,7 @@ export const CircleSchema = z.object({
 /** pos — левый верхний угол подписи. */
 export const TextSchema = z.object({
   id,
+  space: screenSpace,
   type: z.literal('text'),
   pos: PointSchema,
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
@@ -78,15 +84,77 @@ export const TextSchema = z.object({
   timing: TimingSchema
 })
 
+// --- Рисунки на поле: координаты в метрах, привязаны к разметке поля (calibrationId) ---
+
+/** Точка на поле, метры (начало координат — угол поля). */
+export const WorldPointSchema = z.object({
+  x: z.number().min(-80).max(200),
+  y: z.number().min(-80).max(160)
+})
+export const MIN_RING_RADIUS = 0.15
+export const MAX_RING_RADIUS = 30
+export const DEFAULT_RING_RADIUS = 1
+
+const onPitch = { id, space: z.literal('pitch'), calibrationId: id }
+const groundTwo = { p1: WorldPointSchema, p2: WorldPointSchema }
+
+/** Кольцо на траве: окружность радиуса radius метров вокруг center. */
+export const RingSchema = z.object({
+  ...onPitch,
+  type: z.literal('ring'),
+  center: WorldPointSchema,
+  radius: z.number().min(MIN_RING_RADIUS).max(MAX_RING_RADIUS),
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Стрелка на траве: многоугольник на плоскости поля постоянной ширины в метрах. */
+export const GroundArrowSchema = z.object({
+  ...onPitch,
+  type: z.literal('parrow'),
+  ...groundTwo,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+export const GroundLineSchema = z.object({
+  ...onPitch,
+  type: z.literal('pline'),
+  ...groundTwo,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+/** Подпись, стоящая вертикально над точкой земли pos. */
+export const GroundTextSchema = z.object({
+  ...onPitch,
+  type: z.literal('ptext'),
+  pos: WorldPointSchema,
+  text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
+  style: TextStyleSchema,
+  timing: TimingSchema
+})
+/** Линейка: линия по земле с засечками и подписью «23.4 м». */
+export const RulerSchema = z.object({
+  ...onPitch,
+  type: z.literal('ruler'),
+  ...groundTwo,
+  style: ShapeStyleSchema,
+  timing: TimingSchema
+})
+
 export const AnnotationSchema = z.discriminatedUnion('type', [
   ArrowSchema,
   LineSchema,
   CircleSchema,
-  TextSchema
+  TextSchema,
+  RingSchema,
+  GroundArrowSchema,
+  GroundLineSchema,
+  GroundTextSchema,
+  RulerSchema
 ])
 export const AnnotationListSchema = z.array(AnnotationSchema)
 
 export type Point = z.infer<typeof PointSchema>
+export type WorldPoint = z.infer<typeof WorldPointSchema>
 export type Timing = z.infer<typeof TimingSchema>
 export type ShapeStyle = z.infer<typeof ShapeStyleSchema>
 export type TextStyle = z.infer<typeof TextStyleSchema>
@@ -94,9 +162,20 @@ export type Arrow = z.infer<typeof ArrowSchema>
 export type Line = z.infer<typeof LineSchema>
 export type Circle = z.infer<typeof CircleSchema>
 export type TextAnnotation = z.infer<typeof TextSchema>
+export type Ring = z.infer<typeof RingSchema>
+export type GroundArrow = z.infer<typeof GroundArrowSchema>
+export type GroundLine = z.infer<typeof GroundLineSchema>
+export type GroundText = z.infer<typeof GroundTextSchema>
+export type Ruler = z.infer<typeof RulerSchema>
 export type Annotation = z.infer<typeof AnnotationSchema>
 export type AnnotationType = Annotation['type']
+export type ScreenAnnotation = Arrow | Line | Circle | TextAnnotation
+export type PitchAnnotation = Ring | GroundArrow | GroundLine | GroundText | Ruler
 export type TwoPointAnnotation = Arrow | Line | Circle
+
+/** Рисунок живёт на поле (координаты в метрах). */
+export const isPitchAnnotation = (a: Annotation): a is PitchAnnotation => a.space === 'pitch'
+export const isScreenAnnotation = (a: Annotation): a is ScreenAnnotation => a.space !== 'pitch'
 
 const EPS = 1e-6
 

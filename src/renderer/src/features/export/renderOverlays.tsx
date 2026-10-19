@@ -2,8 +2,13 @@
 // Рисует тот же код, что и экран (ShapeView), поэтому толщина линий, наконечники и текст совпадают: SVG собирается
 // из тех же компонентов, превращается в картинку и переносится на canvas в родном размере видео.
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { Annotation } from '../../../../shared/annotations'
+import { isPitchAnnotation, type Annotation } from '../../../../shared/annotations'
 import { parseKey } from '../../../../shared/exportOverlays'
+import {
+  isCalibrationFresh,
+  projectorFor,
+  type Calibration
+} from '../../../../shared/pitch/calibration'
 import { ShapeView } from '../annotations/ShapeView'
 
 /** Высота картинки на экране, при которой тени рисунков имеют размер, заданный в CSS (2.5 px); на большем кадре тень растёт. */
@@ -23,19 +28,27 @@ function shadowStyle(height: number): string {
 export function buildOverlaySvg(
   items: readonly Annotation[],
   width: number,
-  height: number
+  height: number,
+  calibrations: readonly Calibration[] = []
 ): string {
+  const size = { w: width, h: height }
+  const byId = new Map(calibrations.map((c) => [c.id, c]))
   const markup = renderToStaticMarkup(
     <>
-      {items.map((a) => (
-        <ShapeView
-          key={a.id}
-          annotation={a}
-          size={{ w: width, h: height }}
-          selected={false}
-          showHandles={false}
-        />
-      ))}
+      {items.map((a) => {
+        const cal = isPitchAnnotation(a) ? byId.get(a.calibrationId) : undefined
+        return (
+          <ShapeView
+            key={a.id}
+            annotation={a}
+            size={size}
+            selected={false}
+            showHandles={false}
+            projector={cal ? projectorFor(cal) : null}
+            dimmed={cal ? !isCalibrationFresh(cal, a.timing.start) : false}
+          />
+        )
+      })}
     </>
   )
   return (
@@ -86,6 +99,8 @@ export class RenderCancelled extends Error {}
  */
 export async function renderOverlayImages(opts: {
   annotations: readonly Annotation[]
+  /** Разметки поля — нужны рисункам на поле. */
+  calibrations?: readonly Calibration[]
   keys: readonly string[]
   width: number
   height: number
@@ -93,6 +108,7 @@ export async function renderOverlayImages(opts: {
   onProgress?: (done: number, total: number) => void
 }): Promise<RenderedOverlay[]> {
   const { annotations, keys, width, height } = opts
+  const calibrations = opts.calibrations ?? []
   // Текст рисуется системным шрифтом; ждём готовности шрифтов, чтобы размеры подписей были как на экране.
   await document.fonts.ready
   const canvas = document.createElement('canvas')
@@ -107,7 +123,8 @@ export async function renderOverlayImages(opts: {
     const svg = buildOverlaySvg(
       indices.map((i) => annotations[i]),
       width,
-      height
+      height,
+      calibrations
     )
     result.push({ key, data: await svgToPng(svg, canvas, width, height) })
     opts.onProgress?.(result.length, keys.length)

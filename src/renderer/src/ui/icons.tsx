@@ -285,3 +285,26 @@ export const EditIcon = (p: IconProps): React.JSX.Element => (
     <path d="m13.500 7 3.500 3.500" />
   </Svg>
 )
+
+export const RulerToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M4 16.500 16.500 4l3.500 3.500L7.500 20z" strokeWidth="1.800" />
+    <path d="m8.500 12.500 2 2M11.500 9.500l1.500 1.500M14.500 6.500l2 2" strokeWidth="1.600" />
+  </Svg>
+)
+
+/** Поле в перспективе: трапеция с центральной линией и кругом. */
+export const PitchIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M7 6h10l3.500 12h-17z" strokeWidth="1.700" />
+    <path d="M12 6v12" strokeWidth="1.500" />
+    <ellipse cx="12" cy="12.200" rx="3.200" ry="1.800" strokeWidth="1.500" />
+  </Svg>
+)
+
+export const TargetIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="6.500" strokeWidth="1.800" />
+    <path d="M12 3v4M12 17v4M3 12h4M17 12h4" strokeWidth="1.800" />
+  </Svg>
+)

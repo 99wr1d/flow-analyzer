@@ -4,6 +4,7 @@ import { HISTORY_LIMIT, commit, commitFrom, createHistory, preview, redo, undo }
 
 const make = (n: number): Line => ({
   id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+  space: 'screen',
   type: 'line',
   p1: { x: 0, y: 0 },
   p2: { x: 1, y: 1 },

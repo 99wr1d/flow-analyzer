@@ -7,6 +7,7 @@ export const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).
 
 export const sampleAnnotation = (n = 1): Annotation => ({
   id: uuid(n),
+  space: 'screen',
   type: 'arrow',
   p1: { x: 0.1, y: 0.2 },
   p2: { x: 0.6, y: 0.4 },
@@ -42,6 +43,7 @@ export function sampleProject(videoPath = '/video/match.mp4'): Project {
       fpsSource: 'container'
     },
     annotations: [sampleAnnotation(1)],
+    calibrations: [],
     episodes: [sampleEpisode(1)],
     tags: [{ id: 'goal', name: 'Гол', color: '#ff4d6d', preSeconds: 5, postSeconds: 5 }],
     ui: { lastTime: 4.5 }

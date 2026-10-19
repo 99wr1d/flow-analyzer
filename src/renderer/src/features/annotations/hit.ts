@@ -1,5 +1,5 @@
 // Попадание курсора в рисунки. Всё считается в пикселях картинки (координаты нормализованы по осям по-разному).
-import type { Annotation, Point } from '../../../../shared/annotations'
+import type { ScreenAnnotation, Point } from '../../../../shared/annotations'
 import { handlesOf, type HandleId, type Rect, type Size } from './geometry'
 
 export interface PxPoint {
@@ -39,7 +39,7 @@ export function distToEllipseArea(
 
 /** Прямоугольник подписи в пикселях картинки (по размеру текста width в пикселях). */
 export function textRect(
-  a: Extract<Annotation, { type: 'text' }>,
+  a: Extract<ScreenAnnotation, { type: 'text' }>,
   size: Size,
   textWidth: number
 ): Rect {
@@ -55,7 +55,7 @@ export function textRect(
 
 /** Попадает ли точка (px, пиксели картинки) в рисунок. measure — ширина текста в пикселях. */
 export function hitAnnotation(
-  a: Annotation,
+  a: ScreenAnnotation,
   p: PxPoint,
   size: Size,
   measure: (text: string, fontPx: number) => number,
@@ -85,11 +85,11 @@ export function hitAnnotation(
 
 /** Верхний (последний нарисованный) рисунок под курсором. */
 export function topHit(
-  list: readonly Annotation[],
+  list: readonly ScreenAnnotation[],
   p: PxPoint,
   size: Size,
   measure: (text: string, fontPx: number) => number
-): Annotation | null {
+): ScreenAnnotation | null {
   for (let i = list.length - 1; i >= 0; i--) {
     if (hitAnnotation(list[i], p, size, measure)) return list[i]
   }
@@ -98,7 +98,7 @@ export function topHit(
 
 /** Ручка выбранного рисунка под курсором. */
 export function handleAt(
-  a: Annotation,
+  a: ScreenAnnotation,
   p: PxPoint,
   size: Size,
   radius: number = HANDLE_RADIUS

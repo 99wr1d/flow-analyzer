@@ -1,5 +1,5 @@
 // Чистая геометрия рисунков: отображение «нормализованные координаты ↔ пиксели» и привязка углов.
-import type { Annotation, Point } from '../../../../shared/annotations'
+import type { ScreenAnnotation, Point } from '../../../../shared/annotations'
 
 export interface Size {
   w: number
@@ -88,7 +88,7 @@ export interface BBox {
   y1: number
 }
 
-export function bboxOf(a: Annotation, textBox?: Rect | null, size?: Size): BBox {
+export function bboxOf(a: ScreenAnnotation, textBox?: Rect | null, size?: Size): BBox {
   if (a.type === 'text') {
     const w = size && textBox ? textBox.w / size.w : 0
     const h = size && textBox ? textBox.h / size.h : 0
@@ -106,7 +106,7 @@ const clampRange = (v: number, lo: number, hi: number): number =>
   lo > hi ? hi : Math.min(hi, Math.max(lo, v))
 
 /** Сдвиг рисунка на (dx, dy) в нормализованных координатах; рисунок остаётся целиком внутри картинки. */
-export function moveBy(a: Annotation, dx: number, dy: number, box: BBox): Annotation {
+export function moveBy(a: ScreenAnnotation, dx: number, dy: number, box: BBox): ScreenAnnotation {
   const cx = clampRange(dx, -box.x0, 1 - box.x1)
   const cy = clampRange(dy, -box.y0, 1 - box.y1)
   if (a.type === 'text') return { ...a, pos: { x: a.pos.x + cx, y: a.pos.y + cy } }
@@ -125,7 +125,7 @@ export interface HandlePoint {
 }
 
 /** Ручки выбранного рисунка: концы линии/стрелки или углы рамки круга. У текста ручек нет. */
-export function handlesOf(a: Annotation): HandlePoint[] {
+export function handlesOf(a: ScreenAnnotation): HandlePoint[] {
   if (a.type === 'arrow' || a.type === 'line') {
     return [
       { id: 'p1', point: a.p1 },
@@ -145,7 +145,7 @@ export function handlesOf(a: Annotation): HandlePoint[] {
 }
 
 /** Перетаскивание ручки: двигает только её (у круга — противоположный угол остаётся на месте). */
-export function moveHandle(a: Annotation, handle: HandleId, to: Point): Annotation {
+export function moveHandle(a: ScreenAnnotation, handle: HandleId, to: Point): ScreenAnnotation {
   const p = clampPoint(to)
   if (a.type === 'arrow' || a.type === 'line') {
     if (handle === 'p1') return { ...a, p1: p }

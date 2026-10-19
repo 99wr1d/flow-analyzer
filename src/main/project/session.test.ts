@@ -31,6 +31,7 @@ let projectPath: string
 const request = (over: Partial<ProjectSaveRequest> = {}): ProjectSaveRequest => ({
   videoId: uuid(500),
   annotations: [sampleAnnotation(1), sampleAnnotation(2)],
+  calibrations: [],
   episodes: [sampleEpisode(1)],
   tags: [],
   lastTime: 12.5,

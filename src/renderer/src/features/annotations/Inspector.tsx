@@ -8,11 +8,14 @@ import {
   defaultDuration,
   frameCenter,
   parseDuration,
+  isPitchAnnotation,
   parseFreeze,
   type Annotation,
   type Timing
 } from '../../../../shared/annotations'
+import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
 import { ru } from '../../i18n/ru'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { useKeyHint } from '../commands/useKeys'
 import { usePlayerStore } from '../../store/playerStore'
 import { TrashIcon } from '../../ui/icons'
@@ -147,6 +150,16 @@ export function Inspector(): React.JSX.Element | null {
   const remove = useAnnotationsStore((s) => s.remove)
   const fps = usePlayerStore((s) => s.fps)
   const removeHint = useKeyHint('general:delete')
+  const calibration = useCalibrationsStore((s) =>
+    selected && isPitchAnnotation(selected)
+      ? s.items.find((c) => c.id === selected.calibrationId)
+      : undefined
+  )
+  const pitchState =
+    !selected || !isPitchAnnotation(selected) ? 'none' : calibration ? 'ok' : 'orphan'
+  const isStale = usePlayerStore((s) =>
+    calibration ? !isCalibrationFresh(calibration, s.currentTime) : false
+  )
   if (!selected) return null
 
   const timing = selected.timing
@@ -194,6 +207,16 @@ export function Inspector(): React.JSX.Element | null {
           <TrashIcon size={15} />
         </button>
       </div>
+      {pitchState === 'orphan' && (
+        <p className="inspector__warn" data-testid="pitch-orphan">
+          {ru.pitch.orphan}
+        </p>
+      )}
+      {pitchState === 'ok' && isStale && (
+        <p className="inspector__warn" data-testid="pitch-stale" title={ru.pitch.staleHint}>
+          {ru.pitch.stale}
+        </p>
+      )}
       <div className="inspector__section">{ru.annotations.timing}</div>
       <div className="segmented" role="group" aria-label={ru.annotations.timing}>
         <button

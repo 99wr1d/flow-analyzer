@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Annotation } from '../../../../shared/annotations'
+import type { ScreenAnnotation as Annotation } from '../../../../shared/annotations'
 import { arrowShape } from './arrowGeometry'
 import {
   bboxOf,
@@ -100,6 +100,7 @@ describe('привязка углов (Shift)', () => {
 
 const arrow: Annotation = {
   id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11',
+  space: 'screen',
   type: 'arrow',
   p1: { x: 0.2, y: 0.3 },
   p2: { x: 0.6, y: 0.5 },
