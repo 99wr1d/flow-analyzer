@@ -5,7 +5,7 @@ import { rmSync } from 'fs'
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { OVERLAY_LIMITS, StageOverlaysSchema } from '../../shared/export'
+import { OVERLAY_LIMITS, StageFramesSchema, StageOverlaysSchema } from '../../shared/export'
 import { parseKey } from '../../shared/exportOverlays'
 
 export const STAGING_PREFIX = 'flow-overlays-'
@@ -20,6 +20,10 @@ export const STAGING_ERRORS = {
   tooMany: 'Слишком много рисунков для одного экспорта. Экспортируйте по частям',
   total: 'Рисунки занимают слишком много памяти. Экспортируйте по частям',
   duplicate: 'Не удалось подготовить рисунки для экспорта: повтор картинки',
+  animTooMany: `Слишком много кадров с анимацией (больше ${OVERLAY_LIMITS.maxAnimFrames}). Выберите отрезки покороче или экспортируйте по частям`,
+  animTotal:
+    'Кадры анимации занимают слишком много места. Выберите отрезки покороче или экспортируйте по частям',
+  noSession: 'Рисунки для экспорта не найдены. Закройте окно экспорта и повторите',
   disk: 'Не удалось записать временные файлы. Проверьте свободное место на диске'
 } as const
 
@@ -65,6 +69,10 @@ export interface Staged {
   files: Map<string, string>
   /** Ключ набора рисунков → путь к PNG слоя «под игроками». */
   underFiles: Map<string, string>
+  /** Кадры движущихся рисунков: номер кадра видео → путь к PNG, по слоям. */
+  frames: { over: Map<number, string>; under: Map<number, string> }
+  /** Сколько байт заняли кадры анимации. */
+  frameBytes: number
 }
 
 export type StageResult = { ok: true; staged: Staged } | { ok: false; error: string }
@@ -109,7 +117,19 @@ export async function stageOverlays(
       ;(image.layer === 'under' ? underFiles : files).set(image.key, path)
     }
     live.add(dir)
-    return { ok: true, staged: { token: randomUUID(), dir, width, height, files, underFiles } }
+    return {
+      ok: true,
+      staged: {
+        token: randomUUID(),
+        dir,
+        width,
+        height,
+        files,
+        underFiles,
+        frames: { over: new Map(), under: new Map() },
+        frameBytes: 0
+      }
+    }
   } catch {
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     return { ok: false, error: STAGING_ERRORS.disk }
@@ -127,6 +147,66 @@ export async function holdStaged(staged: Staged): Promise<void> {
   const old = pending
   pending = staged
   if (old) await disposeStaged(old)
+}
+
+export type FramesResult = { ok: true; count: number } | { ok: false; error: string }
+
+/**
+ * Добавляет к ожидающей загрузке покадровые картинки движущихся рисунков. Проверяет каждый PNG (подпись, размер),
+ * число кадров и общий объём. При ошибке всё загруженное удаляется: экспорт всё равно не состоится.
+ */
+export async function stageFrames(raw: unknown): Promise<FramesResult> {
+  const parsed = StageFramesSchema.safeParse(raw)
+  if (!parsed.success) {
+    const staged = pending
+    if (staged) {
+      pending = null
+      await disposeStaged(staged)
+    }
+    return { ok: false, error: STAGING_ERRORS.bad }
+  }
+  const { token, layer, frames } = parsed.data
+  const staged = pending
+  if (!staged || staged.token !== token) return { ok: false, error: STAGING_ERRORS.noSession }
+  const fail = async (error: string): Promise<FramesResult> => {
+    if (pending === staged) pending = null
+    await disposeStaged(staged)
+    return { ok: false, error }
+  }
+  const target = staged.frames[layer]
+  const seen = new Set<number>()
+  for (const item of frames) {
+    if (seen.has(item.frame) || target.has(item.frame)) return fail(STAGING_ERRORS.duplicate)
+    seen.add(item.frame)
+  }
+  if (target.size + frames.length > OVERLAY_LIMITS.maxAnimFrames) {
+    return fail(STAGING_ERRORS.animTooMany)
+  }
+  let bytes = staged.frameBytes
+  for (const item of frames) {
+    bytes += item.data.length
+    if (bytes > OVERLAY_LIMITS.maxAnimBytes) return fail(STAGING_ERRORS.animTotal)
+    const check = checkPng(item.data, { width: staged.width, height: staged.height })
+    if (!check.ok) return fail(check.error)
+  }
+  try {
+    for (const item of frames) {
+      const path = join(staged.dir, `${layer}_${String(item.frame).padStart(7, '0')}.png`)
+      await writeFile(path, item.data)
+      target.set(item.frame, path)
+    }
+    staged.frameBytes = bytes
+    return { ok: true, count: target.size }
+  } catch {
+    return fail(STAGING_ERRORS.disk)
+  }
+}
+
+/** Удаляет ожидающую загрузку (экспорт отменили до запуска). */
+export async function disposePending(): Promise<void> {
+  const staged = pending
+  pending = null
+  await disposeStaged(staged)
 }
 
 /** Забирает загрузку по билету (она больше не «ожидающая»; удалять её должен вызывающий). */

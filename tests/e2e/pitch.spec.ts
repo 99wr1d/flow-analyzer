@@ -66,7 +66,8 @@ test.describe('разметка поля', () => {
       await openPitch(ctx)
       // Без разметки: «На поле» и «Линейка» недоступны, причина объяснена.
       await expect(win.getByTestId('pitch-on')).toBeDisabled()
-      await expect(win.getByTestId('pitch-active')).toHaveText('Поле не размечено')
+      await expect(win.getByTestId('pitch-active')).toHaveText('Не размечено')
+      await expect(win.getByTestId('pitch-active')).toHaveAttribute('title', 'Поле не размечено')
       await expect(win.getByTestId('tool-ruler')).toBeDisabled()
       await expect(win.getByTestId('tool-ruler')).toHaveAttribute('title', /Сначала разметьте поле/)
 
@@ -122,7 +123,11 @@ test.describe('разметка поля', () => {
       const preview = await win.getByTestId('cal-preview').getAttribute('d')
       expect(preview!.length).toBeGreaterThan(500)
       await saveCalibration(win)
-      await expect(win.getByTestId('pitch-active')).toContainText('Разметка поля: 00:01.0')
+      await expect(win.getByTestId('pitch-active')).toContainText('Поле 00:01.0')
+      await expect(win.getByTestId('pitch-active')).toHaveAttribute(
+        'title',
+        /Разметка поля: 00:01.0/
+      )
       await expect(win.getByTestId('pitch-on')).toBeEnabled()
       await expect(win.getByTestId('tool-ruler')).toBeEnabled()
       await expect(win.getByTestId('calibration-item')).toContainText('Штрафная площадь (слева)')

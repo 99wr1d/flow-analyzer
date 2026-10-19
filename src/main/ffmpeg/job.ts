@@ -11,7 +11,7 @@ import type {
   ExportResult
 } from '../../shared/export'
 import { prepareClips, totalDuration, type PreparedClip } from '../../shared/exportRanges'
-import { planExport, type OverlayPlan } from '../../shared/exportOverlays'
+import { hasDrawings, planExport, type OverlayPlan } from '../../shared/exportOverlays'
 import {
   buildClipArgs,
   buildCompilationArgs,
@@ -21,6 +21,7 @@ import {
 } from './args'
 import { loupeGeometry } from '../../shared/tools/loupe'
 import { planDrawn, type GraphLoupe, type GraphPlan } from './drawGraph'
+import type { LoupeAnimKey } from './loupe'
 import { clipStem, uniqueFileName } from './names'
 import { EXPORT_MESSAGES, friendlyFfmpegError, parseMediaInfo, type MediaFacts } from './progress'
 import { runFfmpeg, type RunResult } from './runner'
@@ -41,6 +42,13 @@ export interface JobOverlays {
   files: ReadonlyMap<string, string>
   /** Ключ набора рисунков → путь к PNG слоя «под игроками» (нет — таких рисунков нет). */
   underFiles?: ReadonlyMap<string, string>
+  /** Папка с картинками (для рядов кадров анимации по шаблону имени). */
+  dir?: string
+  /** Кадры движущихся рисунков: номер кадра видео → путь к PNG, по слоям. */
+  frames?: {
+    over: ReadonlyMap<number, string>
+    under: ReadonlyMap<number, string>
+  }
 }
 
 /** Ошибка, текст которой можно показать пользователю как есть. */
@@ -148,8 +156,26 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
   // null — рисунков в этом файле нет (обычная обрезка).
   const plans: Array<OverlayPlan | null> =
     drawings && input.overlays
-      ? planExport(clips, request.mode, drawings.timings, fps).map((plan) => {
-          if (plan.keys.length === 0) return null
+      ? planExport(
+          clips,
+          request.mode,
+          drawings.timings,
+          fps,
+          new Set(drawings.animated ?? [])
+        ).map((plan) => {
+          if (!hasDrawings(plan)) return null
+          const animLayers = drawings.animLayers
+          for (const f of plan.animation.frames) {
+            const o = input.overlays!
+            if (
+              (animLayers?.over && !o.frames?.over.has(f.frame)) ||
+              (animLayers?.under && !o.frames?.under.has(f.frame)) ||
+              !animLayers
+            ) {
+              throw new ExportError(DRAWINGS_MISSING_ERROR)
+            }
+          }
+          if (animLayers?.under && !drawings.grass) throw new ExportError(DRAWINGS_MISSING_ERROR)
           for (const key of plan.keys) {
             const o = input.overlays!
             if (!o.files.has(key) && !o.underFiles?.has(key)) {
@@ -178,7 +204,16 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
       .map((l) => ({
         index: l.index,
         geometry: loupeGeometry(l, frameW, frameH),
-        timing: drawings!.timings[l.index]
+        timing: drawings!.timings[l.index],
+        anim: l.keys?.map((k): LoupeAnimKey => ({
+          t: k.t,
+          ease: k.ease,
+          geometry: loupeGeometry(
+            { pos: k.pos, src: k.src, radius: l.radius, zoom: l.zoom },
+            frameW,
+            frameH
+          )
+        }))
       }))
     const layers = new Map<string, { over: boolean; under: boolean }>()
     for (const key of plan.keys) {
@@ -191,6 +226,10 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
       loupes,
       layers,
       grass: drawings?.grass,
+      animation:
+        plan.animation.runs.length > 0 && drawings?.animLayers
+          ? { runs: plan.animation.runs, layers: drawings.animLayers }
+          : undefined,
       ranges: plan.ranges,
       segments: plan.segments,
       fps,
@@ -209,9 +248,16 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
         ffmpegPath,
         args: buildDrawnArgs({
           input: inputPath,
-          pngPaths: graph.inputs.map((x) =>
-            x.layer === 'under' ? overlays.underFiles!.get(x.key)! : overlays.files.get(x.key)!
-          ),
+          pngPaths: graph.inputs.map((x) => {
+            if (x.seq) {
+              const pattern = `${overlays.dir ?? ''}/${x.layer}_%07d.png`.split('\\').join('/')
+              return { pattern, start: x.seq.first, fps }
+            }
+            if (x.still !== undefined) return overlays.frames![x.layer].get(x.still)!
+            return x.layer === 'under'
+              ? overlays.underFiles!.get(x.key)!
+              : overlays.files.get(x.key)!
+          }),
           output: outputPart,
           scriptPath,
           offset: graph.offset,

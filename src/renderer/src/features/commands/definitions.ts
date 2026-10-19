@@ -2,6 +2,7 @@
 import { DEFAULT_TAG_KEYS, tagCommandId, type TagDef } from '../../../../shared/settings'
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore, type Tool } from '../annotations/annotationsStore'
+import { addKeyHere, canUseKeys, gotoKey } from '../annotations/keyActions'
 import { useEpisodesStore } from '../episodes/episodesStore'
 import { cancelPolyDraft, finishPolyDraft, polyDraftActive } from '../annotations/polyDraft'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
@@ -192,6 +193,30 @@ export const STATIC_COMMANDS: readonly Command[] = [
   tool('zone', 'Зона', 'KeyZ'),
   tool('chain', 'Связи игроков', 'KeyN'),
   tool('loupe', 'Лупа', 'KeyG'),
+  {
+    id: 'anim:key-prev',
+    label: 'К предыдущему ключу рисунка',
+    group: 'Рисование',
+    defaults: [key('Comma')],
+    run: () => void gotoKey(-1),
+    enabled: () => ready() && canUseKeys()
+  },
+  {
+    id: 'anim:key-next',
+    label: 'К следующему ключу рисунка',
+    group: 'Рисование',
+    defaults: [key('Period')],
+    run: () => void gotoKey(1),
+    enabled: () => ready() && canUseKeys()
+  },
+  {
+    id: 'anim:key-add',
+    label: 'Ключ анимации здесь',
+    group: 'Рисование',
+    defaults: [key('KeyJ')],
+    run: () => void addKeyHere(),
+    enabled: () => ready() && canUseKeys()
+  },
   {
     id: 'draw:finish',
     label: 'Завершить зону или связи',

@@ -8,6 +8,7 @@ import {
 } from '../../../../shared/grassKey'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
+import { GrassIcon } from '../../ui/icons'
 import { ensureGrassEstimate, useGrassKey, useGrassStore } from './grassStore'
 
 function Slider({
@@ -185,17 +186,18 @@ export function GrassMenu(): React.JSX.Element {
     <div className="grass-menu" ref={ref}>
       <button
         type="button"
-        className={open ? 'chip-btn chip-btn--active' : 'chip-btn'}
+        className={open ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'}
         aria-pressed={open}
         aria-haspopup="dialog"
-        title={ru.grass.buttonHint}
+        aria-label={ru.grass.button}
+        title={`${ru.grass.button}. ${ru.grass.buttonHint}`}
         data-testid="grass-button"
         onClick={(e) => {
           setPopover(!open)
           e.currentTarget.blur()
         }}
       >
-        {ru.grass.button}
+        <GrassIcon size={17} />
       </button>
       {open && <Popover />}
     </div>

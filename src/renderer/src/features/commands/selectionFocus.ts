@@ -18,6 +18,12 @@ useEpisodesStore.subscribe((s, prev) => {
 export function deleteSelection(): boolean {
   // Рисуется зона или связь: Delete/Backspace убирает последнюю поставленную вершину.
   if (removeLastDraftPoint()) return true
+  // Выбран ключ анимации (ромбик на дорожке): удаляется только он.
+  const keyed = useAnnotationsStore.getState()
+  if (last !== 'episode' && keyed.selectedKey !== null && keyed.selectedId) {
+    keyed.removeKey(keyed.selectedId, keyed.selectedKey)
+    return true
+  }
   // Выбрана вершина зоны или связи: удаляется только она (если вершин остаётся достаточно).
   const node = useAnnotationsStore.getState()
   if (last !== 'episode' && node.selectedNode !== null) {

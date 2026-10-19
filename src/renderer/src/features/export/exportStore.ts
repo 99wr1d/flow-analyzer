@@ -23,6 +23,8 @@ export interface ExportState {
   withDrawings: boolean | null
   /** Идёт подготовка картинок с рисунками (до запуска ffmpeg): сделано / всего. */
   preparing: { done: number; total: number } | null
+  /** Подготовка покадровых картинок движущихся рисунков: сделано / всего кадров. */
+  animPreparing: { done: number; total: number } | null
   /** Запас по краям — текст поля (проверяется при вводе). */
   padding: string
   progress: ExportProgress | null
@@ -45,6 +47,7 @@ export const useExportStore = create<ExportState>()(() => ({
   precision: 'precise',
   withDrawings: null,
   preparing: null,
+  animPreparing: null,
   padding: '0',
   progress: null,
   startedAt: null,

@@ -139,10 +139,17 @@ export function buildCompilationArgs(opts: {
   ]
 }
 
+/** Ряд PNG-кадров как вход ffmpeg: шаблон имени с номером (%07d), первый номер и частота кадров. */
+export interface SequenceInput {
+  pattern: string
+  start: number
+  fps: number
+}
+
 /** Перекодирование по готовому графу с рисунками. PNG-наложения — входы ffmpeg с номерами 1, 2, … */
 export function buildDrawnArgs(opts: {
   input: string
-  pngPaths: readonly string[]
+  pngPaths: ReadonlyArray<string | SequenceInput>
   output: string
   scriptPath: string
   offset: number
@@ -158,7 +165,18 @@ export function buildDrawnArgs(opts: {
     sec(span),
     '-i',
     input,
-    ...pngPaths.flatMap((p) => ['-i', p]),
+    ...pngPaths.flatMap((p) =>
+      typeof p === 'string'
+        ? ['-i', p]
+        : [
+            '-framerate',
+            String(Math.round(p.fps * 1000) / 1000),
+            '-start_number',
+            String(p.start),
+            '-i',
+            p.pattern
+          ]
+    ),
     '-filter_complex_script',
     scriptPath,
     '-map',

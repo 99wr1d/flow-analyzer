@@ -1,4 +1,5 @@
 // Действия экспорта: открыть окно, запустить, отменить, показать результат. Их вызывают и кнопки, и команда Ctrl+E.
+import { isMoving, keysOf, movingIndices } from '../../../../shared/animation'
 import type { Episode } from '../../../../shared/episodes'
 import { OVERLAY_LIMITS, type ExportRequest } from '../../../../shared/export'
 import { UNTITLED_PROJECT } from '../../../../shared/project'
@@ -11,7 +12,12 @@ import { getVideoElement } from '../player/videoElement'
 import { useProjectStore } from '../project/projectStore'
 import { planExportView, WHOLE_VIDEO_LABEL, type ExportPlan } from './exportPlan'
 import { useExportStore, type ExportState } from './exportStore'
-import { RenderCancelled, renderOverlayImages } from './renderOverlays'
+import {
+  RenderCancelled,
+  animationLayers,
+  renderAnimationFrames,
+  renderOverlayImages
+} from './renderOverlays'
 import { chooseEpisodes, parsePadding } from './selection'
 
 const UNKNOWN_ERROR = 'Не удалось выполнить экспорт'
@@ -20,7 +26,8 @@ export const DRAWINGS_ERRORS = {
   noVideo: 'Не удалось определить размер видео для рисунков. Откройте видео заново',
   tooBig: 'Видео слишком большое, чтобы нанести на него рисунки. Отключите «С рисунками»',
   render:
-    'Не удалось подготовить рисунки для экспорта. Попробуйте ещё раз или отключите «С рисунками»'
+    'Не удалось подготовить рисунки для экспорта. Попробуйте ещё раз или отключите «С рисунками»',
+  animTooMany: `Слишком много кадров с анимацией (больше ${OVERLAY_LIMITS.maxAnimFrames}). Выберите отрезки покороче или экспортируйте по частям`
 } as const
 
 const set = useExportStore.setState
@@ -50,6 +57,7 @@ export function openExportDialog(): void {
     picked: items.map((e) => e.id),
     withDrawings: null,
     preparing: null,
+    animPreparing: null,
     progress: null,
     startedAt: null,
     cancelling: false,
@@ -85,7 +93,8 @@ export function currentExportPlan(
     padding: padding.ok ? padding.value : 0,
     duration: player.duration,
     fps: player.fps,
-    timings: useAnnotationsStore.getState().items.map((a) => a.timing)
+    timings: useAnnotationsStore.getState().items.map((a) => a.timing),
+    animated: new Set(movingIndices(useAnnotationsStore.getState().items))
   })
 }
 
@@ -117,6 +126,9 @@ async function prepareDrawings(
 ): Promise<DrawingsRequest | { error: string } | 'cancelled' | null> {
   if (!plan) return null
   if (plan.keys.length > OVERLAY_LIMITS.maxKeys) return { error: DRAWINGS_ERRORS.tooMany }
+  if (plan.animFrames.length > OVERLAY_LIMITS.maxAnimFrames) {
+    return { error: DRAWINGS_ERRORS.animTooMany }
+  }
   const video = getVideoElement()
   const source = usePlayerStore.getState().source
   const width = video?.videoWidth ?? 0
@@ -128,7 +140,7 @@ async function prepareDrawings(
   const annotations = useAnnotationsStore.getState().items
   const fps = usePlayerStore.getState().fps
   try {
-    set({ preparing: { done: 0, total: plan.keys.length } })
+    set({ preparing: { done: 0, total: plan.keys.length }, animPreparing: null })
     const images = await renderOverlayImages({
       annotations,
       calibrations: useCalibrationsStore.getState().items,
@@ -145,12 +157,53 @@ async function prepareDrawings(
       images: images.map((i) => ({ key: i.key, data: i.data, layer: i.layer }))
     })
     if (prepareCancelled) return 'cancelled'
+    // Движущиеся рисунки: по картинке на каждый кадр, порциями (в main они складываются во временную папку).
+    const animLayers = animationLayers(annotations, plan.animFrames)
+    if (plan.animFrames.length > 0 && (animLayers.over || animLayers.under)) {
+      set({ animPreparing: { done: 0, total: plan.animFrames.length } })
+      await renderAnimationFrames({
+        annotations,
+        calibrations: useCalibrationsStore.getState().items,
+        frames: plan.animFrames,
+        fps,
+        width,
+        height,
+        layers: animLayers,
+        isCancelled: () => prepareCancelled,
+        onProgress: (done, total) => set({ animPreparing: { done, total } }),
+        flush: async (layer, frames) => {
+          if (prepareCancelled) throw new RenderCancelled()
+          await window.api.stageExportFrames({ token, layer, frames })
+        }
+      })
+      if (prepareCancelled) return 'cancelled'
+    }
     const loupes = annotations.flatMap((a, index) =>
-      a.type === 'loupe' ? [{ index, pos: a.pos, src: a.src, radius: a.radius, zoom: a.zoom }] : []
+      a.type === 'loupe'
+        ? [
+            {
+              index,
+              pos: a.pos,
+              src: a.src,
+              radius: a.radius,
+              zoom: a.zoom,
+              ...(isMoving(a)
+                ? {
+                    keys: keysOf(a).map((k) => ({
+                      t: k.t,
+                      ...(k.ease ? { ease: k.ease } : {}),
+                      pos: k.geom.pos as { x: number; y: number },
+                      src: k.geom.src as { x: number; y: number }
+                    }))
+                  }
+                : {})
+            }
+          ]
+        : []
     )
     // Есть рисунки «под игроками»: ключ газона берётся из тех же настроек, что и на экране.
     let grass: DrawingsRequest['grass']
-    if (images.some((i) => i.layer === 'under')) {
+    if (images.some((i) => i.layer === 'under') || animLayers.under) {
       ensureGrassEstimate()
       const grassState = useGrassStore.getState()
       grass = grassValues(effectiveKey(grassState, source?.id))
@@ -160,6 +213,8 @@ async function prepareDrawings(
       fps,
       timings: annotations.map((a) => a.timing),
       loupes,
+      animated: [...movingIndices(annotations)],
+      animLayers,
       ...(grass ? { grass } : {})
     }
   } catch (error) {
@@ -209,13 +264,20 @@ export function startExport(): Promise<void> {
     preparing: null
   })
   const backToForm = (error: string | null): void =>
-    set({ phase: 'form', startedAt: null, progress: null, preparing: null, error })
+    set({
+      phase: 'form',
+      startedAt: null,
+      progress: null,
+      preparing: null,
+      animPreparing: null,
+      error
+    })
 
   currentRun = prepareDrawings(withDrawings ? plan : null)
     .then((drawings) => {
       if (drawings === 'cancelled') return backToForm(null)
       if (drawings && 'error' in drawings) return backToForm(drawings.error)
-      set({ preparing: null })
+      set({ preparing: null, animPreparing: null })
       // Остановку нажали, пока подготовка заканчивалась: до запуска ffmpeg ещё можно отказаться.
       if (get().cancelling) return backToForm(null)
       return window.api
@@ -231,6 +293,7 @@ export function startExport(): Promise<void> {
         startedAt: null,
         progress: null,
         preparing: null,
+        animPreparing: null,
         error: error instanceof Error && error.message ? error.message : UNKNOWN_ERROR
       })
     })

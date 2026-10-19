@@ -8,7 +8,13 @@ import {
   type VideoProbe,
   type VideoSource
 } from '../shared/ipc-contract'
-import type { ExportProgress, ExportRequest, ExportResult, StageOverlays } from '../shared/export'
+import type {
+  ExportProgress,
+  ExportRequest,
+  ExportResult,
+  StageFrames,
+  StageOverlays
+} from '../shared/export'
 import type { CreateProjectRequest, LibraryListing } from '../shared/library'
 import type {
   ProjectMeta,
@@ -60,6 +66,8 @@ const api: FlowApi = {
   startExport: (request: ExportRequest) => invoke<ExportResult>(IPC_CHANNELS.exportStart, request),
   stageExportOverlays: (overlays: StageOverlays) =>
     invoke<{ token: string }>(IPC_CHANNELS.exportStageOverlays, overlays),
+  stageExportFrames: (frames: StageFrames) =>
+    invoke<{ count: number }>(IPC_CHANNELS.exportStageFrames, frames),
   cancelExport: () => invoke<void>(IPC_CHANNELS.exportCancel),
   revealExport: () => invoke<void>(IPC_CHANNELS.exportReveal),
   exportStatsCsv: (data: StatsExport) =>

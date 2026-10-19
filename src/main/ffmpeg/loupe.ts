@@ -1,6 +1,8 @@
 // Лупа в экспорте: участок кадра вырезается (crop), увеличивается (scale), обрезается по кругу (прозрачность
 // через geq) и накладывается на кадр (overlay) на нужное время. Рамку и соединительную линию лупы рисует
 // обычный PNG с рисунками — здесь только содержимое линзы. Чистые функции: ffmpeg не запускают.
+import type { Ease } from '../../shared/annotations'
+import { segmentAt } from '../../shared/animation'
 import type { LoupeGeometry } from '../../shared/tools/loupe'
 
 const num = (v: number): string => (Math.round(v * 1e4) / 1e4).toString()
@@ -25,6 +27,56 @@ export function circleAlphaExpr(d: number): string {
   return `255*clip(${num(r)}-hypot(X+0.5-${num(r)},Y+0.5-${num(r)})+0.5,0,1)`
 }
 
+/** Ключ движущейся лупы в пикселях видео: геометрия линзы и источника в момент t (секунды видео). */
+export interface LoupeAnimKey {
+  t: number
+  ease?: Ease
+  geometry: LoupeGeometry
+}
+
+/** Геометрия движущейся лупы на момент t: поля между ключами меняются линейно (с тем же сглаживанием, что и на экране). */
+export function loupeGeometryFromKeys(keys: readonly LoupeAnimKey[], t: number): LoupeGeometry {
+  const seg = segmentAt(keys, t)
+  const a = keys[seg.index].geometry
+  if (seg.hold) return a
+  const b = keys[seg.index + 1].geometry
+  const mix = (x: number, y: number): number => Math.round(x + (y - x) * seg.u)
+  return {
+    d: a.d,
+    sw: a.sw,
+    ox: mix(a.ox, b.ox),
+    oy: mix(a.oy, b.oy),
+    sx: mix(a.sx, b.sx),
+    sy: mix(a.sy, b.sy)
+  }
+}
+
+/**
+ * Выражение ffmpeg для поля геометрии движущейся лупы. shift — сколько секунд нужно прибавить к времени кадра в
+ * фильтре (t), чтобы получить время середины кадра в видео. Между ключами значение меняется линейно или со сглаживанием.
+ */
+export function keyedExpr(
+  keys: readonly LoupeAnimKey[],
+  pick: (g: LoupeGeometry) => number,
+  shift: number
+): string {
+  const T = `(t+${num(shift)})`
+  let expr = num(pick(keys[keys.length - 1].geometry))
+  for (let i = keys.length - 2; i >= 0; i -= 1) {
+    const a = keys[i]
+    const b = keys[i + 1]
+    const va = pick(a.geometry)
+    const vb = pick(b.geometry)
+    const u = `(${T}-${num(a.t)})/${num(b.t - a.t)}`
+    const eased =
+      (a.ease ?? 'ease') === 'linear' ? `(${u})` : `(st(0,${u})*0+ld(0)*ld(0)*(3-2*ld(0)))`
+    const segment = vb === va ? num(va) : `${num(va)}+(${num(vb - va)})*${eased}`
+    const body = i === 0 ? `if(lt(${T},${num(a.t)}),${num(va)},${segment})` : segment
+    expr = `if(lt(${T},${num(b.t)}),${body},${expr})`
+  }
+  return expr
+}
+
 export interface LoupeFilterOptions {
   /** Уникальный префикс меток внутри графа. */
   id: string
@@ -36,21 +88,26 @@ export interface LoupeFilterOptions {
   window?: { from: number; to: number }
   /** Основа — один кадр (стоп-кадр): последний кадр линзы повторяется. */
   single?: boolean
+  /** Движущаяся лупа: положение линзы и источника задают выражения по времени. shift — см. keyedExpr. */
+  anim?: { keys: readonly LoupeAnimKey[]; shift: number }
 }
 
 /** Строки графа фильтров: линза из того же потока, наложенная поверх него. */
 export function loupeLines(o: LoupeFilterOptions): string[] {
   const { id, geometry: g } = o
   const alpha = circleAlphaExpr(g.d)
+  const anim = o.anim && o.anim.keys.length >= 2 ? o.anim : null
+  const expr = (pick: (g: LoupeGeometry) => number): string =>
+    quoteExpr(keyedExpr(anim!.keys, pick, anim!.shift))
   const overlayOptions = [
-    `x=${g.ox}`,
-    `y=${g.oy}`,
+    anim ? `x=${expr((k) => k.ox)}` : `x=${g.ox}`,
+    anim ? `y=${expr((k) => k.oy)}` : `y=${g.oy}`,
     ...(o.single ? ['eof_action=repeat'] : []),
     ...(o.window ? [`enable=${quoteExpr(windowExpr(o.window.from, o.window.to))}`] : [])
   ].join(':')
   return [
     `${o.input}split=2[${id}a][${id}b]`,
-    `[${id}b]crop=w=${g.sw}:h=${g.sw}:x=${g.sx}:y=${g.sy},scale=${g.d}:${g.d}:flags=bicubic,format=rgba,` +
+    `[${id}b]crop=w=${g.sw}:h=${g.sw}:x=${anim ? expr((k) => k.sx) : g.sx}:y=${anim ? expr((k) => k.sy) : g.sy},scale=${g.d}:${g.d}:flags=bicubic,format=rgba,` +
       `geq=r=${quoteExpr('r(X,Y)')}:g=${quoteExpr('g(X,Y)')}:b=${quoteExpr('b(X,Y)')}:a=${quoteExpr(alpha)}[${id}l]`,
     `[${id}a][${id}l]overlay=${overlayOptions}${o.output}`
   ]

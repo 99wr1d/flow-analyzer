@@ -21,6 +21,59 @@ const id = z.uuid()
 /** Рисунок лежит «под игроками» (ключ по газону). Нет поля — значение по умолчанию для вида рисунка (isUnderPlayers). */
 const underPlayers = z.boolean().optional()
 
+// --- Этап 16б: ключевые кадры (анимация рисунка) ---
+
+/** Максимум ключей у одного рисунка. */
+export const MAX_KEYFRAMES = 200
+/** Ключи ближе друг к другу, секунд, считаются одним моментом. */
+export const KEY_EPS = 1e-6
+export const EASES = ['linear', 'ease'] as const
+export type Ease = (typeof EASES)[number]
+export const DEFAULT_EASE: Ease = 'ease'
+
+/**
+ * Ключи рисунка: геометрия (поля, которые задают положение и форму вида рисунка) в моменты времени t.
+ * Стиль и свойства не анимируются. Время строго возрастает; массивы точек во всех ключах одной длины.
+ * ease ключа — переход от него к следующему ключу (нет поля — «ease» = плавно).
+ */
+// Тип результата длинный и выводится из схемы: явный возвращаемый тип здесь не нужен.
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+function kf<S extends z.ZodRawShape>(shape: S) {
+  const geom = z.object(shape)
+  return z
+    .array(
+      z.object({
+        t: z.number().min(0).max(1_000_000),
+        ease: z.enum(EASES).optional(),
+        geom
+      })
+    )
+    .min(1)
+    .max(MAX_KEYFRAMES)
+    .superRefine((keys, ctx) => {
+      if (keys.length === 0) return
+      for (let i = 1; i < keys.length; i += 1) {
+        if (!(keys[i].t - keys[i - 1].t > KEY_EPS)) {
+          ctx.addIssue({ code: 'custom', message: 'Ключи должны идти по возрастанию времени' })
+          return
+        }
+      }
+      const first = keys[0].geom as Record<string, unknown>
+      for (const k of keys) {
+        const g = k.geom as Record<string, unknown>
+        for (const name of Object.keys(first)) {
+          const a = first[name]
+          const b = g[name]
+          if (Array.isArray(a) && Array.isArray(b) && a.length !== b.length) {
+            ctx.addIssue({ code: 'custom', message: 'У всех ключей одинаковое число вершин' })
+            return
+          }
+        }
+      }
+    })
+    .optional()
+}
+
 export const TimingSchema = z.discriminatedUnion('mode', [
   z.object({
     mode: z.literal('range'),
@@ -59,6 +112,7 @@ export const ArrowSchema = z.object({
   ...twoPoints,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf(twoPoints),
   timing: TimingSchema
 })
 export const LineSchema = z.object({
@@ -68,6 +122,7 @@ export const LineSchema = z.object({
   ...twoPoints,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf(twoPoints),
   timing: TimingSchema
 })
 /** Эллипс, вписанный в прямоугольник с противоположными углами p1 и p2. */
@@ -78,6 +133,7 @@ export const CircleSchema = z.object({
   ...twoPoints,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf(twoPoints),
   timing: TimingSchema
 })
 /** pos — левый верхний угол подписи. */
@@ -88,6 +144,7 @@ export const TextSchema = z.object({
   pos: PointSchema,
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
   style: TextStyleSchema,
+  keyframes: kf({ pos: PointSchema }),
   timing: TimingSchema
 })
 
@@ -101,6 +158,7 @@ export const WorldPointSchema = z.object({
 export const MIN_RING_RADIUS = 0.15
 export const MAX_RING_RADIUS = 30
 export const DEFAULT_RING_RADIUS = 1
+const ringRadius = z.number().min(MIN_RING_RADIUS).max(MAX_RING_RADIUS)
 
 const onPitch = { id, space: z.literal('pitch'), calibrationId: id }
 const groundTwo = { p1: WorldPointSchema, p2: WorldPointSchema }
@@ -113,6 +171,7 @@ export const RingSchema = z.object({
   radius: z.number().min(MIN_RING_RADIUS).max(MAX_RING_RADIUS),
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ center: WorldPointSchema, radius: ringRadius }),
   timing: TimingSchema
 })
 /** Стрелка на траве: многоугольник на плоскости поля постоянной ширины в метрах. */
@@ -122,6 +181,7 @@ export const GroundArrowSchema = z.object({
   ...groundTwo,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf(groundTwo),
   timing: TimingSchema
 })
 export const GroundLineSchema = z.object({
@@ -130,6 +190,7 @@ export const GroundLineSchema = z.object({
   ...groundTwo,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf(groundTwo),
   timing: TimingSchema
 })
 /** Подпись, стоящая вертикально над точкой земли pos. */
@@ -139,6 +200,7 @@ export const GroundTextSchema = z.object({
   pos: WorldPointSchema,
   text: z.string().trim().min(1).max(MAX_TEXT_LENGTH),
   style: TextStyleSchema,
+  keyframes: kf({ pos: WorldPointSchema }),
   timing: TimingSchema
 })
 /** Линейка: линия по земле с засечками и подписью «23.4 м». */
@@ -148,6 +210,7 @@ export const RulerSchema = z.object({
   ...groundTwo,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf(groundTwo),
   timing: TimingSchema
 })
 
@@ -170,6 +233,13 @@ export const DEFAULT_LOUPE_ZOOM = 2
 export const MIN_SPOT_RADIUS = 0.5
 export const MAX_SPOT_RADIUS = 15
 export const DEFAULT_SPOT_RADIUS = 2.2
+const spotRadius = z.number().min(MIN_SPOT_RADIUS).max(MAX_SPOT_RADIUS)
+const penPoints = z.array(PointSchema).min(2).max(MAX_PEN_POINTS)
+const zonePoints = z.array(PointSchema).min(3).max(MAX_ZONE_VERTICES)
+const chainPoints = z.array(PointSchema).min(2).max(MAX_CHAIN_NODES)
+const groundPenPoints = z.array(WorldPointSchema).min(2).max(MAX_PEN_POINTS)
+const groundZonePoints = z.array(WorldPointSchema).min(3).max(MAX_ZONE_VERTICES)
+const groundChainPoints = z.array(WorldPointSchema).min(2).max(MAX_CHAIN_NODES)
 
 const dim = z.number().min(MIN_DIM).max(MAX_DIM).default(DEFAULT_DIM)
 const zoneOpacity = z
@@ -190,6 +260,7 @@ export const SpotlightSchema = z.object({
   ...twoPoints,
   dim,
   style: ShapeStyleSchema,
+  keyframes: kf(twoPoints),
   timing: TimingSchema
 })
 /** Изогнутая стрелка: квадратичная кривая Безье p1 → p2 с управляющей точкой c. */
@@ -201,6 +272,7 @@ export const CurveSchema = z.object({
   c: ControlPointSchema,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ ...twoPoints, c: ControlPointSchema }),
   timing: TimingSchema
 })
 /** Перо: нарисованная от руки линия (точки уже упрощены). */
@@ -212,6 +284,7 @@ export const PenSchema = z.object({
   arrow: z.boolean().default(false),
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ points: penPoints }),
   timing: TimingSchema
 })
 /** Зона: многоугольник с полупрозрачной заливкой. */
@@ -223,6 +296,7 @@ export const ZoneSchema = z.object({
   opacity: zoneOpacity,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ points: zonePoints }),
   timing: TimingSchema
 })
 /** Лупа: круг с центром pos показывает увеличенный участок кадра вокруг точки src. radius — доля высоты кадра. */
@@ -235,6 +309,7 @@ export const LoupeSchema = z.object({
   radius: z.number().min(MIN_LOUPE_RADIUS).max(MAX_LOUPE_RADIUS),
   zoom,
   style: ShapeStyleSchema,
+  keyframes: kf({ pos: PointSchema, src: PointSchema }),
   timing: TimingSchema
 })
 /** Связи игроков / линия обороны: ломаная по точкам (ноги игроков) с узлами. */
@@ -246,6 +321,7 @@ export const ChainSchema = z.object({
   fill: z.boolean().default(false),
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ points: chainPoints }),
   timing: TimingSchema
 })
 
@@ -259,6 +335,7 @@ export const GroundSpotlightSchema = z.object({
   beam: z.boolean().default(true),
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ center: WorldPointSchema, radius: spotRadius }),
   timing: TimingSchema
 })
 /** Изогнутая стрелка на траве: кривая задана в метрах. */
@@ -269,6 +346,7 @@ export const GroundCurveSchema = z.object({
   c: WorldPointSchema,
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ ...groundTwo, c: WorldPointSchema }),
   timing: TimingSchema
 })
 /** Перо на траве: точки в метрах. */
@@ -279,6 +357,7 @@ export const GroundPenSchema = z.object({
   arrow: z.boolean().default(false),
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ points: groundPenPoints }),
   timing: TimingSchema
 })
 /** Зона на траве; showArea — подпись площади в м². */
@@ -290,6 +369,7 @@ export const GroundZoneSchema = z.object({
   showArea: z.boolean().default(true),
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ points: groundZonePoints }),
   timing: TimingSchema
 })
 /** Связи игроков на траве; labels — подписи длин звеньев и «Ширина линии». */
@@ -301,6 +381,7 @@ export const GroundChainSchema = z.object({
   labels: z.boolean().default(true),
   style: ShapeStyleSchema,
   underPlayers,
+  keyframes: kf({ points: groundChainPoints }),
   timing: TimingSchema
 })
 

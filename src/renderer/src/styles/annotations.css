@@ -73,7 +73,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  gap: var(--u);
+  gap: 6px;
   min-height: 34px;
   padding: 0 var(--u);
   background: var(--panel);
@@ -84,17 +84,24 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
 }
 .style-bar__sep {
+  flex: none;
   width: 1px;
   height: 18px;
   background: var(--border-strong);
-  margin: 0 4px;
+  margin: 0 2px;
+}
+.style-bar__gap {
+  flex: none;
+  width: 2px;
 }
 .style-bar__spacer {
   flex: 1;
 }
 .swatch {
+  flex: none;
   width: 20px;
   height: 20px;
   padding: 0;
@@ -117,7 +124,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 30px;
+  min-width: 28px;
   height: 26px;
   padding: 0 6px;
   border: 1px solid var(--border-strong);
@@ -150,8 +157,15 @@
   background: currentColor;
 }
 .chip-btn {
+  flex: none;
   font-weight: 700;
-  margin-left: 4px;
+  margin-left: 0;
+}
+/* Квадратная кнопка со значком (или короткой подписью). */
+.chip-btn--sq {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
 }
 :is(.swatch, .seg-btn, .chip-btn, .tool-btn, .segmented__btn, .input):focus-visible {
   outline: 2px solid var(--accent-2);
@@ -229,6 +243,20 @@
 .inspector__value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+.inspector__anim {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.inspector__keynav {
+  display: inline-flex;
+  gap: 4px;
+}
+.inspector__btns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 .inspector__wide {
   justify-content: center;
@@ -340,6 +368,35 @@
   outline-offset: 1px;
 }
 
+/* Ключи анимации на полосе рисунка: ромбики. */
+.anno-track__key {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  margin: 0 0 0 -5px;
+  padding: 0;
+  transform: rotate(45deg);
+  background: #fff;
+  border: 1.5px solid #14161c;
+  border-radius: 2px;
+  cursor: ew-resize;
+  z-index: 2;
+  touch-action: none;
+}
+.anno-track__key:hover {
+  background: var(--accent-2);
+}
+.anno-track__key--selected {
+  background: var(--accent);
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+  z-index: 3;
+}
+.anno-track__key:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
 /* Сообщения поверх слоя рисунков. */
 .banner,
 .stage__drop-hint {
@@ -425,7 +482,7 @@
 }
 .grass-menu {
   position: relative;
-  margin-left: 4px;
+  flex: none;
 }
 .grass-popover {
   position: absolute;

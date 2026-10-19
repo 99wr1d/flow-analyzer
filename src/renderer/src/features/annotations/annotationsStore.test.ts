@@ -140,3 +140,110 @@ describe('«Под игроками» для новых рисунков', () =>
     expect(s().underNew.screen).toBe(true)
   })
 })
+
+describe('анимация в хранилище', () => {
+  beforeEach(() => {
+    s().reset()
+    s().setTool('select')
+  })
+
+  it('«Анимировать»: ключ в кадре момента, отмена убирает, повтор возвращает', () => {
+    s().add(arrow(1))
+    s().startAnimation(arrow(1).id, 1.0, 25, 60)
+    const a = s().items[0] as unknown as { keyframes: Array<{ t: number }> }
+    expect(a.keyframes).toHaveLength(1)
+    expect(a.keyframes[0].t).toBeCloseTo(1.02, 6)
+    s().undo()
+    expect((s().items[0] as unknown as { keyframes?: unknown }).keyframes).toBeUndefined()
+    s().redo()
+    expect((s().items[0] as unknown as { keyframes: unknown[] }).keyframes).toHaveLength(1)
+  })
+
+  it('перетаскивание (preview + commitFrom) создаёт автоключ одним шагом отмены', async () => {
+    const { applyGeomEdit } = await import('../../../../shared/animation')
+    s().add(arrow(1))
+    s().startAnimation(arrow(1).id, 1.0, 25, 60)
+    const before = s().items
+    const stored = before[0]
+    const moved = { ...stored, p1: { x: 0.5, y: 0.5 } } as typeof stored
+    s().preview([applyGeomEdit(stored, moved, 2.0, 25)])
+    s().preview([
+      applyGeomEdit(stored, { ...stored, p1: { x: 0.6, y: 0.5 } } as typeof stored, 2.0, 25)
+    ])
+    s().commitFrom(before)
+    const keys = (s().items[0] as unknown as { keyframes: Array<{ geom: { p1: { x: number } } }> })
+      .keyframes
+    expect(keys).toHaveLength(2)
+    expect(keys[1].geom.p1.x).toBe(0.6)
+    s().undo()
+    expect((s().items[0] as unknown as { keyframes: unknown[] }).keyframes).toHaveLength(1)
+  })
+
+  it('«Ключ здесь», удаление и «Убрать анимацию»', () => {
+    s().add(arrow(1))
+    s().startAnimation(arrow(1).id, 1.0, 25, 60)
+    s().addKey(arrow(1).id, 2.0, 25)
+    const keys = (): unknown[] =>
+      (s().items[0] as unknown as { keyframes?: unknown[] }).keyframes ?? []
+    expect(keys()).toHaveLength(2)
+    s().removeKey(arrow(1).id, 1)
+    expect(keys()).toHaveLength(1)
+    s().stopAnimation(arrow(1).id, 1.0)
+    expect(keys()).toHaveLength(0)
+  })
+
+  it('сдвиг ключа ромбиком без истории, потом один шаг отмены; выбранный ключ сбрасывается при смене рисунка', () => {
+    s().add(arrow(1))
+    s().startAnimation(arrow(1).id, 1.0, 25, 60)
+    s().addKey(arrow(1).id, 2.0, 25)
+    const before = s().items
+    s().selectKey(1)
+    s().previewRetime(before, arrow(1).id, 1, 2.5, 25)
+    s().previewRetime(before, arrow(1).id, 1, 2.9, 25)
+    s().commitFrom(before)
+    const t = (s().items[0] as unknown as { keyframes: Array<{ t: number }> }).keyframes[1].t
+    expect(t).toBeCloseTo(2.9, 1)
+    s().undo()
+    expect(
+      (s().items[0] as unknown as { keyframes: Array<{ t: number }> }).keyframes[1].t
+    ).toBeCloseTo(2.02, 6)
+    s().select(null)
+    expect(s().selectedKey).toBeNull()
+  })
+
+  it('удаление вершины зоны уходит во все ключи', async () => {
+    const { startAnimation, applyGeomEdit } = await import('../../../../shared/animation')
+    const zone = {
+      id: arrow(7).id,
+      space: 'screen' as const,
+      type: 'zone' as const,
+      points: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.5, y: 0.1 },
+        { x: 0.5, y: 0.5 },
+        { x: 0.1, y: 0.5 }
+      ],
+      opacity: 0.3,
+      style: { color: '#ffffff', width: 0.011, dash: 'solid' as const },
+      timing: { mode: 'range' as const, start: 1, duration: 3 }
+    }
+    const a0 = startAnimation(zone, 1.0, 25, 60)
+    const a1 = applyGeomEdit(
+      a0,
+      { ...a0, points: a0.points.map((p) => ({ x: p.x + 0.2, y: p.y })) },
+      2.0,
+      25
+    )
+    s().load([a1])
+    s().select(zone.id)
+    s().selectNode(1)
+    expect(s().removeSelectedNode()).toBe(true)
+    const z = s().items[0] as unknown as {
+      points: unknown[]
+      keyframes: Array<{ geom: { points: unknown[] } }>
+    }
+    expect(z.points).toHaveLength(3)
+    for (const k of z.keyframes) expect(k.geom.points).toHaveLength(3)
+    expect(AnnotationSchema.safeParse(s().items[0]).success).toBe(true)
+  })
+})

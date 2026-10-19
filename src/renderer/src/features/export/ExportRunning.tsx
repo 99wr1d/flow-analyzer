@@ -35,6 +35,7 @@ export function ExportRunning(): React.JSX.Element {
   const cancelling = useExportStore((s) => s.cancelling)
   const compilation = useExportStore((s) => s.mode === 'compilation' && s.scope !== 'whole')
   const preparing = useExportStore((s) => s.preparing)
+  const animPreparing = useExportStore((s) => s.animPreparing)
   const [now, setNow] = useState(() => Date.now())
 
   // Таймер тикает сам: ffmpeg может долго ничего не присылать (например, ищет начало эпизода).
@@ -55,6 +56,11 @@ export function ExportRunning(): React.JSX.Element {
             <p className="export__hint">
               {ru.export.preparingProgress(preparing.done, preparing.total)}
             </p>
+            {animPreparing !== null && (
+              <p className="export__hint" data-testid="export-anim-progress">
+                {ru.annotations.animFrames(animPreparing.done, animPreparing.total)}
+              </p>
+            )}
             <p className="export__hint">{ru.export.preparingHint}</p>
           </div>
         ) : progress === null ? (

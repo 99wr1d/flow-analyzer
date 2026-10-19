@@ -253,7 +253,35 @@ export const ru = {
     nodeHint: 'Alt+щелчок по линии добавляет точку, Delete убирает выбранную',
     startsAt: 'Начало',
     startFromNow: 'Начать с текущего момента',
-    remove: 'Удалить'
+    remove: 'Удалить',
+    animation: 'Анимация',
+    animate: 'Анимировать',
+    animateHint:
+      'Рисунок поедет между ключами: перемотайте видео и передвиньте рисунок — на этом кадре появится новый ключ',
+    animatedHint:
+      'Перемотайте видео и передвиньте или измените рисунок — на этом кадре появится ключ. Между ключами рисунок движется сам',
+    keysCount: (n: number): string => `Ключей: ${n}`,
+    keyPrev: 'К предыдущему ключу',
+    keyNext: 'К следующему ключу',
+    keyAdd: 'Ключ здесь',
+    keyAddHint: 'Поставить ключ на этом кадре с текущим положением рисунка',
+    keyRemove: 'Удалить ключ',
+    keyRemoveHint: 'Убрать ключ на этом кадре',
+    keyExists: 'На этом кадре ключ уже есть',
+    keysMax: 'Ключей уже слишком много (не больше 200)',
+    easeLabel: 'Переход после ключа',
+    easeSmooth: 'Плавно',
+    easeSmoothHint: 'Рисунок разгоняется и тормозит',
+    easeLinear: 'Равномерно',
+    easeLinearHint: 'Рисунок движется с постоянной скоростью',
+    stopAnimation: 'Убрать анимацию',
+    stopAnimationHint: 'Рисунок остановится в том положении, в каком он сейчас',
+    animatedFrameMode:
+      'Анимированный рисунок всегда показывается отрезком. Уберите анимацию, чтобы показывать его на одном кадре',
+    trackKey: (n: number, time: string): string => `Ключ ${n}, ${time}`,
+    trackKeyHint: 'Щелчок — перейти к ключу, перетаскивание — сдвинуть, Delete — удалить',
+    animFrames: (done: number, total: number): string =>
+      `Подготовка анимации ${done}/${total} кадров`
   },
   grass: {
     button: 'Газон',
@@ -296,6 +324,8 @@ export const ru = {
     onPitchHint: 'Рисовать на плоскости поля (в перспективе), а не поверх картинки',
     onPitchOff: 'Рисунки на поле доступны после разметки поля',
     activeNone: 'Поле не размечено',
+    activeNoneShort: 'Не размечено',
+    activeShort: (time: string): string => `Поле ${time}`,
     active: (time: string, offset: number): string => {
       const abs = Math.abs(offset)
       const when =
@@ -572,6 +602,10 @@ export const ru = {
     drawingsFast:
       'Недоступно в режиме «Быстро»: без перекодирования нельзя нанести рисунки. Выберите «Точно».',
     drawingsNone: 'В выбранных отрезках нет рисунков',
+    animFramesHint: (frames: number): string =>
+      `Анимация: для ${frames} кадров рисуются отдельные картинки — подготовка займёт время.`,
+    animTooMany: (frames: number, max: number): string =>
+      `Слишком много кадров с анимацией (${frames}, не больше ${max}). Выберите отрезки покороче или экспортируйте по частям.`,
     paddingLabel: 'Запас по краям, с',
     paddingHint: 'Добавляется до и после каждого эпизода (от 0 до 10 секунд), в пределах видео.',
     summaryFiles: (files: string, duration: string) =>

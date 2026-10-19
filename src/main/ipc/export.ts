@@ -8,8 +8,10 @@ import { ExportError, runExportJob } from '../ffmpeg/job'
 import { compilationDefaultName } from '../ffmpeg/names'
 import {
   disposeAllSync,
+  disposePending,
   disposeStaged,
   holdStaged,
+  stageFrames,
   stageOverlays,
   sweepStale,
   takeStaged,
@@ -165,11 +167,22 @@ export function registerExportHandlers(): void {
       return { ok: true, data: { token: result.staged.token } }
     }
   )
+  ipcMain.handle(
+    IPC_CHANNELS.exportStageFrames,
+    async (event, raw: unknown): Promise<IpcResult<{ count: number }>> => {
+      if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }
+      if (active) return { ok: false, error: EXPORT_IPC_ERRORS.busy }
+      const result = await stageFrames(raw)
+      if (!result.ok) return { ok: false, error: result.error }
+      return { ok: true, data: { count: result.count } }
+    }
+  )
   void sweepStale()
 
   ipcMain.handle(IPC_CHANNELS.exportCancel, (event): IpcResult<void> => {
     if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }
-    active?.controller.abort()
+    if (active) active.controller.abort()
+    else void disposePending()
     return OK
   })
 

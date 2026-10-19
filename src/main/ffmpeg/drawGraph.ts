@@ -19,6 +19,7 @@ import type { Timing } from '../../shared/annotations'
 import type { GrassKeyValues } from '../../shared/grassKey'
 import {
   parseKey,
+  type AnimRun,
   type FreezePoint,
   type OverlaySegment,
   type RangePlan
@@ -26,7 +27,7 @@ import {
 import type { LoupeGeometry } from '../../shared/tools/loupe'
 import { sec } from './args'
 import { grassMaskLines } from './grassFilter'
-import { loupeLines } from './loupe'
+import { loupeGeometryFromKeys, loupeLines, type LoupeAnimKey } from './loupe'
 
 /** Чётные размеры кадра: yuv420p иначе не кодируется. */
 const EVEN_SIZE = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
@@ -43,6 +44,14 @@ export interface GraphLoupe {
   index: number
   geometry: LoupeGeometry
   timing: Timing
+  /** Движущаяся лупа: ключи (время видео и геометрия в пикселях). Без них линза стоит на месте. */
+  anim?: LoupeAnimKey[]
+}
+
+/** Движущиеся рисунки: ряды покадровых картинок (по одному входу ffmpeg на ряд и слой). */
+export interface GraphAnimation {
+  runs: readonly AnimRun[]
+  layers: { over: boolean; under: boolean }
 }
 
 export interface GraphInput {
@@ -60,12 +69,18 @@ export interface GraphInput {
   layers?: ReadonlyMap<string, { over: boolean; under: boolean }>
   /** Ключ «газон»: обязателен, если у какого-то набора есть слой «под игроками». */
   grass?: GrassKeyValues
+  /** Покадровые картинки движущихся рисунков. */
+  animation?: GraphAnimation
 }
 
 /** Входная картинка графа: слой набора рисунков. */
 export interface GraphImage {
   key: string
   layer: 'over' | 'under'
+  /** Ряд покадровых картинок движущихся рисунков (кадры first…last исходного видео); ключ пуст. */
+  seq?: AnimRun
+  /** Картинка одного кадра движущихся рисунков для стоп-кадра (номер кадра); ключ пуст. */
+  still?: number
 }
 
 export interface GraphPlan {
@@ -174,7 +189,6 @@ export function planDrawn(input: GraphInput): GraphPlan {
   if (inputs.some((x) => x.layer === 'under') && !grass) {
     throw new Error('Нет настроек ключа «газон» для рисунков под игроками')
   }
-  const inputKeys = inputs.map((x) => x.key)
 
   // Подготовка картинок: split, если одна картинка нужна в нескольких местах, и масштаб, если размеры не совпали.
   const needScale =
@@ -202,6 +216,43 @@ export function planDrawn(input: GraphInput): GraphPlan {
     else lines.push(`${src}${pre}split=${uses}${labels.join('')}`)
   })
 
+  // Движущиеся рисунки: ряды картинок идут во времени видео (сдвиг setpts), стоп-кадрам нужна картинка своего кадра.
+  const animation = input.animation
+  const animLayers = animation
+    ? (['over', 'under'] as const).filter((layer) => animation.layers[layer])
+    : []
+  if (animLayers.includes('under') && !grass) {
+    throw new Error('Нет настроек ключа «газон» для рисунков под игроками')
+  }
+  const scalePre = needScale ? `scale=${input.videoSize!.w}:${input.videoSize!.h},` : ''
+  const seqPads: Array<{ layer: GraphImage['layer']; label: string }> = []
+  const stillPads = new Map<string, string>() // `${слой}#${j}` → метка
+  if (animation) {
+    for (const run of animation.runs) {
+      for (const layer of animLayers) {
+        const idx = inputs.length
+        inputs.push({ key: '', layer, seq: run })
+        const label = `[ps${idx}]`
+        // Картинка n ложится ровно на метку времени кадра n (overlay берёт ближайший по времени кадр ряда:
+        // запас до соседнего кадра — полкадра в обе стороны).
+        const shift = run.first / fps - offset
+        lines.push(`[${idx + 1}:v]${scalePre}format=rgba,setpts=PTS+(${num(shift)})/TB${label}`)
+        seqPads.push({ layer, label })
+      }
+    }
+    freezes.forEach((f, j) => {
+      if (!f.animated || f.animated.length === 0) return
+      for (const layer of animLayers) {
+        const idx = inputs.length
+        inputs.push({ key: '', layer, still: f.frame })
+        const label = `[pt${idx}]`
+        lines.push(`[${idx + 1}:v]${scalePre}format=rgba${label}`)
+        stillPads.set(`${layer}#${j}`, label)
+      }
+    })
+  }
+  const inputKeysAll = inputs.map((x) => x.key)
+
   // Основной поток.
   lines.push('[0:v]format=yuv420p[src]')
   let main = '[src]'
@@ -226,8 +277,11 @@ export function planDrawn(input: GraphInput): GraphPlan {
       )
       .join('+')
   // Рисунки «под игроками»: копия кадра с картинками «under» вливается в кадр по маске газона (до лупы).
-  const underChain = inputs.filter((x) => x.layer === 'under' && windows.has(x.key))
-  if (underChain.length > 0 && grass) {
+  const underChain = inputs.filter(
+    (x) => x.layer === 'under' && !x.seq && x.still === undefined && windows.has(x.key)
+  )
+  const underSeqs = seqPads.filter((x) => x.layer === 'under')
+  if ((underChain.length > 0 || underSeqs.length > 0) && grass) {
     lines.push(`${main}split=3[gb][gd][gk]`)
     lines.push(...grassMaskLines({ id: 'g', input: '[gk]', output: '[gm]', key: grass }))
     let drawn = '[gd]'
@@ -236,6 +290,11 @@ export function planDrawn(input: GraphInput): GraphPlan {
       lines.push(
         `${drawn}${chainPad.get(slotId(x.key, 'under'))}overlay=x=0:y=0:eof_action=repeat:enable='${windowsExpr(x.key)}'${out}`
       )
+      drawn = out
+    })
+    underSeqs.forEach((x, k) => {
+      const out = `[gq${k}]`
+      lines.push(`${drawn}${x.label}overlay=x=0:y=0:eof_action=pass${out}`)
       drawn = out
     })
     lines.push(`[gb]${drawn}[gm]maskedmerge[gr]`)
@@ -256,18 +315,24 @@ export function planDrawn(input: GraphInput): GraphPlan {
         input: main,
         output: out,
         geometry: l.geometry,
-        window: { from: from - offset - shift, to: to - offset - shift }
+        window: { from: from - offset - shift, to: to - offset - shift },
+        anim: l.anim ? { keys: l.anim, shift: offset + 0.5 * frame } : undefined
       })
     )
     main = out
     lensCount += 1
   }
   let n = 0
-  for (const { key, layer } of inputs) {
-    if (layer !== 'over' || !windows.has(key)) continue
+  for (const { key, layer, seq, still } of inputs) {
+    if (layer !== 'over' || seq || still !== undefined || !windows.has(key)) continue
     lines.push(
       `${main}${chainPad.get(slotId(key, 'over'))}overlay=x=0:y=0:eof_action=repeat:enable='${windowsExpr(key)}'[ov${n}]`
     )
+    main = `[ov${n}]`
+    n += 1
+  }
+  for (const x of seqPads.filter((p) => p.layer === 'over')) {
+    lines.push(`${main}${x.label}overlay=x=0:y=0:eof_action=pass[ov${n}]`)
     main = `[ov${n}]`
     n += 1
   }
@@ -319,6 +384,8 @@ export function planDrawn(input: GraphInput): GraphPlan {
       const to = rel(f.time)
       const overPad = freezePad.get(`${slotId(f.key, 'over')}#${j}`)
       const underPad = freezePad.get(`${slotId(f.key, 'under')}#${j}`)
+      const stillUnder = stillPads.get(`under#${j}`)
+      const stillOver = stillPads.get(`over#${j}`)
       // Кадр показывается свой обычный кадр и ещё seconds секунд (целое число кадров): видео удлиняется на seconds.
       // Число кадров задаётся явно (end_frame): по времени граница плавала на кадр.
       const frames = Math.round(f.seconds * fps) + 1
@@ -328,13 +395,21 @@ export function planDrawn(input: GraphInput): GraphPlan {
       )
       let current = `[fz${j}]`
       // Рисунки «под игроками» на стоп-кадре: тот же приём над одним кадром.
-      if (underPad && grass) {
+      if ((underPad || stillUnder) && grass) {
         lines.push(`${current}split=3[fgb${j}][fgd${j}][fgk${j}]`)
         lines.push(
           ...grassMaskLines({ id: `fg${j}`, input: `[fgk${j}]`, output: `[fgm${j}]`, key: grass })
         )
-        lines.push(`[fgd${j}]${underPad}overlay=x=0:y=0:eof_action=repeat[fgx${j}]`)
-        lines.push(`[fgb${j}][fgx${j}][fgm${j}]maskedmerge[fgr${j}]`)
+        let drawn = `[fgd${j}]`
+        if (underPad) {
+          lines.push(`${drawn}${underPad}overlay=x=0:y=0:eof_action=repeat[fgx${j}]`)
+          drawn = `[fgx${j}]`
+        }
+        if (stillUnder) {
+          lines.push(`${drawn}${stillUnder}overlay=x=0:y=0:eof_action=repeat[fgy${j}]`)
+          drawn = `[fgy${j}]`
+        }
+        lines.push(`[fgb${j}]${drawn}[fgm${j}]maskedmerge[fgr${j}]`)
         current = `[fgr${j}]`
       }
       // Лупы стоп-кадра: те рисунки набора, что являются лупами.
@@ -348,15 +423,28 @@ export function planDrawn(input: GraphInput): GraphPlan {
               id,
               input: current,
               output: `[${id}o]`,
-              geometry: l.geometry,
+              geometry: l.anim ? loupeGeometryFromKeys(l.anim, f.time) : l.geometry,
               single: true
             })
           )
           current = `[${id}o]`
         })
-      lines.push(
-        `${current}${overPad ? `${overPad}overlay=x=0:y=0:eof_action=repeat,` : ''}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
-      )
+      // Картинки «поверх всего»: набор рисунков стоп-кадра, затем картинка его движущихся рисунков.
+      if (stillOver) {
+        const overs = [overPad, stillOver].filter((x): x is string => Boolean(x))
+        overs.forEach((pad, k) => {
+          const out = `[fzo${j}_${k}]`
+          lines.push(`${current}${pad}overlay=x=0:y=0:eof_action=repeat${out}`)
+          current = out
+        })
+        lines.push(
+          `${current}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
+        )
+      } else {
+        lines.push(
+          `${current}${overPad ? `${overPad}overlay=x=0:y=0:eof_action=repeat,` : ''}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
+        )
+      }
       if (audio) {
         const silence = sec((frames - 1) / fps)
         lines.push(
@@ -381,5 +469,12 @@ export function planDrawn(input: GraphInput): GraphPlan {
     `${outLabels.join('')}concat=n=${total}:v=1:a=${audio ? 1 : 0}${audio ? '[cv][outa]' : '[cv]'}`
   )
   lines.push(`[cv]${EVEN_SIZE}[outv]`)
-  return { offset, span, script: lines.join(';\n') + '\n', inputKeys, inputs, outputSeconds }
+  return {
+    offset,
+    span,
+    script: lines.join(';\n') + '\n',
+    inputKeys: inputKeysAll,
+    inputs,
+    outputSeconds
+  }
 }

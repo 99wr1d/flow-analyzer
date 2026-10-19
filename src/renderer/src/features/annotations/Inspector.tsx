@@ -20,6 +20,7 @@ import {
   type Annotation,
   type Timing
 } from '../../../../shared/annotations'
+import { easeOf, isAnimated, keyIndexAt, keysOf } from '../../../../shared/animation'
 import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
 import { ru } from '../../i18n/ru'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
@@ -27,7 +28,15 @@ import { useKeyHint } from '../commands/useKeys'
 import { usePlayerStore } from '../../store/playerStore'
 import { TrashIcon } from '../../ui/icons'
 import { formatTime } from '../player/format'
+import { useAnimClock } from './animClock'
 import { selectedAnnotation, useAnnotationsStore } from './annotationsStore'
+import {
+  addKeyHere,
+  gotoKey,
+  removeKeyHere,
+  startAnimationNow,
+  stopAnimationNow
+} from './keyActions'
 
 function DurationField({ annotation }: { annotation: Annotation }): React.JSX.Element | null {
   const setTiming = useAnnotationsStore((s) => s.setTiming)
@@ -344,6 +353,167 @@ function ToolProps({ annotation: a }: { annotation: Annotation }): React.JSX.Ele
   )
 }
 
+/** Анимация рисунка: ключи, переход между ними, навигация. */
+function AnimationSection({ annotation: a }: { annotation: Annotation }): React.JSX.Element {
+  const frame = useAnimClock((s) => s.frame)
+  const fps = usePlayerStore((s) => s.fps)
+  const setKeyEase = useAnnotationsStore((s) => s.setKeyEase)
+  const prevHint = useKeyHint('anim:key-prev')
+  const nextHint = useKeyHint('anim:key-next')
+  const addHint = useKeyHint('anim:key-add')
+  const t = (frame + 0.5) / (fps > 0 ? fps : 25)
+  const animated = isAnimated(a)
+  const keys = keysOf(a)
+  const here = animated ? keyIndexAt(a, t, fps) : -1
+  // Переход, которому принадлежит текущий момент: от ключа «здесь» или от ближайшего ключа раньше.
+  let segment = -1
+  if (animated) {
+    segment = here >= 0 ? here : keys.filter((k) => k.t < t).length - 1
+    if (segment < 0) segment = 0
+  }
+  const ease = segment >= 0 ? easeOf(keys[segment]) : 'ease'
+  const canEase = animated && keys.length >= 2 && segment < keys.length - 1
+  return (
+    <>
+      <div className="inspector__section">{ru.annotations.animation}</div>
+      {!animated ? (
+        <>
+          <button
+            type="button"
+            className="btn inspector__wide"
+            title={ru.annotations.animateHint}
+            data-testid="anim-start"
+            onClick={(e) => {
+              startAnimationNow()
+              e.currentTarget.blur()
+            }}
+          >
+            {ru.annotations.animate}
+          </button>
+          <p className="field__hint">{ru.annotations.animateHint}</p>
+        </>
+      ) : (
+        <div className="inspector__anim" data-testid="anim-section">
+          <div className="inspector__row">
+            <span className="field__label" data-testid="key-count" data-count={keys.length}>
+              {ru.annotations.keysCount(keys.length)}
+            </span>
+            <span className="inspector__keynav">
+              <button
+                type="button"
+                className="icon-btn icon-btn--small"
+                title={`${ru.annotations.keyPrev}${prevHint}`}
+                aria-label={ru.annotations.keyPrev}
+                data-testid="key-prev"
+                onClick={(e) => {
+                  gotoKey(-1)
+                  e.currentTarget.blur()
+                }}
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                className="icon-btn icon-btn--small"
+                title={`${ru.annotations.keyNext}${nextHint}`}
+                aria-label={ru.annotations.keyNext}
+                data-testid="key-next"
+                onClick={(e) => {
+                  gotoKey(1)
+                  e.currentTarget.blur()
+                }}
+              >
+                ›
+              </button>
+            </span>
+          </div>
+          <div className="inspector__btns">
+            <button
+              type="button"
+              className="btn"
+              title={`${ru.annotations.keyAddHint}${addHint}`}
+              disabled={here >= 0}
+              data-testid="key-add"
+              onClick={(e) => {
+                addKeyHere()
+                e.currentTarget.blur()
+              }}
+            >
+              {ru.annotations.keyAdd}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              title={ru.annotations.keyRemoveHint}
+              disabled={here < 0}
+              data-testid="key-remove"
+              onClick={(e) => {
+                removeKeyHere()
+                e.currentTarget.blur()
+              }}
+            >
+              {ru.annotations.keyRemove}
+            </button>
+          </div>
+          <span className="field__label">{ru.annotations.easeLabel}</span>
+          <div
+            className="segmented"
+            role="group"
+            aria-label={ru.annotations.easeLabel}
+            data-testid="ease-group"
+          >
+            <button
+              type="button"
+              className={
+                ease === 'ease' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'
+              }
+              aria-pressed={ease === 'ease'}
+              disabled={!canEase}
+              title={ru.annotations.easeSmoothHint}
+              data-testid="ease-smooth"
+              onClick={(e) => {
+                setKeyEase(a.id, segment, 'ease')
+                e.currentTarget.blur()
+              }}
+            >
+              {ru.annotations.easeSmooth}
+            </button>
+            <button
+              type="button"
+              className={
+                ease === 'linear' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'
+              }
+              aria-pressed={ease === 'linear'}
+              disabled={!canEase}
+              title={ru.annotations.easeLinearHint}
+              data-testid="ease-linear"
+              onClick={(e) => {
+                setKeyEase(a.id, segment, 'linear')
+                e.currentTarget.blur()
+              }}
+            >
+              {ru.annotations.easeLinear}
+            </button>
+          </div>
+          <p className="field__hint">{ru.annotations.animatedHint}</p>
+          <button
+            type="button"
+            className="btn inspector__wide"
+            title={ru.annotations.stopAnimationHint}
+            data-testid="anim-stop"
+            onClick={(e) => {
+              stopAnimationNow()
+              e.currentTarget.blur()
+            }}
+          >
+            {ru.annotations.stopAnimation}
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
 export function Inspector(): React.JSX.Element | null {
   const selected = useAnnotationsStore(selectedAnnotation)
   const setTiming = useAnnotationsStore((s) => s.setTiming)
@@ -365,6 +535,7 @@ export function Inspector(): React.JSX.Element | null {
   const timing = selected.timing
   const setMode = (mode: Timing['mode']): void => {
     if (mode === timing.mode) return
+    if (mode === 'frame' && isAnimated(selected)) return
     if (mode === 'frame') {
       setTiming(selected.id, {
         mode: 'frame',
@@ -418,6 +589,7 @@ export function Inspector(): React.JSX.Element | null {
         </p>
       )}
       <ToolProps annotation={selected} />
+      <AnimationSection annotation={selected} />
       <div className="inspector__section">{ru.annotations.timing}</div>
       <div className="segmented" role="group" aria-label={ru.annotations.timing}>
         <button
@@ -441,7 +613,10 @@ export function Inspector(): React.JSX.Element | null {
             timing.mode === 'frame' ? 'segmented__btn segmented__btn--active' : 'segmented__btn'
           }
           aria-pressed={timing.mode === 'frame'}
-          title={ru.annotations.modeFrameHint}
+          disabled={isAnimated(selected)}
+          title={
+            isAnimated(selected) ? ru.annotations.animatedFrameMode : ru.annotations.modeFrameHint
+          }
           data-testid="mode-frame"
           onClick={(e) => {
             setMode('frame')

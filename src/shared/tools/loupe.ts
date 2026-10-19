@@ -1,6 +1,7 @@
 // Лупа: пиксельная геометрия линзы. Один расчёт для экрана (canvas) и для экспорта (фильтр ffmpeg),
 // поэтому увеличенный кусок на экране и в готовом видео совпадает.
-import type { Loupe } from '../annotations'
+import type { Ease, Loupe } from '../annotations'
+import { segmentAt } from '../animation'
 
 export interface LoupeGeometry {
   /** Диаметр линзы, пиксели видео (чётное число). */
@@ -37,4 +38,35 @@ export function loupeGeometry(
     sx: even(clamp(loupe.src.x * vw - sw / 2, vw - sw)),
     sy: even(clamp(loupe.src.y * vh - sw / 2, vh - sw))
   }
+}
+
+/** Ключ движущейся лупы: положение линзы и источника (доли кадра) в момент t. */
+export interface LoupeKey {
+  t: number
+  ease?: Ease
+  pos: { x: number; y: number }
+  src: { x: number; y: number }
+}
+
+/** Геометрия лупы на момент t: между ключами положение меняется как у любого движущегося рисунка. */
+export function loupeGeometryAt(
+  loupe: Pick<Loupe, 'pos' | 'src' | 'radius' | 'zoom'>,
+  keys: readonly LoupeKey[] | undefined,
+  t: number,
+  vw: number,
+  vh: number
+): LoupeGeometry {
+  if (!keys || keys.length === 0) return loupeGeometry(loupe, vw, vh)
+  const seg = segmentAt(keys, t)
+  const a = keys[seg.index]
+  if (seg.hold) return loupeGeometry({ ...loupe, pos: a.pos, src: a.src }, vw, vh)
+  const b = keys[seg.index + 1]
+  const mix = (
+    p: { x: number; y: number },
+    q: { x: number; y: number }
+  ): { x: number; y: number } => ({
+    x: p.x + (q.x - p.x) * seg.u,
+    y: p.y + (q.y - p.y) * seg.u
+  })
+  return loupeGeometry({ ...loupe, pos: mix(a.pos, b.pos), src: mix(a.src, b.src) }, vw, vh)
 }

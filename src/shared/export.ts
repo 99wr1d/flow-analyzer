@@ -2,7 +2,14 @@
 // Пути к файлам в этом контракте не передаются: видео задаётся идентификатором, папку выбирает пользователь в диалоге main.
 import { z } from 'zod'
 import { GrassKeyValuesSchema } from './grassKey'
-import { LOUPE_ZOOMS, MAX_LOUPE_RADIUS, MIN_LOUPE_RADIUS, TimingSchema } from './annotations'
+import {
+  EASES,
+  LOUPE_ZOOMS,
+  MAX_KEYFRAMES,
+  MAX_LOUPE_RADIUS,
+  MIN_LOUPE_RADIUS,
+  TimingSchema
+} from './annotations'
 
 export const MAX_EXPORT_CLIPS = 500
 export const MAX_PADDING = 10
@@ -29,13 +36,21 @@ export const MAX_EXPORT_LOUPES = 200
 const unit = z.number().min(0).max(1)
 
 /** Лупа в экспорте: содержимое линзы делает ffmpeg (см. main/ffmpeg/loupe.ts). Координаты — доли кадра. */
+const LoupeKeySchema = z.object({
+  t: z.number().min(0).max(1_000_000),
+  ease: z.enum(EASES).optional(),
+  pos: z.object({ x: unit, y: unit }),
+  src: z.object({ x: unit, y: unit })
+})
 export const ExportLoupeSchema = z.object({
   /** Номер рисунка (по порядку наложения, как в timings). */
   index: z.number().int().min(0).max(MAX_EXPORT_DRAWINGS),
   pos: z.object({ x: unit, y: unit }),
   src: z.object({ x: unit, y: unit }),
   radius: z.number().min(MIN_LOUPE_RADIUS).max(MAX_LOUPE_RADIUS),
-  zoom: z.number().refine((v) => (LOUPE_ZOOMS as readonly number[]).includes(v))
+  zoom: z.number().refine((v) => (LOUPE_ZOOMS as readonly number[]).includes(v)),
+  /** Ключи движущейся лупы (положение линзы и источника во времени). Нет поля — лупа стоит на месте. */
+  keys: z.array(LoupeKeySchema).min(2).max(MAX_KEYFRAMES).optional()
 })
 export const ExportDrawingsSchema = z.object({
   /** Билет, который main выдал при загрузке картинок (stageExportOverlays). */
@@ -45,6 +60,16 @@ export const ExportDrawingsSchema = z.object({
   timings: z.array(TimingSchema).max(MAX_EXPORT_DRAWINGS),
   /** Лупы среди рисунков. Старые запросы поля не имеют. */
   loupes: z.array(ExportLoupeSchema).max(MAX_EXPORT_LOUPES).default([]),
+  /**
+   * Номера движущихся (анимированных) рисунков: для них вместо одной картинки на отрезок идёт ряд картинок по кадрам
+   * (stageExportFrames). Старые запросы поля не имеют.
+   */
+  animated: z
+    .array(z.number().int().min(0).max(MAX_EXPORT_DRAWINGS))
+    .max(MAX_EXPORT_DRAWINGS)
+    .optional(),
+  /** Какие слои есть у кадров анимации (кадры слоя записаны для всех кадров плана). */
+  animLayers: z.object({ over: z.boolean(), under: z.boolean() }).optional(),
   /** Ключ «газон» для рисунков «под игроками» (цвет уже определён интерфейсом). Нужен, если среди картинок есть слой «under». */
   grass: GrassKeyValuesSchema.optional()
 })
@@ -57,6 +82,12 @@ export const OVERLAY_LIMITS = {
   maxKeys: 300,
   maxImageBytes: 8 * 1024 * 1024,
   maxTotalBytes: 300 * 1024 * 1024,
+  /** Кадров анимации на весь экспорт (на каждый кадр до двух картинок: «поверх» и «под игроками»). */
+  maxAnimFrames: 3000,
+  /** Все картинки анимации вместе. */
+  maxAnimBytes: 1536 * 1024 * 1024,
+  /** Картинок кадров в одном обращении к main. */
+  maxFramesPerCall: 100,
   minSide: 16,
   maxSide: 8192,
   maxKeyLength: 100_000
@@ -78,9 +109,23 @@ export const OverlayImageSchema = z.object({
 export const StageOverlaysSchema = z.object({
   width: z.number().int().min(OVERLAY_LIMITS.minSide).max(OVERLAY_LIMITS.maxSide),
   height: z.number().int().min(OVERLAY_LIMITS.minSide).max(OVERLAY_LIMITS.maxSide),
-  images: z.array(OverlayImageSchema).min(1).max(OVERLAY_LIMITS.maxImages)
+  /** Может быть пустым: если на видео только движущиеся рисунки, картинки приходят потом, кадрами. */
+  images: z.array(OverlayImageSchema).max(OVERLAY_LIMITS.maxImages)
 })
 export type StageOverlays = z.infer<typeof StageOverlaysSchema>
+
+/** Часть кадров анимации: PNG на каждый кадр исходного видео, слой «over» или «under». */
+export const StageFramesSchema = z.object({
+  token: z.uuid(),
+  layer: z.enum(OVERLAY_LAYERS),
+  frames: z
+    .array(
+      z.object({ frame: z.number().int().min(0).max(10_000_000), data: z.instanceof(Uint8Array) })
+    )
+    .min(1)
+    .max(OVERLAY_LIMITS.maxFramesPerCall)
+})
+export type StageFrames = z.infer<typeof StageFramesSchema>
 
 export const ExportRequestSchema = z.object({
   videoId: z.string().min(1).max(100),

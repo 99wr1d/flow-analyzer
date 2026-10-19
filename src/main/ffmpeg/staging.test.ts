@@ -129,7 +129,6 @@ describe('stageOverlays', () => {
     const before = readdirSync(root).length
     const cases: Array<[unknown, string]> = [
       [null, STAGING_ERRORS.bad],
-      [{ width: W, height: H, images: [] }, STAGING_ERRORS.bad],
       [{ width: 5, height: H, images: [{ key: '0', data: png() }] }, STAGING_ERRORS.bad],
       [{ width: W, height: H, images: [{ key: '../x', data: png() }] }, STAGING_ERRORS.bad],
       [{ width: W, height: H, images: [{ key: '0', data: 'строка' }] }, STAGING_ERRORS.bad],

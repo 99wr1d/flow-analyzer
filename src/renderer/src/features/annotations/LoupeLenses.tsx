@@ -3,6 +3,7 @@
 // В экспорт лупа попадает через фильтр ffmpeg (см. main/ffmpeg/loupe.ts), а рамка и линия — через обычный слой рисунков.
 import { useEffect, useRef } from 'react'
 import type { Loupe } from '../../../../shared/annotations'
+import { useLiveList } from './animClock'
 import { loupeGeometry } from '../../../../shared/tools/loupe'
 import { getVideoElement } from '../player/videoElement'
 import type { Rect } from './geometry'
@@ -71,12 +72,14 @@ function LoupeLens({ loupe: a, rect }: { loupe: Loupe; rect: Rect }): React.JSX.
 }
 
 export function LoupeLenses({
-  items,
+  items: stored,
   rect
 }: {
   items: readonly Loupe[]
   rect: Rect
 }): React.JSX.Element | null {
+  // Движущаяся лупа: положение линзы и источника на показанный кадр.
+  const items = useLiveList(stored)
   if (items.length === 0) return null
   return (
     <>

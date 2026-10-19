@@ -30,6 +30,28 @@ export interface FreezePoint {
   frame: number
   seconds: number
   key: string
+  /** Номера движущихся (анимированных) рисунков, видимых в этом кадре: их картинка кадра замирает вместе с ним. */
+  animated?: number[]
+}
+
+/** Кадр, в котором видны движущиеся рисунки: для него рисуется своя картинка. */
+export interface AnimFrame {
+  /** Номер кадра исходного видео (с 0). */
+  frame: number
+  /** Номера движущихся рисунков, видимых в кадре. */
+  members: number[]
+}
+
+/** Непрерывный набор кадров с движущимися рисунками: один входной ряд картинок ffmpeg. */
+export interface AnimRun {
+  first: number
+  last: number
+}
+
+/** Кадры с движущимися рисунками: у них картинка на каждый кадр (а не одна на отрезок). */
+export interface AnimPlan {
+  frames: AnimFrame[]
+  runs: AnimRun[]
 }
 
 export interface RangePlan extends TimeRange {
@@ -43,6 +65,8 @@ export interface OverlayPlan {
   keys: string[]
   /** Сколько секунд добавляют стоп-кадры ко всем отрезкам. */
   freezeSeconds: number
+  /** Движущиеся рисунки: покадровые картинки. */
+  animation: AnimPlan
 }
 
 export const keyOf = (indices: readonly number[]): string => indices.join('-')
@@ -77,10 +101,12 @@ export const frameIndex = (time: number, fps: number): number =>
  */
 export function planSegments(
   timings: readonly Timing[],
-  ranges: readonly TimeRange[]
+  ranges: readonly TimeRange[],
+  skip?: ReadonlySet<number>
 ): OverlaySegment[] {
   const items: Array<{ index: number; start: number; end: number }> = []
   timings.forEach((t, index) => {
+    if (skip?.has(index)) return
     if (t.mode === 'range') items.push({ index, start: t.start, end: t.start + t.duration })
   })
   if (items.length === 0) return []
@@ -141,12 +167,19 @@ export const frameTime = (frame: number, fps: number): number => (frame + 0.5) /
 export function planOverlays(
   timings: readonly Timing[],
   ranges: readonly TimeRange[],
-  fps: number
+  fps: number,
+  /** Номера движущихся рисунков: они идут отдельно, покадровыми картинками. */
+  animated: ReadonlySet<number> = NO_ANIMATED
 ): OverlayPlan {
   const safeFps = fps > 0 ? fps : 25
-  const segments = planSegments(timings, ranges)
+  const segments = planSegments(timings, ranges, animated)
   const groups = groupFrameDrawings(timings, safeFps)
-  const rangeItems = timings.map((t, index) => ({ t, index })).filter((x) => x.t.mode === 'range')
+  const rangeItems = timings
+    .map((t, index) => ({ t, index }))
+    .filter((x) => x.t.mode === 'range' && !animated.has(x.index))
+  const movingItems = timings
+    .map((t, index) => ({ t, index }))
+    .filter((x) => x.t.mode === 'range' && animated.has(x.index))
 
   const keys: string[] = []
   const seen = new Set<string>()
@@ -172,12 +205,52 @@ export function planOverlays(
       ].sort((a, b) => a - b)
       const key = keyOf(members)
       addKey(key)
-      freezes.push({ time, frame: g.frame, seconds: g.seconds, key })
+      const moving = movingItems
+        .filter((x) => isVisible({ timing: x.t }, time, safeFps))
+        .map((x) => x.index)
+      freezes.push({
+        time,
+        frame: g.frame,
+        seconds: g.seconds,
+        key,
+        ...(moving.length > 0 ? { animated: moving } : {})
+      })
       freezeSeconds += g.seconds
     }
     return { start: r.start, end: r.end, freezes }
   })
-  return { segments, ranges: rangePlans, keys, freezeSeconds }
+  const animation = planAnimation(movingItems, ranges, safeFps)
+  return { segments, ranges: rangePlans, keys, freezeSeconds, animation }
+}
+
+const NO_ANIMATED: ReadonlySet<number> = new Set()
+
+/**
+ * Кадры с движущимися рисунками. В экспорт попадают кадры, чьё начало лежит внутри отрезка (так их вырезает ffmpeg);
+ * движущийся рисунок виден в кадре, если середина кадра в его отрезке. Соседние кадры собираются в «ряды».
+ */
+export function planAnimation(
+  items: ReadonlyArray<{ t: Timing; index: number }>,
+  ranges: readonly TimeRange[],
+  fps: number
+): AnimPlan {
+  const frames: AnimFrame[] = []
+  const runs: AnimRun[] = []
+  if (items.length === 0) return { frames, runs }
+  for (const u of mergeRanges(ranges)) {
+    const first = Math.ceil((u.start - TOL) * fps - EPS)
+    const last = Math.ceil((u.end - TOL) * fps - EPS) - 1
+    for (let f = Math.max(0, first); f <= last; f += 1) {
+      const time = frameTime(f, fps)
+      const members = items.filter((x) => isVisible({ timing: x.t }, time, fps)).map((x) => x.index)
+      if (members.length === 0) continue
+      frames.push({ frame: f, members })
+      const run = runs[runs.length - 1]
+      if (run && run.last === f - 1) run.last = f
+      else runs.push({ first: f, last: f })
+    }
+  }
+  return { frames, runs }
 }
 
 /** Длительность готового видео из отрезков (без стоп-кадров). */
@@ -189,7 +262,8 @@ export const outputSeconds = (plan: OverlayPlan): number =>
   rangesSeconds(plan.ranges) + plan.freezeSeconds
 
 /** Есть ли в экспортируемых отрезках хоть один рисунок. */
-export const hasDrawings = (plan: OverlayPlan): boolean => plan.keys.length > 0
+export const hasDrawings = (plan: OverlayPlan): boolean =>
+  plan.keys.length > 0 || plan.animation.frames.length > 0
 
 /**
  * Планы для набора готовых отрезков. «Отдельные файлы» — по плану на каждый отрезок (каждый файл со своими
@@ -199,9 +273,10 @@ export function planExport(
   clips: readonly TimeRange[],
   mode: 'files' | 'compilation',
   timings: readonly Timing[],
-  fps: number
+  fps: number,
+  animated: ReadonlySet<number> = NO_ANIMATED
 ): OverlayPlan[] {
   return mode === 'files'
-    ? clips.map((c) => planOverlays(timings, [c], fps))
-    : [planOverlays(timings, clips, fps)]
+    ? clips.map((c) => planOverlays(timings, [c], fps, animated))
+    : [planOverlays(timings, clips, fps, animated)]
 }

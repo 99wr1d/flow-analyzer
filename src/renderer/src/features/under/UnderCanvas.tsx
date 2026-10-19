@@ -3,9 +3,11 @@
 // картинки; кадр видео загружается в текстуру на каждый показанный кадр (requestVideoFrameCallback), пока слой нужен.
 // Никакого перерисовывания React на кадр: всё делает GPU.
 import { useEffect, useMemo, useRef } from 'react'
+import { isMoving } from '../../../../shared/animation'
 import type { Annotation } from '../../../../shared/annotations'
 import type { Calibration } from '../../../../shared/pitch/calibration'
 import { usePlayerStore } from '../../store/playerStore'
+import { useLiveList } from '../annotations/animClock'
 import type { Rect } from '../annotations/geometry'
 import { buildOverlaySvg, rasterizeSvg } from '../export/renderOverlays'
 import { getVideoElement } from '../player/videoElement'
@@ -19,6 +21,8 @@ type FrameVideo = HTMLVideoElement & {
 
 /** Холст не больше этой ширины в пикселях (на очень больших экранах хватает меньшего разрешения). */
 const MAX_CANVAS_WIDTH = 2560
+/** Пока под игроками есть движущийся рисунок, растр обновляется каждый кадр — разрешение ограничено сильнее. */
+const MAX_MOVING_CANVAS_WIDTH = 1280
 
 // Подпись набора рисунков: у рисунка, который не менялся, ссылка остаётся той же, поэтому номер по ссылке не меняется.
 const ids = new WeakMap<object, number>()
@@ -42,7 +46,15 @@ interface Props {
   dimmedIds: ReadonlySet<string>
 }
 
-export function UnderCanvas({ rect, items, calibrations, dimmedIds }: Props): React.JSX.Element {
+export function UnderCanvas({
+  rect,
+  items: stored,
+  calibrations,
+  dimmedIds
+}: Props): React.JSX.Element {
+  // Движущиеся рисунки: геометрия на показанный кадр (перерисовка на каждый кадр только при движении).
+  const items = useLiveList(stored)
+  const moving = stored.some(isMoving)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<UnderRenderer | null>(null)
   const rasterRef = useRef<HTMLCanvasElement | null>(null)
@@ -51,9 +63,12 @@ export function UnderCanvas({ rect, items, calibrations, dimmedIds }: Props): Re
   const grassEstimate = useGrassStore((s) => s.estimate)
   const videoId = usePlayerStore((s) => s.source?.id)
   const key = effectiveKey({ userKey: grassUser, estimate: grassEstimate }, videoId)
-  const active = items.length > 0 || maskView
+  const active = stored.length > 0 || maskView
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
-  const scale = Math.max(0.5, Math.min(dpr, MAX_CANVAS_WIDTH / Math.max(1, rect.w)))
+  const scale = Math.max(
+    0.5,
+    Math.min(dpr, (moving ? MAX_MOVING_CANVAS_WIDTH : MAX_CANVAS_WIDTH) / Math.max(1, rect.w))
+  )
   const pxW = Math.max(2, Math.round(rect.w * scale))
   const pxH = Math.max(2, Math.round(rect.h * scale))
 

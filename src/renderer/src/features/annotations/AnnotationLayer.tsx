@@ -22,6 +22,12 @@ import {
   type ScreenAnnotation,
   type TextAnnotation
 } from '../../../../shared/annotations'
+import {
+  applyGeomEdit,
+  insertVertexAllKeys,
+  isAnimated,
+  resolveAt
+} from '../../../../shared/animation'
 import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
 import {
   handleAnchor,
@@ -49,6 +55,7 @@ import { EyedropperLayer, MaskBadge } from '../under/EyedropperLayer'
 import { useGrassStore } from '../under/grassStore'
 import { UnderCanvas } from '../under/UnderCanvas'
 import { webgl2Available } from '../under/underGl'
+import { clockTime, useAnimClockDriver } from './animClock'
 import { useAnnotationsStore, withUnder } from './annotationsStore'
 import {
   bboxOf,
@@ -71,8 +78,8 @@ import {
   usePolyDraft,
   type PolyTool
 } from './polyDraft'
+import { LiveHandles, LiveShape, LiveSpotlightDim } from './LiveViews'
 import { HandlesView, ShapeView } from './ShapeView'
-import { SpotlightDim } from './SpotlightDim'
 import { shapeStyleOf, textStyleOf } from './styles'
 import { TextEditor } from './TextEditor'
 import { measureTextWidth } from './textMetrics'
@@ -142,15 +149,28 @@ type Gesture =
       kind: 'move'
       id: string
       before: Annotation[]
+      /** Рисунок в хранилище, к которому применяются правки (у движущегося — с ключами), и кадр жеста. */
+      stored: Annotation
+      t: number
       origin: Point
       item: ScreenAnnotation
       box: BBox
     }
-  | { kind: 'handle'; id: string; before: Annotation[]; handle: HandleId; item: ScreenAnnotation }
+  | {
+      kind: 'handle'
+      id: string
+      before: Annotation[]
+      stored: Annotation
+      t: number
+      handle: HandleId
+      item: ScreenAnnotation
+    }
   | {
       kind: 'pmove'
       id: string
       before: Annotation[]
+      stored: Annotation
+      t: number
       origin: Pt
       item: PitchAnnotation
       projector: Projector
@@ -159,6 +179,8 @@ type Gesture =
       kind: 'phandle'
       id: string
       before: Annotation[]
+      stored: Annotation
+      t: number
       handle: PitchHandleId
       item: PitchAnnotation
       projector: Projector
@@ -336,8 +358,9 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
 
   /** Верхний рисунок (экранный или на поле) под курсором. */
   const topHitAny = (px: PxPoint): Annotation | null => {
+    const clock = clockTime()
     for (let i = visible.length - 1; i >= 0; i -= 1) {
-      const a = visible[i]
+      const a = resolveAt(visible[i], clock)
       if (isPitchAnnotation(a)) {
         const paint = paintOf(a, lookup, size, measureTextWidth)
         if (paint && hitPaint(paint, px)) return a
@@ -562,6 +585,16 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     if (next.length !== d.points.length) usePolyDraft.getState().addPoint(point)
   }
 
+  /** Кадр, на котором правится рисунок (середина показанного кадра). */
+  const gestureTime = (): number => {
+    const { currentTime, fps } = usePlayerStore.getState()
+    return frameCenter(getVideoElement()?.currentTime ?? currentTime, fps)
+  }
+
+  /** Правка рисунка жестом: у движущегося рисунка она становится ключом на кадре жеста (автоключ). */
+  const stage = (g: { stored: Annotation; t: number }, moved: Annotation): Annotation =>
+    applyGeomEdit(g.stored, moved, g.t, usePlayerStore.getState().fps)
+
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>): void => {
     if (e.button !== 0) return
     // Поле ввода текста (если открыто) закрываем, снимая с него фокус.
@@ -573,14 +606,21 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     const now = video?.currentTime ?? player.currentTime
 
     if (store.tool === 'select') {
-      const current = store.items.find((a) => a.id === store.selectedId)
-      if (current && visible.some((a) => a.id === current.id)) {
+      const storedCurrent = store.items.find((a) => a.id === store.selectedId)
+      const current = storedCurrent && resolveAt(storedCurrent, clockTime())
+      if (storedCurrent && current && visible.some((a) => a.id === current.id)) {
+        store.selectKey(null)
+        // Движущийся рисунок правится на конкретном кадре: видео ставим на паузу.
+        const frameNow = (): number => {
+          if (isAnimated(storedCurrent)) pauseVideo()
+          return gestureTime()
+        }
         // Alt+щелчок по линии выбранной зоны или связи добавляет вершину.
         if (e.altKey && hasVertices(current)) {
-          const inserted = insertVertex(current, px, store.items)
+          const inserted = insertVertex(current, storedCurrent, px, store.items, frameNow())
           if (inserted) {
             gesture.current = inserted.gesture
-            store.preview(store.items.map((a) => (a.id === current.id ? inserted.item : a)))
+            store.preview(store.items.map((a) => (a.id === current.id ? inserted.stored : a)))
             store.selectNode(inserted.index)
             svgRef.current?.setPointerCapture(e.pointerId)
             return
@@ -597,6 +637,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               kind: 'phandle',
               id: current.id,
               before: store.items,
+              stored: storedCurrent,
+              t: frameNow(),
               handle,
               item: current,
               projector: proj
@@ -613,6 +655,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               kind: 'handle',
               id: current.id,
               before: store.items,
+              stored: storedCurrent,
+              t: frameNow(),
               handle,
               item: current
             }
@@ -625,6 +669,10 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       if (hit) {
         store.select(hit.id)
         store.selectNode(null)
+        store.selectKey(null)
+        const storedHit = store.items.find((a) => a.id === hit.id) ?? hit
+        if (isAnimated(storedHit)) pauseVideo()
+        const hitT = gestureTime()
         if (isPitchAnnotation(hit)) {
           const proj = lookup(hit.calibrationId)
           const world = proj?.toWorld(norm)
@@ -633,6 +681,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               kind: 'pmove',
               id: hit.id,
               before: store.items,
+              stored: storedHit,
+              t: hitT,
               origin: world,
               item: hit,
               projector: proj
@@ -644,6 +694,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
             kind: 'move',
             id: hit.id,
             before: store.items,
+            stored: storedHit,
+            t: hitT,
             origin: norm,
             item: hit,
             box: bboxFor(hit, size)
@@ -726,12 +778,17 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     svgRef.current?.setPointerCapture(e.pointerId)
   }
 
-  /** Alt+щелчок: вставляет вершину в ближайшее звено зоны или связи; дальше её можно сразу тащить. */
+  /**
+   * Alt+щелчок: вставляет вершину в ближайшее звено зоны или связи; дальше её можно сразу тащить.
+   * current — рисунок на показанном кадре, stored — он же в хранилище (у движущегося рисунка вершина вставляется во все ключи).
+   */
   const insertVertex = (
     current: Annotation,
+    stored: Annotation,
     px: PxPoint,
-    before: Annotation[]
-  ): { item: Annotation; index: number; gesture: Gesture } | null => {
+    before: Annotation[],
+    t: number
+  ): { item: Annotation; stored: Annotation; index: number; gesture: Gesture } | null => {
     if (!hasVertices(current)) return null
     const closed = current.type === 'zone' || current.type === 'pzone'
     const projector = isPitchAnnotation(current) ? lookup(current.calibrationId) : null
@@ -749,21 +806,44 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     const normHit = { x: hit.point.x / size.w, y: hit.point.y / size.h }
     const newPoint = projector ? projector.toWorld(normHit) : clampPoint(normHit)
     if (!newPoint) return null
-    const points = [...current.points]
-    points.splice(hit.index, 0, newPoint)
-    const item = { ...current, points } as Annotation
+    // Доля пути по звену — по ней вершина вставляется и в остальные ключи.
+    const n = current.points.length
+    const a0 = current.points[(hit.index - 1 + n) % n]
+    const a1 = current.points[hit.index % n]
+    const len2 = (a1.x - a0.x) ** 2 + (a1.y - a0.y) ** 2
+    const dot = (newPoint.x - a0.x) * (a1.x - a0.x) + (newPoint.y - a0.y) * (a1.y - a0.y)
+    const frac = len2 > 0 ? Math.min(1, Math.max(0, dot / len2)) : 0.5
+    let storedNext: Annotation
+    if (isAnimated(stored)) {
+      storedNext = insertVertexAllKeys(stored, hit.index, frac)
+    } else {
+      const points = [...current.points]
+      points.splice(hit.index, 0, newPoint)
+      storedNext = { ...current, points } as Annotation
+    }
+    const item = resolveAt(storedNext, t)
     const handle = `v${hit.index}`
     const g: Gesture = isPitchAnnotation(item)
       ? {
           kind: 'phandle',
           id: item.id,
           before,
+          stored: storedNext,
+          t,
           handle,
           item,
           projector: projector as Projector
         }
-      : { kind: 'handle', id: item.id, before, handle, item: item as ScreenAnnotation }
-    return { item, index: hit.index, gesture: g }
+      : {
+          kind: 'handle',
+          id: item.id,
+          before,
+          stored: storedNext,
+          t,
+          handle,
+          item: item as ScreenAnnotation
+        }
+    return { item, stored: storedNext, index: hit.index, gesture: g }
   }
 
   const onPointerMove = (e: React.PointerEvent<SVGSVGElement>): void => {
@@ -788,7 +868,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         svg.style.cursor = store.tool === 'text' ? 'text' : 'crosshair'
         return
       }
-      const current = store.items.find((a) => a.id === store.selectedId)
+      const storedSel = store.items.find((a) => a.id === store.selectedId)
+      const current = storedSel && resolveAt(storedSel, clockTime())
       let overHandle = false
       if (current) {
         if (isPitchAnnotation(current)) {
@@ -826,12 +907,12 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       )
     } else if (g.kind === 'move') {
       const moved = moveBy(g.item, norm.x - g.origin.x, norm.y - g.origin.y, g.box)
-      store.preview(store.items.map((a) => (a.id === g.id ? moved : a)))
+      store.preview(store.items.map((a) => (a.id === g.id ? stage(g, moved) : a)))
     } else if (g.kind === 'pmove') {
       const world = g.projector.toWorld(norm)
       if (!world) return
       const moved = moveWorld(g.item, world.x - g.origin.x, world.y - g.origin.y)
-      store.preview(store.items.map((a) => (a.id === g.id ? moved : a)))
+      store.preview(store.items.map((a) => (a.id === g.id ? stage(g, moved) : a)))
     } else if (g.kind === 'phandle') {
       const world = g.projector.toWorld(norm)
       if (!world) return
@@ -846,14 +927,14 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         if (anchor) target = snapWorldAngle(anchor, world)
       }
       const moved = moveWorldHandle(g.item, g.handle, target)
-      store.preview(store.items.map((a) => (a.id === g.id ? moved : a)))
+      store.preview(store.items.map((a) => (a.id === g.id ? stage(g, moved) : a)))
     } else {
       let target = clampPoint(norm)
       if (e.shiftKey && g.item.type !== 'text') {
         target = snapScreenHandle(g.item, g.handle, target, size)
       }
       const moved = moveHandle(g.item, g.handle, target, size)
-      store.preview(store.items.map((a) => (a.id === g.id ? moved : a)))
+      store.preview(store.items.map((a) => (a.id === g.id ? stage(g, moved) : a)))
     }
   }
 
@@ -974,7 +1055,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     }
   }
 
-  const editedText = editor?.mode === 'edit' ? items.find((a) => a.id === editor.id) : undefined
+  const editedStored = editor?.mode === 'edit' ? items.find((a) => a.id === editor.id) : undefined
+  const editedText = editedStored && resolveAt(editedStored, clockTime())
   const style = useAnnotationsStore.getState().style
   let editorProps: {
     x: number
@@ -1075,7 +1157,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         onDoubleClick={onDoubleClick}
         onMouseDown={(e) => e.preventDefault()}
       >
-        <SpotlightDim items={spotItems} size={size} projectorOf={lookup} />
+        <LiveSpotlightDim items={spotItems} size={size} projectorOf={lookup} />
         {gridPathData && (
           <>
             <defs>
@@ -1108,7 +1190,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         {visible
           .filter((a) => a.id !== editingId)
           .map((a) => (
-            <ShapeView
+            <LiveShape
               key={a.id}
               annotation={a}
               size={size}
@@ -1146,7 +1228,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
           </g>
         )}
         {selected && tool === 'select' && !editor && (
-          <HandlesView
+          <LiveHandles
             annotation={selected}
             size={size}
             projector={isPitchAnnotation(selected) ? projectors.get(selected.calibrationId) : null}
@@ -1192,6 +1274,7 @@ export function AnnotationLayer(): React.JSX.Element {
   const videoId = usePlayerStore((s) => s.source?.id)
   const rect = usePictureRect(hostRef, ready, videoId)
   useSelectionGuard()
+  useAnimClockDriver()
   return (
     <div ref={hostRef} className="anno-host">
       {ready && rect && <Surface rect={rect} />}

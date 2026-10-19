@@ -6,8 +6,20 @@ import {
   DEFAULT_LOUPE_ZOOM,
   DEFAULT_ZONE_OPACITY,
   type Annotation,
+  type Ease,
   type Timing
 } from '../../../../shared/annotations'
+import {
+  addKeyHere,
+  flatten,
+  isAnimated,
+  keysOf,
+  removeKey,
+  removeVertexAllKeys,
+  retimeKey,
+  setKeyEase,
+  startAnimation
+} from '../../../../shared/animation'
 import { minVertices } from '../../../../shared/tools/points'
 import {
   commit,
@@ -110,9 +122,23 @@ export interface AnnotationsState extends HistoryState {
   selectedNode: number | null
   /** «Под игроками» для новых рисунков: последний выбор отдельно для рисунков на поле и на экране. */
   underNew: { pitch: boolean; screen: boolean }
+  /** Выбранный ключ выбранного рисунка (ромбик на дорожке): Delete убирает его. */
+  selectedKey: number | null
 }
 
 export interface AnnotationsActions {
+  /** Выбирает ключ выбранного рисунка (null — снимает выбор). */
+  selectKey: (index: number | null) => void
+  /** «Анимировать»: первый ключ в кадре момента t. */
+  startAnimation: (id: string, t: number, fps: number, videoDuration: number) => void
+  /** «Ключ здесь»: ключ с текущей геометрией в кадре момента t. */
+  addKey: (id: string, t: number, fps: number) => void
+  removeKey: (id: string, index: number) => void
+  setKeyEase: (id: string, index: number, ease: Ease) => void
+  /** «Убрать анимацию»: рисунок застывает в геометрии момента t. */
+  stopAnimation: (id: string, t: number) => void
+  /** Сдвиг ключа без записи в историю (перетаскивание ромбика); завершается commitFrom. */
+  previewRetime: (before: Annotation[], id: string, index: number, t: number, fps: number) => void
   selectNode: (index: number | null) => void
   /** Запоминает выбор «Под игроками» для новых рисунков на поле / на экране. */
   setUnderNew: (space: 'pitch' | 'screen', under: boolean) => void
@@ -150,7 +176,10 @@ export function withUnder(a: Annotation, underNew: AnnotationsState['underNew'])
 
 function withSelection(s: AnnotationsState, h: HistoryState): Partial<AnnotationsState> {
   const exists = s.selectedId !== null && h.items.some((a) => a.id === s.selectedId)
-  return { ...h, selectedId: exists ? s.selectedId : null }
+  const sel = exists ? s.selectedId : null
+  const target = h.items.find((a) => a.id === sel)
+  const keyOk = s.selectedKey !== null && !!target && s.selectedKey < keysOf(target).length
+  return { ...h, selectedId: sel, selectedKey: keyOk ? s.selectedKey : null }
 }
 
 function restyle(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
@@ -181,6 +210,7 @@ const initial = (): AnnotationsState => ({
   style: DEFAULT_STYLE,
   options: DEFAULT_OPTIONS,
   selectedNode: null,
+  selectedKey: null,
   underNew: { pitch: defaultUnderPlayers('ring'), screen: defaultUnderPlayers('arrow') }
 })
 
@@ -189,8 +219,49 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
 
   setTool: (tool) => set((s) => ({ tool, selectedId: tool === 'select' ? s.selectedId : null })),
   select: (selectedId) =>
-    set((s) => ({ selectedId, selectedNode: selectedId === s.selectedId ? s.selectedNode : null })),
-  selectNode: (selectedNode) => set({ selectedNode }),
+    set((s) => ({
+      selectedId,
+      selectedNode: selectedId === s.selectedId ? s.selectedNode : null,
+      selectedKey: selectedId === s.selectedId ? s.selectedKey : null
+    })),
+  selectNode: (selectedNode) =>
+    set((s) => ({ selectedNode, selectedKey: selectedNode !== null ? null : s.selectedKey })),
+  selectKey: (selectedKey) =>
+    set((s) => ({ selectedKey, selectedNode: selectedKey !== null ? null : s.selectedNode })),
+
+  startAnimation: (id, t, fps, videoDuration) =>
+    set((s) => {
+      const items = s.items.map((a) => (a.id === id ? startAnimation(a, t, fps, videoDuration) : a))
+      return { ...commit(s, items), selectedKey: null }
+    }),
+  addKey: (id, t, fps) =>
+    set((s) => {
+      const items = s.items.map((a) => (a.id === id ? addKeyHere(a, t, fps) : a))
+      return { ...commit(s, items), selectedKey: null }
+    }),
+  removeKey: (id, index) =>
+    set((s) => {
+      const items = s.items.map((a) => (a.id === id ? removeKey(a, index) : a))
+      return { ...commit(s, items), selectedKey: null }
+    }),
+  setKeyEase: (id, index, ease) =>
+    set((s) => {
+      const items = s.items.map((a) => (a.id === id ? setKeyEase(a, index, ease) : a))
+      return { ...commit(s, items, { key: `ease:${id}:${index}` }) }
+    }),
+  stopAnimation: (id, t) =>
+    set((s) => {
+      const items = s.items.map((a) => (a.id === id ? flatten(a, t) : a))
+      return { ...commit(s, items), selectedKey: null }
+    }),
+  previewRetime: (before, id, index, t, fps) =>
+    set((s) => ({
+      ...preview(
+        s,
+        before.map((a) => (a.id === id ? retimeKey(a, index, t, fps) : a))
+      )
+    })),
+
   setUnderNew: (space, under) => set((s) => ({ underNew: { ...s.underNew, [space]: under } })),
 
   setProps: (id, patch) =>
@@ -229,10 +300,7 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
         return {}
       }
       done = true
-      const points = (target.points as Array<{ x: number; y: number }>).filter(
-        (_, i) => i !== index
-      )
-      const items = s.items.map((a) => (a.id === target.id ? ({ ...a, points } as Annotation) : a))
+      const items = s.items.map((a) => (a.id === target.id ? removeVertexAllKeys(a, index) : a))
       return { selectedNode: null, ...commit(s, items) }
     })
     return done
@@ -252,7 +320,8 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
     set((s) => ({
       ...commit(s, [...s.items, withUnder(annotation, s.underNew)]),
       selectedId: annotation.id,
-      selectedNode: null
+      selectedNode: null,
+      selectedKey: null
     })),
 
   remove: (id) =>
@@ -303,6 +372,12 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
       underNew: s.underNew
     }))
 }))
+
+/** Выбранный рисунок анимирован (есть хотя бы один ключ). */
+export const selectedIsAnimated = (s: AnnotationsState): boolean => {
+  const a = s.items.find((x) => x.id === s.selectedId)
+  return !!a && isAnimated(a)
+}
 
 export const selectedAnnotation = (s: AnnotationsState): Annotation | null =>
   s.items.find((a) => a.id === s.selectedId) ?? null

@@ -302,6 +302,29 @@ export const PitchIcon = (p: IconProps): React.JSX.Element => (
   </Svg>
 )
 
+/** «Под игроками»: кольцо на земле уходит под фигуру игрока. */
+export const UnderPlayersIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <ellipse cx="12" cy="17" rx="9" ry="3.800" strokeWidth="1.600" />
+    <circle cx="12" cy="6.500" r="2.600" strokeWidth="1.600" fill="var(--panel-2, #1b1f27)" />
+    <path
+      d="M8.200 17v-4a3.800 3.800 0 0 1 7.600 0v4"
+      strokeWidth="1.600"
+      fill="var(--panel-2, #1b1f27)"
+    />
+  </Svg>
+)
+
+/** «Газон»: травинки. */
+export const GrassIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 20c0-4.500 1-8 3.200-11" strokeWidth="1.700" />
+    <path d="M12 20c0-5.500 0-9.500 0-14" strokeWidth="1.700" />
+    <path d="M19 20c0-4.500-1-8-3.200-11" strokeWidth="1.700" />
+    <path d="M3 20h18" strokeWidth="1.700" />
+  </Svg>
+)
+
 export const TargetIcon = (p: IconProps): React.JSX.Element => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="6.500" strokeWidth="1.800" />

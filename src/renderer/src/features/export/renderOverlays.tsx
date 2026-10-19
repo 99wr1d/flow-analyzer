@@ -8,8 +8,9 @@ import {
   isUnderPlayers,
   type Annotation
 } from '../../../../shared/annotations'
-import type { OverlayLayer } from '../../../../shared/export'
-import { parseKey } from '../../../../shared/exportOverlays'
+import { resolveAt } from '../../../../shared/animation'
+import { OVERLAY_LIMITS, type OverlayLayer } from '../../../../shared/export'
+import { frameTime, parseKey, type AnimFrame } from '../../../../shared/exportOverlays'
 import {
   isCalibrationFresh,
   projectorFor,
@@ -203,4 +204,95 @@ export async function renderOverlayImages(opts: {
     opts.onProgress?.(done, keys.length)
   }
   return result
+}
+
+/** Какие слои нужны кадрам с движущимися рисунками (хоть одному кадру). */
+export function animationLayers(
+  annotations: readonly Annotation[],
+  frames: readonly AnimFrame[]
+): { over: boolean; under: boolean } {
+  const seen = new Set<string>()
+  let over = false
+  let under = false
+  for (const f of frames) {
+    const key = f.members.join('-')
+    if (seen.has(key)) continue
+    seen.add(key)
+    const l = layersFor(f.members.map((i) => annotations[i]))
+    over ||= l.over
+    under ||= l.under
+  }
+  return { over, under }
+}
+
+/** Порция кадров не больше этого размера (байт) уходит в main одним обращением. */
+const FRAME_BATCH_BYTES = 12 * 1024 * 1024
+
+export interface AnimFrameData {
+  frame: number
+  data: Uint8Array<ArrayBuffer>
+}
+
+/**
+ * Рисует по картинке на каждый кадр с движущимися рисунками (отдельно слои «поверх» и «под игроками»).
+ * Геометрия берётся на середину кадра (resolveAt), как и на экране. Готовые кадры отдаются порциями через flush.
+ */
+export async function renderAnimationFrames(opts: {
+  annotations: readonly Annotation[]
+  calibrations?: readonly Calibration[]
+  frames: readonly AnimFrame[]
+  fps: number
+  width: number
+  height: number
+  layers: { over: boolean; under: boolean }
+  flush: (layer: OverlayLayer, frames: AnimFrameData[]) => Promise<void>
+  isCancelled?: () => boolean
+  onProgress?: (done: number, total: number) => void
+}): Promise<void> {
+  const { annotations, frames, fps, width, height, layers } = opts
+  const calibrations = opts.calibrations ?? []
+  await document.fonts.ready
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const blank = await svgToPng(buildOverlaySvg([], width, height), canvas, width, height)
+  const pending: Record<OverlayLayer, AnimFrameData[]> = { over: [], under: [] }
+  const bytes: Record<OverlayLayer, number> = { over: 0, under: 0 }
+  const drain = async (layer: OverlayLayer): Promise<void> => {
+    if (pending[layer].length === 0) return
+    const batch = pending[layer]
+    pending[layer] = []
+    bytes[layer] = 0
+    await opts.flush(layer, batch)
+  }
+  opts.onProgress?.(0, frames.length)
+  for (let n = 0; n < frames.length; n += 1) {
+    if (opts.isCancelled?.()) throw new RenderCancelled()
+    const f = frames[n]
+    const time = frameTime(f.frame, fps)
+    const items = f.members.map((i) => resolveAt(annotations[i], time))
+    const need = layersFor(items)
+    for (const layer of ['over', 'under'] as const) {
+      if (!layers[layer]) continue
+      const data = need[layer]
+        ? await svgToPng(
+            buildOverlaySvg(items, width, height, calibrations, { part: layer }),
+            canvas,
+            width,
+            height
+          )
+        : blank
+      pending[layer].push({ frame: f.frame, data })
+      bytes[layer] += data.length
+      if (
+        pending[layer].length >= OVERLAY_LIMITS.maxFramesPerCall ||
+        bytes[layer] >= FRAME_BATCH_BYTES
+      ) {
+        await drain(layer)
+      }
+    }
+    opts.onProgress?.(n + 1, frames.length)
+  }
+  await drain('over')
+  await drain('under')
 }

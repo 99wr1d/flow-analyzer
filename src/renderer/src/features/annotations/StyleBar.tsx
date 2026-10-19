@@ -3,7 +3,14 @@ import { ru } from '../../i18n/ru'
 import { GrassMenu } from '../under/GrassMenu'
 import { useKeyHint } from '../commands/useKeys'
 import { redoAny, undoAny, useCanRedo, useCanUndo } from '../history/unified'
-import { DashedLineIcon, PitchIcon, RedoIcon, SolidLineIcon, UndoIcon } from '../../ui/icons'
+import {
+  DashedLineIcon,
+  PitchIcon,
+  RedoIcon,
+  SolidLineIcon,
+  UnderPlayersIcon,
+  UndoIcon
+} from '../../ui/icons'
 import { formatTime } from '../player/format'
 import { CALIBRATION_VALIDITY } from '../../../../shared/pitch/calibration'
 import { startCalibration } from '../pitch/pitchActions'
@@ -43,7 +50,7 @@ function useContextType(): 'text' | 'shape' | 'ruler' | null {
   return 'shape'
 }
 
-/** Разметка поля: кнопка, переключатель «На поле» и пометка, какая разметка действует сейчас. */
+/** Разметка поля: кнопка-значок, переключатель «На поле» и маленькая пометка, какая разметка действует сейчас. */
 function PitchControls(): React.JSX.Element {
   const active = useActiveCalibration()
   const onPitch = usePitchStore((s) => s.onPitch)
@@ -51,48 +58,56 @@ function PitchControls(): React.JSX.Element {
   const setOnPitch = usePitchStore((s) => s.setOnPitch)
   const hint = useKeyHint('pitch:calibrate')
   const stale = active ? Math.abs(active.offset) > CALIBRATION_VALIDITY : false
-  const note = active
+  const full = active
     ? ru.pitch.active(formatTime(active.calibration.time, { tenths: true }), active.offset)
     : ru.pitch.activeNone
+  const short = active
+    ? ru.pitch.activeShort(formatTime(active.calibration.time, { tenths: true }))
+    : ru.pitch.activeNoneShort
+  const state = !active ? 'none' : stale ? 'stale' : 'ok'
   return (
     <>
       <span className="style-bar__sep" />
-      <button
-        type="button"
-        className="chip-btn chip-btn--icon"
-        disabled={calibrating}
-        title={`${ru.pitch.calibrateHint}${hint}`}
-        data-testid="pitch-calibrate"
-        onClick={(e) => {
-          startCalibration()
-          e.currentTarget.blur()
-        }}
-      >
-        <PitchIcon size={16} />
-        {ru.pitch.calibrate}
-      </button>
-      <button
-        type="button"
-        className={active && onPitch ? 'chip-btn chip-btn--active' : 'chip-btn'}
-        disabled={!active}
-        aria-pressed={active ? onPitch : false}
-        title={active ? ru.pitch.onPitchHint : ru.pitch.onPitchOff}
-        data-testid="pitch-on"
-        onClick={(e) => {
-          setOnPitch(!onPitch)
-          e.currentTarget.blur()
-        }}
-      >
-        {ru.pitch.onPitch}
-      </button>
-      <span
-        className={stale ? 'style-bar__note style-bar__note--warn' : 'style-bar__note'}
-        data-testid="pitch-active"
-        data-stale={stale ? 'true' : 'false'}
-        title={stale ? ru.pitch.stale : note}
-      >
-        {note}
-      </span>
+      <div className="style-bar__group">
+        <button
+          type="button"
+          className="chip-btn chip-btn--sq"
+          disabled={calibrating}
+          title={`${ru.pitch.calibrate}. ${ru.pitch.calibrateHint}${hint}`}
+          aria-label={ru.pitch.calibrate}
+          data-testid="pitch-calibrate"
+          onClick={(e) => {
+            startCalibration()
+            e.currentTarget.blur()
+          }}
+        >
+          <PitchIcon size={17} />
+        </button>
+        <button
+          type="button"
+          className={active && onPitch ? 'chip-btn chip-btn--active' : 'chip-btn'}
+          disabled={!active}
+          aria-pressed={active ? onPitch : false}
+          title={active ? ru.pitch.onPitchHint : ru.pitch.onPitchOff}
+          data-testid="pitch-on"
+          onClick={(e) => {
+            setOnPitch(!onPitch)
+            e.currentTarget.blur()
+          }}
+        >
+          {ru.pitch.onPitch}
+        </button>
+        <span
+          className={`style-bar__status style-bar__status--${state}`}
+          data-testid="pitch-active"
+          data-stale={stale ? 'true' : 'false'}
+          data-full={full}
+          title={stale ? `${full}. ${ru.pitch.stale}` : full}
+        >
+          <i className="style-bar__dot" aria-hidden="true" />
+          <span className="style-bar__status-text">{short}</span>
+        </span>
+      </div>
     </>
   )
 }
@@ -119,10 +134,13 @@ function UnderToggle(): React.JSX.Element {
   return (
     <button
       type="button"
-      className={value && enabled ? 'chip-btn chip-btn--active' : 'chip-btn'}
+      className={
+        value && enabled ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
+      }
       disabled={!enabled}
       aria-pressed={value && enabled}
-      title={ru.grass.underPlayersHint}
+      title={`${ru.grass.underPlayers}. ${ru.grass.underPlayersHint}`}
+      aria-label={ru.grass.underPlayers}
       data-testid="under-toggle"
       onClick={(e) => {
         if (selected) setProps(selected.id, { underPlayers: !value })
@@ -130,7 +148,7 @@ function UnderToggle(): React.JSX.Element {
         e.currentTarget.blur()
       }}
     >
-      {ru.grass.underPlayers}
+      <UnderPlayersIcon size={17} />
     </button>
   )
 }
@@ -189,7 +207,7 @@ export function StyleBar(): React.JSX.Element {
           </button>
         ))}
       </div>
-      <span className="style-bar__sep" />
+      <span className="style-bar__gap" />
       <div className="style-bar__group" role="group" aria-label={ru.annotations.dash}>
         {(['solid', 'dashed'] as const).map((d) => (
           <button
@@ -212,7 +230,9 @@ export function StyleBar(): React.JSX.Element {
       </div>
       <button
         type="button"
-        className={shown.textBackground ? 'chip-btn chip-btn--active' : 'chip-btn'}
+        className={
+          shown.textBackground ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
+        }
         disabled={context === 'shape' || context === 'ruler'}
         title={ru.annotations.textBackground}
         aria-pressed={shown.textBackground}
@@ -226,8 +246,10 @@ export function StyleBar(): React.JSX.Element {
       </button>
       <PitchControls />
       <span className="style-bar__sep" />
-      <UnderToggle />
-      <GrassMenu />
+      <div className="style-bar__group">
+        <UnderToggle />
+        <GrassMenu />
+      </div>
       <span className="style-bar__spacer" />
       <button
         type="button"

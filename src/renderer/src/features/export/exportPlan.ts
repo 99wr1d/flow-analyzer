@@ -3,7 +3,13 @@
 import type { Timing } from '../../../../shared/annotations'
 import type { Episode } from '../../../../shared/episodes'
 import type { ExportMode } from '../../../../shared/export'
-import { planExport, type OverlayPlan, type TimeRange } from '../../../../shared/exportOverlays'
+import {
+  hasDrawings,
+  planExport,
+  type AnimFrame,
+  type OverlayPlan,
+  type TimeRange
+} from '../../../../shared/exportOverlays'
 import { prepareClips } from '../../../../shared/exportRanges'
 import type { Scope } from './selection'
 
@@ -19,6 +25,8 @@ export interface PlanInput {
   duration: number
   fps: number
   timings: readonly Timing[]
+  /** Номера движущихся (анимированных) рисунков. */
+  animated?: ReadonlySet<number>
 }
 
 export interface ExportPlan {
@@ -33,6 +41,8 @@ export interface ExportPlan {
   keys: string[]
   /** Секунды, которые стоп-кадры добавляют к результату. */
   freezeSeconds: number
+  /** Кадры с движущимися рисунками (без повторов, по возрастанию): для каждого рисуется своя картинка. */
+  animFrames: AnimFrame[]
 }
 
 export function planExportView(input: PlanInput): ExportPlan {
@@ -51,7 +61,8 @@ export function planExportView(input: PlanInput): ExportPlan {
       ? prepared.clips.map((c) => ({ start: c.start, end: c.end }))
       : input.episodes.map((e) => ({ start: e.start, end: e.end }))
   }
-  const plans = clips.length > 0 ? planExport(clips, mode, input.timings, input.fps) : []
+  const plans =
+    clips.length > 0 ? planExport(clips, mode, input.timings, input.fps, input.animated) : []
   const keys: string[] = []
   const seen = new Set<string>()
   for (const plan of plans) {
@@ -62,12 +73,15 @@ export function planExportView(input: PlanInput): ExportPlan {
       }
     }
   }
+  const frames = new Map<number, AnimFrame>()
+  for (const plan of plans) for (const f of plan.animation.frames) frames.set(f.frame, f)
   return {
     clips,
     mode,
     plans,
-    hasDrawings: keys.length > 0,
+    hasDrawings: plans.some(hasDrawings),
     keys,
-    freezeSeconds: plans.reduce((sum, p) => sum + p.freezeSeconds, 0)
+    freezeSeconds: plans.reduce((sum, p) => sum + p.freezeSeconds, 0),
+    animFrames: [...frames.values()].sort((a, b) => a.frame - b.frame)
   }
 }

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { episodeDuration } from '../../../../shared/episodes'
+import { OVERLAY_LIMITS } from '../../../../shared/export'
 import { sortEpisodes, useEpisodesStore } from '../episodes/episodesStore'
 import { fmtRange } from '../episodes/tagging'
 import {
@@ -84,6 +85,13 @@ function Check(props: {
 }
 
 /** Шаг 1: что и как экспортировать. */
+/** Пояснение про движущиеся рисунки: сколько кадров придётся подготовить и когда это слишком много. */
+function animationHint(frames: number): string {
+  return frames > OVERLAY_LIMITS.maxAnimFrames
+    ? ru.export.animTooMany(frames, OVERLAY_LIMITS.maxAnimFrames)
+    : ru.export.animFramesHint(frames)
+}
+
 export function ExportForm(): React.JSX.Element {
   const state = useExportStore()
   const items = useEpisodesStore((s) => s.items)
@@ -262,7 +270,8 @@ export function ExportForm(): React.JSX.Element {
               fast
                 ? ru.export.drawingsFast
                 : plan.hasDrawings
-                  ? ru.export.drawingsHint
+                  ? ru.export.drawingsHint +
+                    (plan.animFrames.length > 0 ? ' ' + animationHint(plan.animFrames.length) : '')
                   : ru.export.drawingsNone
             }
           />

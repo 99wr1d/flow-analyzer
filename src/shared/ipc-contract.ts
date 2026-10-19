@@ -9,7 +9,13 @@ import type {
   RecentProject,
   RecoveryItem
 } from './project'
-import type { ExportProgress, ExportRequest, ExportResult, StageOverlays } from './export'
+import type {
+  ExportProgress,
+  ExportRequest,
+  ExportResult,
+  StageFrames,
+  StageOverlays
+} from './export'
 import type { Settings, SettingsLoadResult } from './settings'
 import type { StatsExport, StatsExportResult } from './statsExport'
 
@@ -38,6 +44,7 @@ export const IPC_CHANNELS = {
   libraryRelocate: 'library:relocate',
   libraryUpdateMeta: 'library:update-meta',
   exportStageOverlays: 'export:stage-overlays',
+  exportStageFrames: 'export:stage-frames',
   exportStart: 'export:start',
   exportCancel: 'export:cancel',
   exportReveal: 'export:reveal',
@@ -141,6 +148,8 @@ export interface FlowApi {
    * записывает во временную папку и выдаёт билет, который указывается в запросе startExport (drawings.token).
    */
   stageExportOverlays(overlays: StageOverlays): Promise<{ token: string }>
+  /** Дополняет загрузку (по билету) покадровыми картинками движущихся рисунков. */
+  stageExportFrames(frames: StageFrames): Promise<{ count: number }>
   cancelExport(): Promise<void>
   /** Показывает в проводнике файл, созданный последним экспортом (путь выбирает main, не интерфейс). */
   revealExport(): Promise<void>
