@@ -86,7 +86,16 @@ interface PaintProps {
   textBackground?: boolean
   /** Класс тени для всего, кроме полупрозрачных подложек (если не задан, тень задаёт родитель). */
   shadowClass?: string
+  /**
+   * Какую часть рисовать (рисунки «под игроками» делятся на две): «ground» — всё, что лежит на траве (заливка, линии, узлы),
+   * «top» — то, что всегда поверх игроков (подписи, луч прожектора) и бледная обводка выбранного рисунка;
+   * «all» — всё вместе (обычный рисунок).
+   */
+  part?: DrawPart
 }
+
+/** Часть рисунка: см. PaintProps.part. */
+export type DrawPart = 'all' | 'ground' | 'top'
 
 /** Всё, что нужно нарисовать по результату paintPitch / paintScreenTool. */
 export function PaintParts({
@@ -96,16 +105,19 @@ export function PaintParts({
   size,
   selected,
   textBackground = true,
-  shadowClass
+  shadowClass,
+  part = 'all'
 }: PaintProps): React.JSX.Element | null {
   if (!paint.visible) return null
+  const ground = part !== 'top'
+  const top = part !== 'ground'
   const minStroke = Math.max(1, size.h / 600)
   const dark = isDarkColor(color)
   const lens = paint.lens
   // Полупрозрачные подложки (заливка зоны, луч) рисуются вне блока с тенью: иначе тень проглядывает сквозь них.
   const under = (
     <>
-      {paint.fills.length > 0 && (
+      {ground && paint.fills.length > 0 && (
         <path
           data-part="fill"
           d={pathOf(paint.fills)}
@@ -114,7 +126,7 @@ export function PaintParts({
           stroke="none"
         />
       )}
-      {paint.beam && (
+      {top && paint.beam && (
         <>
           <defs>
             <linearGradient
@@ -139,7 +151,8 @@ export function PaintParts({
       )}
     </>
   )
-  const rest = (
+  // Обводка выбранного рисунка: у рисунка «под игроками» она рисуется поверх игроков, бледнее обычной.
+  const halo = (
     <>
       {selected && paint.strokes.length === 0 && paint.hit.length > 0 && !lens && (
         <path
@@ -172,10 +185,15 @@ export function PaintParts({
           strokeWidth={8}
         />
       )}
-      {paint.disc.length > 0 && (
+    </>
+  )
+  const rest = (
+    <>
+      {top && selected && (part === 'top' ? <g opacity={0.5}>{halo}</g> : halo)}
+      {ground && paint.disc.length > 0 && (
         <path data-part="disc" d={pathOf(paint.disc)} fill={color} fillOpacity={0.18} />
       )}
-      {paint.body.length > 0 && (
+      {ground && paint.body.length > 0 && (
         <path
           data-part="body"
           d={pathOf(paint.body)}
@@ -185,32 +203,34 @@ export function PaintParts({
           strokeLinejoin="round"
         />
       )}
-      {paint.strokes.map((s, i) => (
-        <path
-          key={`stroke-${i}`}
-          data-part="stroke"
-          d={pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')}
-          fill="none"
-          stroke={color}
-          strokeWidth={s.widthPx}
-          strokeLinejoin="round"
-          strokeLinecap={s.dashed ? 'butt' : 'round'}
-          strokeDasharray={s.dashed ? `${s.widthPx * 2.4} ${s.widthPx * 1.8}` : undefined}
-        />
-      ))}
-      {paint.nodes.map((n, i) => (
-        <circle
-          key={`node-${i}`}
-          data-part="node"
-          cx={n.x}
-          cy={n.y}
-          r={paint.nodeRadius}
-          fill={color}
-          stroke={dark ? '#ffffff' : 'rgba(10,12,16,0.85)'}
-          strokeWidth={Math.max(1.2, paint.nodeRadius * 0.28)}
-        />
-      ))}
-      {paint.label?.stem && (
+      {ground &&
+        paint.strokes.map((s, i) => (
+          <path
+            key={`stroke-${i}`}
+            data-part="stroke"
+            d={pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')}
+            fill="none"
+            stroke={color}
+            strokeWidth={s.widthPx}
+            strokeLinejoin="round"
+            strokeLinecap={s.dashed ? 'butt' : 'round'}
+            strokeDasharray={s.dashed ? `${s.widthPx * 2.4} ${s.widthPx * 1.8}` : undefined}
+          />
+        ))}
+      {ground &&
+        paint.nodes.map((n, i) => (
+          <circle
+            key={`node-${i}`}
+            data-part="node"
+            cx={n.x}
+            cy={n.y}
+            r={paint.nodeRadius}
+            fill={color}
+            stroke={dark ? '#ffffff' : 'rgba(10,12,16,0.85)'}
+            strokeWidth={Math.max(1.2, paint.nodeRadius * 0.28)}
+          />
+        ))}
+      {top && paint.label?.stem && (
         <line
           x1={paint.label.stem.x1}
           y1={paint.label.stem.y1}
@@ -221,7 +241,7 @@ export function PaintParts({
           strokeLinecap="round"
         />
       )}
-      {paint.dot && (
+      {ground && paint.dot && (
         <ellipse
           cx={paint.dot.x}
           cy={paint.dot.y}
@@ -232,11 +252,14 @@ export function PaintParts({
           strokeWidth={1}
         />
       )}
-      {paint.label && <PillLabel label={paint.label} color={color} background={textBackground} />}
-      {paint.labels.map((l, i) => (
-        <PillLabel key={`label-${i}`} label={l} color={color} background />
-      ))}
-      {lens && (
+      {top && paint.label && (
+        <PillLabel label={paint.label} color={color} background={textBackground} />
+      )}
+      {top &&
+        paint.labels.map((l, i) => (
+          <PillLabel key={`label-${i}`} label={l} color={color} background />
+        ))}
+      {ground && lens && (
         <>
           {lens.connector && (
             <line
@@ -302,6 +325,7 @@ interface PitchProps {
   selected: boolean
   projector: Projector | null | undefined
   shadowClass?: string
+  part?: DrawPart
 }
 
 export function PitchBody({
@@ -309,7 +333,8 @@ export function PitchBody({
   size,
   selected,
   projector,
-  shadowClass
+  shadowClass,
+  part
 }: PitchProps): React.JSX.Element | null {
   const paint = useMemo(
     () => (projector ? paintPitch(a, projector, size, measureTextWidth) : null),
@@ -325,6 +350,7 @@ export function PitchBody({
       selected={selected}
       textBackground={a.type === 'ptext' ? a.style.background : true}
       shadowClass={shadowClass}
+      part={part}
     />
   )
 }

@@ -1,6 +1,7 @@
 import { memo, useMemo } from 'react'
 import {
   isPitchAnnotation,
+  isUnderPlayers,
   type Annotation,
   type ScreenAnnotation
 } from '../../../../shared/annotations'
@@ -13,7 +14,13 @@ import {
 import { arrowShape } from './arrowGeometry'
 import { bboxOf, handlesOf, type Size } from './geometry'
 import { textRect, toPx } from './hit'
-import { PaintHandles, PaintParts, PitchBody, PitchHandlesView } from './PitchShapeView'
+import {
+  PaintHandles,
+  PaintParts,
+  PitchBody,
+  PitchHandlesView,
+  type DrawPart
+} from './PitchShapeView'
 import { isDarkColor } from './styles'
 import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
 
@@ -34,6 +41,13 @@ interface ShapeProps {
   projector?: Projector | null
   /** Рисунок на поле показан далеко от кадра разметки: камера могла сдвинуться, рисуем бледнее. */
   dimmed?: boolean
+  /** Какую часть рисовать: у рисунков «под игроков» экран и растр делят её между собой (см. PaintParts). */
+  part?: DrawPart
+  /**
+   * Вместе с частью «top» оставить в разметке невидимую (visibility: hidden) копию «ground»: саму траву рисует WebGL-слой,
+   * а копия хранит геометрию рисунка в DOM (рамки, точки, data-part) для проверки и измерений. Ничего не рисует.
+   */
+  keepGround?: boolean
 }
 
 /** Новые рисунки на экране (прожектор, кривая, перо, зона, лупа, связи): геометрию считает paintScreenTool. */
@@ -41,12 +55,14 @@ function ScreenToolBody({
   annotation: a,
   size,
   selected,
-  shadowClass
+  shadowClass,
+  part
 }: {
   annotation: ScreenToolAnnotation
   size: Size
   selected: boolean
   shadowClass?: string
+  part?: DrawPart
 }): React.JSX.Element {
   const paint = useMemo(() => paintScreenTool(a, size), [a, size])
   return (
@@ -57,6 +73,7 @@ function ScreenToolBody({
       size={size}
       selected={selected}
       shadowClass={shadowClass}
+      part={part}
     />
   )
 }
@@ -65,13 +82,23 @@ function ShapeBody({
   annotation: a,
   size,
   selected,
-  shadowClass
+  shadowClass,
+  part = 'all'
 }: ShapeProps & { annotation: ScreenAnnotation; shadowClass?: string }): React.JSX.Element {
   if (isScreenTool(a)) {
     return (
-      <ScreenToolBody annotation={a} size={size} selected={selected} shadowClass={shadowClass} />
+      <ScreenToolBody
+        annotation={a}
+        size={size}
+        selected={selected}
+        shadowClass={shadowClass}
+        part={part}
+      />
     )
   }
+  // Обычные фигуры (стрелка, линия, круг) «под игроками»: сверху остаётся лишь бледная обводка выбранной.
+  if (part === 'top')
+    return selected && a.type !== 'text' ? <ClassicHalo annotation={a} size={size} /> : <></>
   if (a.type === 'text') {
     const font = a.style.size * size.h
     const width = measureTextWidth(a.text, font)
@@ -222,6 +249,46 @@ function ShapeBody({
   )
 }
 
+/** Обводка выбранной обычной фигуры, лежащей «под игроками»: рисуется поверх игроков, бледнее обычной. */
+function ClassicHalo({
+  annotation: a,
+  size
+}: {
+  annotation: Exclude<ScreenAnnotation, { type: 'text' }>
+  size: Size
+}): React.JSX.Element {
+  if (a.type !== 'arrow' && a.type !== 'line' && a.type !== 'circle') return <></>
+  const p1 = toPx(a.p1, size)
+  const p2 = toPx(a.p2, size)
+  const w = Math.max(1, a.style.width * size.h)
+  if (a.type === 'circle') {
+    return (
+      <ellipse
+        cx={(p1.x + p2.x) / 2}
+        cy={(p1.y + p2.y) / 2}
+        rx={Math.abs(p2.x - p1.x) / 2}
+        ry={Math.abs(p2.y - p1.y) / 2}
+        fill="none"
+        stroke={HALO}
+        strokeWidth={w + 8}
+        opacity={0.6}
+      />
+    )
+  }
+  return (
+    <line
+      x1={p1.x}
+      y1={p1.y}
+      x2={p2.x}
+      y2={p2.y}
+      stroke={HALO}
+      strokeWidth={w + 8}
+      strokeLinecap="round"
+      opacity={0.6}
+    />
+  )
+}
+
 function geometryOf(a: Annotation): string {
   switch (a.type) {
     case 'text':
@@ -262,6 +329,25 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
   const shadow = dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
   // У рисунков с полупрозрачной заливкой тень на группе просвечивала бы сквозь заливку: тень получают только линии и подписи.
   const split = HAS_UNDERLAY.has(a.type)
+  const body = (part: DrawPart | undefined, selected: boolean): React.JSX.Element =>
+    isPitchAnnotation(a) ? (
+      <PitchBody
+        annotation={a}
+        size={props.size}
+        selected={selected}
+        projector={props.projector}
+        shadowClass={split ? shadow : undefined}
+        part={part}
+      />
+    ) : (
+      <ShapeBody
+        {...props}
+        annotation={a}
+        selected={selected}
+        part={part}
+        shadowClass={split ? shadow : undefined}
+      />
+    )
   return (
     <g
       className={split ? undefined : shadow}
@@ -273,20 +359,16 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
       data-geo={geometryOf(a)}
       data-text={a.type === 'text' || a.type === 'ptext' ? a.text : undefined}
       data-selected={props.selected}
+      data-under={isUnderPlayers(a) ? 'true' : 'false'}
       data-dimmed={props.dimmed ? 'true' : undefined}
       opacity={props.dimmed ? 0.5 : undefined}
     >
-      {isPitchAnnotation(a) ? (
-        <PitchBody
-          annotation={a}
-          size={props.size}
-          selected={props.selected}
-          projector={props.projector}
-          shadowClass={split ? shadow : undefined}
-        />
-      ) : (
-        <ShapeBody {...props} annotation={a} shadowClass={split ? shadow : undefined} />
+      {props.part === 'top' && props.keepGround && (
+        <g visibility="hidden" aria-hidden="true" data-layer="ground" pointerEvents="none">
+          {body('ground', false)}
+        </g>
       )}
+      {body(props.part, props.selected)}
     </g>
   )
 })

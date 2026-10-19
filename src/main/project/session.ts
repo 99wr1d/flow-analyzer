@@ -95,7 +95,8 @@ export function buildProject(
     episodes: request.episodes,
     tags: request.tags,
     ui: { lastTime: request.lastTime },
-    ...(request.meta ? { meta: request.meta } : {})
+    ...(request.meta ? { meta: request.meta } : {}),
+    ...(request.grassKey ? { grassKey: request.grassKey } : {})
   }
 }
 
@@ -222,6 +223,7 @@ async function finishLoad(
     path: projectPath,
     name: nameOf(projectPath, project),
     meta: project.meta ?? null,
+    grassKey: project.grassKey ?? null,
     source,
     annotations: project.annotations,
     calibrations: project.calibrations,

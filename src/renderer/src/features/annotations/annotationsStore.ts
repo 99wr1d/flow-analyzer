@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import {
   DEFAULT_DIM,
+  canBeUnder,
+  defaultUnderPlayers,
   DEFAULT_LOUPE_ZOOM,
   DEFAULT_ZONE_OPACITY,
   type Annotation,
@@ -94,6 +96,7 @@ export type PropPatch = Partial<{
   arrow: boolean
   fill: boolean
   labels: boolean
+  underPlayers: boolean
 }>
 
 export interface AnnotationsState extends HistoryState {
@@ -105,10 +108,14 @@ export interface AnnotationsState extends HistoryState {
   options: ToolOptions
   /** Выбранная вершина зоны или связи игроков (Delete удаляет её). */
   selectedNode: number | null
+  /** «Под игроками» для новых рисунков: последний выбор отдельно для рисунков на поле и на экране. */
+  underNew: { pitch: boolean; screen: boolean }
 }
 
 export interface AnnotationsActions {
   selectNode: (index: number | null) => void
+  /** Запоминает выбор «Под игроками» для новых рисунков на поле / на экране. */
+  setUnderNew: (space: 'pitch' | 'screen', under: boolean) => void
   /** Меняет свойства выбранного рисунка (и запоминает их для новых). */
   setProps: (id: string, patch: PropPatch) => void
   /** Удаляет выбранную вершину; false — нельзя (мало вершин) или вершина не выбрана. */
@@ -130,6 +137,15 @@ export interface AnnotationsActions {
   reset: () => void
   /** Загрузка проекта: рисунки заменяются, история пуста. */
   load: (items: Annotation[]) => void
+}
+
+/** Новому рисунку, которому это имеет смысл, выставляется последний выбор «Под игроками» для его места. */
+export function withUnder(a: Annotation, underNew: AnnotationsState['underNew']): Annotation {
+  if (!canBeUnder(a.type) || (a as { underPlayers?: boolean }).underPlayers !== undefined) return a
+  return {
+    ...a,
+    underPlayers: a.space === 'pitch' ? underNew.pitch : underNew.screen
+  } as Annotation
 }
 
 function withSelection(s: AnnotationsState, h: HistoryState): Partial<AnnotationsState> {
@@ -164,7 +180,8 @@ const initial = (): AnnotationsState => ({
   tool: 'select',
   style: DEFAULT_STYLE,
   options: DEFAULT_OPTIONS,
-  selectedNode: null
+  selectedNode: null,
+  underNew: { pitch: defaultUnderPlayers('ring'), screen: defaultUnderPlayers('arrow') }
 })
 
 export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>()((set) => ({
@@ -174,6 +191,7 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
   select: (selectedId) =>
     set((s) => ({ selectedId, selectedNode: selectedId === s.selectedId ? s.selectedNode : null })),
   selectNode: (selectedNode) => set({ selectedNode }),
+  setUnderNew: (space, under) => set((s) => ({ underNew: { ...s.underNew, [space]: under } })),
 
   setProps: (id, patch) =>
     set((s) => {
@@ -185,8 +203,14 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
         if (option) (options as Record<string, unknown>)[option] = value
       }
       const items = s.items.map((a) => (a.id === id ? ({ ...a, ...patch } as Annotation) : a))
+      // «Под игроками» запоминается для новых рисунков того же места (поле / экран).
+      const underNew =
+        patch.underPlayers !== undefined
+          ? { ...s.underNew, [target.space === 'pitch' ? 'pitch' : 'screen']: patch.underPlayers }
+          : s.underNew
       return {
         options,
+        underNew,
         ...commit(s, items, { key: 'prop:' + id + ':' + Object.keys(patch).join(',') })
       }
     }),
@@ -226,7 +250,7 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
 
   add: (annotation) =>
     set((s) => ({
-      ...commit(s, [...s.items, annotation]),
+      ...commit(s, [...s.items, withUnder(annotation, s.underNew)]),
       selectedId: annotation.id,
       selectedNode: null
     })),
@@ -261,14 +285,22 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
   commitFrom: (before) => set((s) => ({ ...commitFrom(s, before) })),
   undo: () => set((s) => withSelection(s, undo(s))),
   redo: () => set((s) => withSelection(s, redo(s))),
-  reset: () => set((s) => ({ ...initial(), tool: s.tool, style: s.style, options: s.options })),
+  reset: () =>
+    set((s) => ({
+      ...initial(),
+      tool: s.tool,
+      style: s.style,
+      options: s.options,
+      underNew: s.underNew
+    })),
   load: (items) =>
     set((s) => ({
       ...initial(),
       ...createHistory(items),
       tool: s.tool,
       style: s.style,
-      options: s.options
+      options: s.options,
+      underNew: s.underNew
     }))
 }))
 

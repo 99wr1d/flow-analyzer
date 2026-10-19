@@ -44,6 +44,8 @@ export function VideoView({ id, url }: { id: string; url: string }): React.JSX.E
       ref={attach}
       className="stage__video"
       src={url}
+      // CORS-режим: кадр видео можно загрузить в WebGL-текстуру и прочитать пипеткой (ключ «газон»).
+      crossOrigin="anonymous"
       preload="auto"
       playsInline
       style={hidden ? { display: 'none' } : undefined}

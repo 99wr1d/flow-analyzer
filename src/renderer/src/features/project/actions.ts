@@ -153,7 +153,7 @@ function applyLoaded(loaded: LoadedProject): void {
   const player = usePlayerStore.getState()
   withoutDirty(() => {
     player.loadSource(loaded.source)
-    loadWork(loaded.annotations, loaded.episodes, loaded.calibrations)
+    loadWork(loaded.annotations, loaded.episodes, loaded.calibrations, loaded.grassKey)
   })
   if (loaded.fps !== undefined && loaded.fpsSource && loaded.fpsSource !== 'default') {
     usePlayerStore.getState().setFps(loaded.fps, loaded.fpsSource)

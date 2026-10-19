@@ -3,6 +3,7 @@
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
+import { useGrassStore } from '../under/grassStore'
 import { useProjectStore } from './projectStore'
 
 let suspended = 0
@@ -34,6 +35,10 @@ export function installDirtyTracking(): () => void {
       }),
       useCalibrationsStore.subscribe((s, prev) => {
         if (s.items !== prev.items) mark()
+      }),
+      // Настройки газона: меняются только руками пользователя (найденный автоматически цвет проект не пачкает).
+      useGrassStore.subscribe((s, prev) => {
+        if (s.userKey !== prev.userKey) mark()
       })
     ]
     uninstall = (): void => {

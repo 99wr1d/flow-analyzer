@@ -18,6 +18,8 @@ const color = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 /** Управляющая точка кривой может лежать за кадром (кривая при этом остаётся в кадре). */
 const ControlPointSchema = z.object({ x: z.number().min(-1).max(2), y: z.number().min(-1).max(2) })
 const id = z.uuid()
+/** Рисунок лежит «под игроками» (ключ по газону). Нет поля — значение по умолчанию для вида рисунка (isUnderPlayers). */
+const underPlayers = z.boolean().optional()
 
 export const TimingSchema = z.discriminatedUnion('mode', [
   z.object({
@@ -56,6 +58,7 @@ export const ArrowSchema = z.object({
   type: z.literal('arrow'),
   ...twoPoints,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 export const LineSchema = z.object({
@@ -64,6 +67,7 @@ export const LineSchema = z.object({
   type: z.literal('line'),
   ...twoPoints,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Эллипс, вписанный в прямоугольник с противоположными углами p1 и p2. */
@@ -73,6 +77,7 @@ export const CircleSchema = z.object({
   type: z.literal('circle'),
   ...twoPoints,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** pos — левый верхний угол подписи. */
@@ -107,6 +112,7 @@ export const RingSchema = z.object({
   center: WorldPointSchema,
   radius: z.number().min(MIN_RING_RADIUS).max(MAX_RING_RADIUS),
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Стрелка на траве: многоугольник на плоскости поля постоянной ширины в метрах. */
@@ -115,6 +121,7 @@ export const GroundArrowSchema = z.object({
   type: z.literal('parrow'),
   ...groundTwo,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 export const GroundLineSchema = z.object({
@@ -122,6 +129,7 @@ export const GroundLineSchema = z.object({
   type: z.literal('pline'),
   ...groundTwo,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Подпись, стоящая вертикально над точкой земли pos. */
@@ -139,6 +147,7 @@ export const RulerSchema = z.object({
   type: z.literal('ruler'),
   ...groundTwo,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 
@@ -191,6 +200,7 @@ export const CurveSchema = z.object({
   ...twoPoints,
   c: ControlPointSchema,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Перо: нарисованная от руки линия (точки уже упрощены). */
@@ -201,6 +211,7 @@ export const PenSchema = z.object({
   points: z.array(PointSchema).min(2).max(MAX_PEN_POINTS),
   arrow: z.boolean().default(false),
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Зона: многоугольник с полупрозрачной заливкой. */
@@ -211,6 +222,7 @@ export const ZoneSchema = z.object({
   points: z.array(PointSchema).min(3).max(MAX_ZONE_VERTICES),
   opacity: zoneOpacity,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Лупа: круг с центром pos показывает увеличенный участок кадра вокруг точки src. radius — доля высоты кадра. */
@@ -233,6 +245,7 @@ export const ChainSchema = z.object({
   points: z.array(PointSchema).min(2).max(MAX_CHAIN_NODES),
   fill: z.boolean().default(false),
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 
@@ -245,6 +258,7 @@ export const GroundSpotlightSchema = z.object({
   dim,
   beam: z.boolean().default(true),
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Изогнутая стрелка на траве: кривая задана в метрах. */
@@ -254,6 +268,7 @@ export const GroundCurveSchema = z.object({
   ...groundTwo,
   c: WorldPointSchema,
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Перо на траве: точки в метрах. */
@@ -263,6 +278,7 @@ export const GroundPenSchema = z.object({
   points: z.array(WorldPointSchema).min(2).max(MAX_PEN_POINTS),
   arrow: z.boolean().default(false),
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Зона на траве; showArea — подпись площади в м². */
@@ -273,6 +289,7 @@ export const GroundZoneSchema = z.object({
   opacity: zoneOpacity,
   showArea: z.boolean().default(true),
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 /** Связи игроков на траве; labels — подписи длин звеньев и «Ширина линии». */
@@ -283,6 +300,7 @@ export const GroundChainSchema = z.object({
   fill: z.boolean().default(false),
   labels: z.boolean().default(true),
   style: ShapeStyleSchema,
+  underPlayers,
   timing: TimingSchema
 })
 
@@ -359,6 +377,29 @@ export type PointsAnnotation = Pen | Zone | Chain | GroundPen | GroundZone | Gro
 /** Рисунок — прожектор (экран или поле): затемняет всё вокруг. */
 export const isSpotlight = (a: Annotation): a is Spotlight | GroundSpotlight =>
   a.type === 'spot' || a.type === 'pspot'
+
+/** Виды рисунков, которые по умолчанию лежат на траве под игроками: всё, что нарисовано на земле. */
+const UNDER_BY_DEFAULT: ReadonlySet<string> = new Set([
+  'ring',
+  'parrow',
+  'pline',
+  'pcurve',
+  'ppen',
+  'pzone',
+  'pchain',
+  'pspot',
+  'ruler'
+])
+/** Виды, которым «под игроками» не имеет смысла: подписи, лупа и затемнение прожектора (оно всегда поверх кадра). */
+const NEVER_UNDER: ReadonlySet<string> = new Set(['text', 'ptext', 'loupe', 'spot'])
+
+/** Значение «под игроками» по умолчанию для вида рисунка. Старые проекты поля не имеют — берётся оно. */
+export const defaultUnderPlayers = (type: string): boolean => UNDER_BY_DEFAULT.has(type)
+/** Можно ли положить рисунок под игроков (подписи и лупа всегда поверх). */
+export const canBeUnder = (type: string): boolean => !NEVER_UNDER.has(type)
+/** Лежит ли рисунок под игроками: явное значение или умолчание по виду. Подписи — никогда. */
+export const isUnderPlayers = (a: { type: string; underPlayers?: boolean }): boolean =>
+  canBeUnder(a.type) && (a.underPlayers ?? defaultUnderPlayers(a.type))
 
 /** Рисунок живёт на поле (координаты в метрах). */
 export const isPitchAnnotation = (a: Annotation): a is PitchAnnotation => a.space === 'pitch'

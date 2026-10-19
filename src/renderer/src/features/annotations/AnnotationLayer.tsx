@@ -12,6 +12,7 @@ import {
   frameCenter,
   isPitchAnnotation,
   isSpotlight,
+  isUnderPlayers,
   isVisible,
   type Annotation,
   type GroundText,
@@ -43,7 +44,12 @@ import { hitPaint, paintOf, pitchHandleAt } from '../pitch/hitPitch'
 import { usePitchStore } from '../pitch/pitchStore'
 import { nearestUsable, projectorMapNow, useProjectors } from '../pitch/usePitch'
 import { getVideoElement } from '../player/videoElement'
-import { useAnnotationsStore } from './annotationsStore'
+import { useFeedbackStore } from '../episodes/feedbackStore'
+import { EyedropperLayer, MaskBadge } from '../under/EyedropperLayer'
+import { useGrassStore } from '../under/grassStore'
+import { UnderCanvas } from '../under/UnderCanvas'
+import { webgl2Available } from '../under/underGl'
+import { useAnnotationsStore, withUnder } from './annotationsStore'
 import {
   bboxOf,
   clampPoint,
@@ -265,6 +271,14 @@ function snapScreenHandle(
   return target
 }
 
+let noticeShown = false
+/** Одно уведомление за сеанс: «под игроками» на экране не работает. */
+function noticeOnce(): void {
+  if (noticeShown) return
+  noticeShown = true
+  useFeedbackStore.getState().show({ text: ru.grass.noWebgl, kind: 'warn' })
+}
+
 interface SurfaceProps {
   rect: Rect
 }
@@ -295,6 +309,11 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       staleIds: new Set(keys.filter((k) => k.endsWith('!')).map((k) => k.slice(0, -1)))
     }
   }, [items, visibleKey, selectedId])
+
+  // Рисунки «под игроками» показывает WebGL-слой (ключ по газону); без WebGL они рисуются поверх, как обычные.
+  const webglFailed = useGrassStore((s) => s.webgl === 'failed')
+  const underOn = !webglFailed && webgl2Available()
+  const underNew = useAnnotationsStore((s) => s.underNew)
 
   // Недорисованная зона или связь отменяется, когда слой исчезает (новое видео, закрытие проекта).
   useEffect(() => () => void cancelPolyDraft(), [])
@@ -1002,6 +1021,27 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     () => [...visible.filter(isSpotlight), ...(draft && isSpotlight(draft) ? [draft] : [])],
     [visible, draft]
   )
+  const draftShown = useMemo(() => (draft ? withUnder(draft, underNew) : null), [draft, underNew])
+  const polyShown = polyPreview ? withUnder(polyPreview, underNew) : null
+  const polyKey = JSON.stringify(polyShown)
+  const underItems = useMemo(
+    () =>
+      underOn
+        ? [
+            ...visible.filter(isUnderPlayers),
+            ...(draftShown && isUnderPlayers(draftShown) ? [draftShown] : []),
+            ...(polyShown && isUnderPlayers(polyShown) ? [polyShown] : [])
+          ]
+        : [],
+    // polyShown создаётся заново на каждый кадр черновика: сравниваем по содержимому (polyKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [underOn, visible, draftShown, polyKey]
+  )
+  const wantsUnder = visible.some(isUnderPlayers)
+  // Один раз сообщаем, что «под игроками» на экране недоступно (в готовом видео всё будет как надо).
+  useEffect(() => {
+    if (!underOn && wantsUnder) noticeOnce()
+  }, [underOn, wantsUnder])
   const loupes = useMemo(
     () => [
       ...(visible.filter((a) => a.type === 'loupe') as Loupe[]),
@@ -1012,6 +1052,12 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
 
   return (
     <>
+      <UnderCanvas
+        rect={rect}
+        items={underItems}
+        calibrations={calibrations}
+        dimmedIds={staleIds}
+      />
       <LoupeLenses items={loupes} rect={rect} />
       <svg
         ref={svgRef}
@@ -1070,25 +1116,29 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               showHandles={tool === 'select'}
               projector={isPitchAnnotation(a) ? projectors.get(a.calibrationId) : undefined}
               dimmed={staleIds.has(a.id)}
+              part={underOn && isUnderPlayers(a) ? 'top' : 'all'}
+              keepGround
             />
           ))}
-        {draft && (
+        {draftShown && (
           <ShapeView
-            annotation={draft}
+            annotation={draftShown}
             size={size}
             selected={false}
             showHandles={false}
             projector={draftProjector}
+            part={underOn && isUnderPlayers(draftShown) ? 'top' : 'all'}
           />
         )}
         {polyPreview && (
           <g data-testid="poly-draft" data-points={poly?.points.length}>
             <ShapeView
-              annotation={polyPreview}
+              annotation={polyShown ?? polyPreview}
               size={size}
               selected={false}
               showHandles={false}
               projector={polyProjector}
+              part={underOn && polyShown && isUnderPlayers(polyShown) ? 'top' : 'all'}
             />
             {polyBase && (
               <HandlesView annotation={polyBase} size={size} projector={polyProjector} />
@@ -1113,6 +1163,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
           {poly.tool === 'zone' ? ru.annotations.polyHintZone : ru.annotations.polyHintChain}
         </div>
       )}
+      <MaskBadge rect={rect} />
+      <EyedropperLayer rect={rect} />
       {editorProps && (
         <TextEditor
           key={

@@ -10,8 +10,10 @@ import {
   MAX_ZONE_OPACITY,
   MIN_DIM,
   MIN_ZONE_OPACITY,
+  canBeUnder,
   defaultDuration,
   frameCenter,
+  isUnderPlayers,
   parseDuration,
   isPitchAnnotation,
   parseFreeze,
@@ -321,11 +323,21 @@ function ToolProps({ annotation: a }: { annotation: Annotation }): React.JSX.Ele
       </>
     )
   }
-  if (!body) return null
+  const under = canBeUnder(a.type) ? (
+    <CheckField
+      label={ru.grass.underPlayers}
+      testId="prop-under"
+      checked={isUnderPlayers(a)}
+      onChange={(underPlayers) => setProps(a.id, { underPlayers })}
+    />
+  ) : null
+  if (!body && !under) return null
   return (
     <>
       <div className="inspector__section">{ru.annotations.props}</div>
       <div className="inspector__props" data-testid="tool-props">
+        {under}
+        {under && <p className="field__hint">{ru.grass.underPlayersHint}</p>}
         {body}
       </div>
     </>

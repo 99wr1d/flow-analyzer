@@ -37,8 +37,10 @@ export const DRAWINGS_MISSING_ERROR =
 export interface JobOverlays {
   width: number
   height: number
-  /** Ключ набора рисунков → путь к PNG. */
+  /** Ключ набора рисунков → путь к PNG слоя «поверх всего». */
   files: ReadonlyMap<string, string>
+  /** Ключ набора рисунков → путь к PNG слоя «под игроками» (нет — таких рисунков нет). */
+  underFiles?: ReadonlyMap<string, string>
 }
 
 /** Ошибка, текст которой можно показать пользователю как есть. */
@@ -149,7 +151,13 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
       ? planExport(clips, request.mode, drawings.timings, fps).map((plan) => {
           if (plan.keys.length === 0) return null
           for (const key of plan.keys) {
-            if (!input.overlays!.files.has(key)) throw new ExportError(DRAWINGS_MISSING_ERROR)
+            const o = input.overlays!
+            if (!o.files.has(key) && !o.underFiles?.has(key)) {
+              throw new ExportError(DRAWINGS_MISSING_ERROR)
+            }
+            if (o.underFiles?.has(key) && !drawings!.grass) {
+              throw new ExportError(DRAWINGS_MISSING_ERROR)
+            }
           }
           return plan
         })
@@ -172,8 +180,17 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
         geometry: loupeGeometry(l, frameW, frameH),
         timing: drawings!.timings[l.index]
       }))
+    const layers = new Map<string, { over: boolean; under: boolean }>()
+    for (const key of plan.keys) {
+      layers.set(key, {
+        over: overlays.files.has(key),
+        under: overlays.underFiles?.has(key) ?? false
+      })
+    }
     const graph: GraphPlan = planDrawn({
       loupes,
+      layers,
+      grass: drawings?.grass,
       ranges: plan.ranges,
       segments: plan.segments,
       fps,
@@ -192,7 +209,9 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
         ffmpegPath,
         args: buildDrawnArgs({
           input: inputPath,
-          pngPaths: graph.inputKeys.map((k) => overlays.files.get(k)!),
+          pngPaths: graph.inputs.map((x) =>
+            x.layer === 'under' ? overlays.underFiles!.get(x.key)! : overlays.files.get(x.key)!
+          ),
           output: outputPart,
           scriptPath,
           offset: graph.offset,

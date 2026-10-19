@@ -5,6 +5,7 @@ import { AnnotationListSchema } from './annotations'
 import { MAX_CALIBRATIONS, CalibrationListSchema } from './pitch/calibration'
 import { EpisodeListSchema } from './episodes'
 import type { VideoSource } from './ipc-contract'
+import { GrassKeySchema } from './grassKey'
 import { TagDefSchema } from './settings'
 
 export const PROJECT_FORMAT = 'flowanalyzer-project'
@@ -100,7 +101,9 @@ export const ProjectSchema = z
     /** Теги, известные на момент сохранения (настройки + теги, использованные в эпизодах). */
     tags: z.array(TagDefSchema).max(MAX_PROJECT_TAGS),
     ui: UiSchema.optional(),
-    meta: ProjectMetaSchema.optional()
+    meta: ProjectMetaSchema.optional(),
+    /** Настройки ключа «газон» (рисунки под игроками). В старых файлах нет — действуют настройки по умолчанию. */
+    grassKey: GrassKeySchema.optional()
   })
   .superRefine((p, ctx) => {
     const unique = (key: 'annotations' | 'calibrations' | 'episodes' | 'tags'): void => {
@@ -137,6 +140,7 @@ export const ProjectSaveRequestSchema = z.object({
   fpsSource: z.enum(FPS_SOURCES).optional(),
   duration: z.number().gt(0).max(1e7).optional(),
   meta: ProjectMetaSchema.optional(),
+  grassKey: GrassKeySchema.optional(),
   /** Файл, в который проект уже сохранялся (null — ещё нет). */
   currentPath: path.nullable()
 })
@@ -161,6 +165,8 @@ export interface LoadedProject {
   fpsSource?: (typeof FPS_SOURCES)[number]
   /** Описание проекта; null — в файле его нет (имя берётся из имени файла). */
   meta: ProjectMeta | null
+  /** Ключ «газон»; null — в файле его нет. */
+  grassKey: Project['grassKey'] | null
   /** Есть несохранённые изменения (восстановление из автосохранения, перепривязка видео). */
   dirty: boolean
   /** Неблокирующее предупреждение (например, размер видео отличается от сохранённого). */

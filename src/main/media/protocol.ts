@@ -14,7 +14,14 @@ export function registerMediaScheme(): void {
   protocol.registerSchemesAsPrivileged([
     {
       scheme: MEDIA_SCHEME,
-      privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true }
+      // corsEnabled: видео читается и в WebGL (ключ «газон»), а для этого элемент <video crossorigin> должен получить CORS-ответ.
+      privileges: {
+        standard: true,
+        secure: true,
+        stream: true,
+        supportFetchAPI: true,
+        corsEnabled: true
+      }
     }
   ])
 }
@@ -56,7 +63,9 @@ export async function handleMediaRequest(request: Request): Promise<Response> {
   const headers: Record<string, string> = {
     'Content-Type': mimeForPath(entry.path),
     'Accept-Ranges': 'bytes',
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store',
+    // Отдаём только окну приложения (страница загружена из файла, её «источник» — null); сами файлы выдаёт реестр.
+    'Access-Control-Allow-Origin': '*'
   }
   let status = 200
   let start = 0

@@ -5,6 +5,7 @@
 //   node scripts/make-fixtures.mjs cfr      # только cfr25.mp4 и cfr30.webm (нужен лишь ffmpeg-static)
 //   node scripts/make-fixtures.mjs chrome   # только sample.webm, sample.mp4, broken.mp4 (нужен Google Chrome)
 //   node scripts/make-fixtures.mjs pitch    # только pitch.mp4 и pitch.json (нужны Google Chrome и ffmpeg-static)
+//   node scripts/make-fixtures.mjs players  # только players.mp4 (нужен лишь ffmpeg-static)
 //
 // 1) cfr25.mp4 (H.264, 25 к/с) и cfr30.webm (VP8, 30 к/с): ровная частота кадров, на каждом кадре крупно
 //    нарисован его номер (drawtext). Делает ffmpeg из пакета ffmpeg-static (devDependency).
@@ -12,6 +13,9 @@
 //    поворот, фокус известны) проецирует газон, линии разметки, ворота и игроков на кадр 1280×720; кадр рисуется в
 //    Chrome на canvas и кодируется ffmpeg в 3-секундное видео 25 к/с. В pitch.json лежит точная гомография
 //    «поле (м) → кадр (0..1)» и координаты опорных точек — по ним тесты проверяют разметку и рисунки на поле.
+// 4) players.mp4: газон с шумом и полосами, белая линия и три крупных «игрока» (красный, синий, жёлтый) — для
+//    проверки рисунков «под игроками» (ключ по газону). 640×360, 25 к/с, 3 секунды. Координаты игроков описаны
+//    в PLAYERS ниже: по ним тесты знают, где игрок, а где трава.
 // 2) sample.*: в странице рисуется 6-секундная анимация на canvas, canvas.captureStream() пишется через
 //    MediaRecorder в Chrome (Playwright, channel: 'chrome'). Частота кадров там НЕ постоянная — это нужно,
 //    чтобы проверять поведение на «неидеальных» файлах. WebM из MediaRecorder не содержит длительности,
@@ -533,11 +537,58 @@ async function makePitch() {
   }
 }
 
+// ---------- Газон с игроками ----------
+export const PLAYERS = {
+  frame: { w: 640, h: 360 },
+  grass: '#2a7d3e',
+  stripe: '#2f8c47',
+  line: { y: 300, h: 4, color: '#f2f4ee' },
+  // Тело (x, y — левый верхний угол) и голова над ним.
+  players: [
+    { name: 'red', x: 120, y: 130, w: 44, h: 120, color: '#d62839' },
+    { name: 'blue', x: 300, y: 150, w: 44, h: 110, color: '#1d4ed8' },
+    { name: 'yellow', x: 480, y: 110, w: 44, h: 130, color: '#f2c200' }
+  ],
+  head: { h: 22, color: '#e8b896' }
+}
+
+function makePlayers() {
+  const ffmpeg = createRequire(import.meta.url)('ffmpeg-static')
+  if (!ffmpeg) throw new Error('ffmpeg-static не нашёл ffmpeg для этой системы')
+  const { frame, grass, stripe, line, players, head } = PLAYERS
+  const box = (x, y, w, h, color) => `drawbox=x=${x}:y=${y}:w=${w}:h=${h}:color=${color}:t=fill`
+  const filters = []
+  // Светлые полосы газона: цвет тот же, меняется яркость (как у настоящего поля).
+  for (let x = 0; x < frame.w; x += 160) filters.push(box(x, 0, 80, frame.h, stripe))
+  filters.push(box(0, line.y, frame.w, line.h, line.color))
+  for (const p of players) {
+    filters.push(box(p.x, p.y, p.w, p.h, p.color))
+    filters.push(box(p.x + p.w / 4, p.y - head.h, p.w / 2, head.h, head.color))
+  }
+  // Шум и сжатие: края и трава — как у настоящего видео, а не идеальные.
+  filters.push('noise=alls=6:allf=u:all_seed=5', 'format=yuv420p')
+  execFileSync(
+    ffmpeg,
+    [
+      ...['-y', '-hide_banner', '-loglevel', 'error'],
+      ...['-f', 'lavfi', '-i', `color=c=${grass}:s=${frame.w}x${frame.h}:r=25:d=3`],
+      ...['-vf', filters.join(',')],
+      ...['-c:v', 'libx264', '-profile:v', 'main', '-preset', 'slow', '-crf', '18', '-g', '25'],
+      ...['-r', '25', '-an', '-movflags', '+faststart', join(OUT, 'players.mp4')]
+    ],
+    { stdio: 'inherit' }
+  )
+  writeFileSync(join(OUT, 'players.json'), JSON.stringify(PLAYERS, null, 2) + '\n', 'utf8')
+  console.log(`players.mp4: ${(statSync(join(OUT, 'players.mp4')).size / 1024).toFixed(0)} КБ`)
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true })
   const mode = process.argv[2] ?? 'all'
   if (mode === 'pitch') return makePitch()
+  if (mode === 'players') return makePlayers()
   if (mode === 'all' || mode === 'cfr') makeCfr()
+  if (mode === 'all') makePlayers()
   if (mode === 'cfr') return
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
   try {

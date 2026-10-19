@@ -1,4 +1,6 @@
+import { canBeUnder, isUnderPlayers } from '../../../../shared/annotations'
 import { ru } from '../../i18n/ru'
+import { GrassMenu } from '../under/GrassMenu'
 import { useKeyHint } from '../commands/useKeys'
 import { redoAny, undoAny, useCanRedo, useCanUndo } from '../history/unified'
 import { DashedLineIcon, PitchIcon, RedoIcon, SolidLineIcon, UndoIcon } from '../../ui/icons'
@@ -49,6 +51,9 @@ function PitchControls(): React.JSX.Element {
   const setOnPitch = usePitchStore((s) => s.setOnPitch)
   const hint = useKeyHint('pitch:calibrate')
   const stale = active ? Math.abs(active.offset) > CALIBRATION_VALIDITY : false
+  const note = active
+    ? ru.pitch.active(formatTime(active.calibration.time, { tenths: true }), active.offset)
+    : ru.pitch.activeNone
   return (
     <>
       <span className="style-bar__sep" />
@@ -84,13 +89,49 @@ function PitchControls(): React.JSX.Element {
         className={stale ? 'style-bar__note style-bar__note--warn' : 'style-bar__note'}
         data-testid="pitch-active"
         data-stale={stale ? 'true' : 'false'}
-        title={stale ? ru.pitch.stale : undefined}
+        title={stale ? ru.pitch.stale : note}
       >
-        {active
-          ? ru.pitch.active(formatTime(active.calibration.time, { tenths: true }), active.offset)
-          : ru.pitch.activeNone}
+        {note}
       </span>
     </>
+  )
+}
+
+/** «Под игроками»: у выбранного рисунка — его значение, иначе — для новых рисунков (отдельно на поле и на экране). */
+function UnderToggle(): React.JSX.Element {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  const underNew = useAnnotationsStore((s) => s.underNew)
+  const setProps = useAnnotationsStore((s) => s.setProps)
+  const setUnderNew = useAnnotationsStore((s) => s.setUnderNew)
+  const onPitch = usePitchStore((s) => s.onPitch)
+  const active = useActiveCalibration()
+  const type = selected ? selected.type : tool
+  const space: 'pitch' | 'screen' = selected
+    ? selected.space === 'pitch'
+      ? 'pitch'
+      : 'screen'
+    : tool === 'ruler' || (onPitch && active)
+      ? 'pitch'
+      : 'screen'
+  const enabled = type !== 'select' && canBeUnder(type)
+  const value = selected ? isUnderPlayers(selected) : underNew[space]
+  return (
+    <button
+      type="button"
+      className={value && enabled ? 'chip-btn chip-btn--active' : 'chip-btn'}
+      disabled={!enabled}
+      aria-pressed={value && enabled}
+      title={ru.grass.underPlayersHint}
+      data-testid="under-toggle"
+      onClick={(e) => {
+        if (selected) setProps(selected.id, { underPlayers: !value })
+        else setUnderNew(space, !value)
+        e.currentTarget.blur()
+      }}
+    >
+      {ru.grass.underPlayers}
+    </button>
   )
 }
 
@@ -184,6 +225,9 @@ export function StyleBar(): React.JSX.Element {
         Aa
       </button>
       <PitchControls />
+      <span className="style-bar__sep" />
+      <UnderToggle />
+      <GrassMenu />
       <span className="style-bar__spacer" />
       <button
         type="button"

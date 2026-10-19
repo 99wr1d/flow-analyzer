@@ -9,7 +9,14 @@
 //   стоп-кадр: один кадр «основы» (trim) + overlay + tpad (клон кадра) на нужное время;
 //   звук: atrim тех же кусков; на стоп-кадре — тишина той же длины (anullsrc), поэтому звук и картинка не расходятся;
 //   всё вместе — concat.
+//
+// Рисунки «под игроками» (этап 16a): у набора рисунков может быть вторая картинка — слой «under». Он накладывается
+// на копию кадра, а в кадр попадает только там, где виден газон (маска из chromakey, см. grassFilter.ts):
+//   [кадр] → split=3: основа, копия под рисунки, источник маски; копия + PNG «под игроками» (overlay, enable);
+//   основа + копия по маске — maskedmerge. Этот шаг идёт ДО лупы (линза увеличивает уже готовую картинку),
+//   а PNG «поверх всего» — после лупы. На стоп-кадре то же самое делается над одним кадром.
 import type { Timing } from '../../shared/annotations'
+import type { GrassKeyValues } from '../../shared/grassKey'
 import {
   parseKey,
   type FreezePoint,
@@ -18,6 +25,7 @@ import {
 } from '../../shared/exportOverlays'
 import type { LoupeGeometry } from '../../shared/tools/loupe'
 import { sec } from './args'
+import { grassMaskLines } from './grassFilter'
 import { loupeLines } from './loupe'
 
 /** Чётные размеры кадра: yuv420p иначе не кодируется. */
@@ -48,6 +56,16 @@ export interface GraphInput {
   pngSize?: { w: number; h: number } | null
   /** Лупы: содержимое линзы делает ffmpeg, а рамку рисует PNG. */
   loupes?: readonly GraphLoupe[]
+  /** Какие слои есть у набора рисунков (по ключу). Нет записи — только «поверх всего» (так было до этапа 16a). */
+  layers?: ReadonlyMap<string, { over: boolean; under: boolean }>
+  /** Ключ «газон»: обязателен, если у какого-то набора есть слой «под игроками». */
+  grass?: GrassKeyValues
+}
+
+/** Входная картинка графа: слой набора рисунков. */
+export interface GraphImage {
+  key: string
+  layer: 'over' | 'under'
 }
 
 export interface GraphPlan {
@@ -58,6 +76,8 @@ export interface GraphPlan {
   script: string
   /** Ключи наборов рисунков: PNG с номером i в этом списке — вход ffmpeg номер i + 1. */
   inputKeys: string[]
+  /** То же с указанием слоя (ключ может встретиться дважды: «поверх всего» и «под игроками»). */
+  inputs: GraphImage[]
   /** Сколько секунд будет в готовом файле. */
   outputSeconds: number
 }
@@ -121,34 +141,51 @@ export function planDrawn(input: GraphInput): GraphPlan {
   const cuts = allPieces.filter((p) => p.kind === 'cut')
   const freezes = allPieces.flatMap((p) => (p.kind === 'freeze' ? [p.freeze] : []))
 
-  // Входы-картинки: по одному на ключ. Ключ нужен основной цепочке (сегменты) и/или стоп-кадрам.
-  const inputKeys: string[] = []
+  // Входы-картинки: по одному на ключ и слой. Картинка нужна основной цепочке (сегменты) и/или стоп-кадрам.
+  const inputs: GraphImage[] = []
   const usage = new Map<string, { chain: boolean; freezes: number[] }>()
-  const slotFor = (key: string): { chain: boolean; freezes: number[] } => {
-    let u = usage.get(key)
+  const slotId = (key: string, layer: GraphImage['layer']): string => `${layer}:${key}`
+  const layersOf = (key: string): GraphImage['layer'][] => {
+    const l = input.layers?.get(key) ?? { over: true, under: false }
+    return [...(l.over ? (['over'] as const) : []), ...(l.under ? (['under'] as const) : [])]
+  }
+  const slotFor = (
+    key: string,
+    layer: GraphImage['layer']
+  ): { chain: boolean; freezes: number[] } => {
+    const id = slotId(key, layer)
+    let u = usage.get(id)
     if (!u) {
       u = { chain: false, freezes: [] }
-      usage.set(key, u)
-      inputKeys.push(key)
+      usage.set(id, u)
+      inputs.push({ key, layer })
     }
     return u
   }
   const windows = new Map<string, OverlaySegment[]>()
   for (const s of segments) {
-    slotFor(s.key).chain = true
+    for (const layer of layersOf(s.key)) slotFor(s.key, layer).chain = true
     windows.set(s.key, [...(windows.get(s.key) ?? []), s])
   }
-  freezes.forEach((f, j) => slotFor(f.key).freezes.push(j))
+  freezes.forEach((f, j) => {
+    for (const layer of layersOf(f.key)) slotFor(f.key, layer).freezes.push(j)
+  })
+  const grass = input.grass
+  if (inputs.some((x) => x.layer === 'under') && !grass) {
+    throw new Error('Нет настроек ключа «газон» для рисунков под игроками')
+  }
+  const inputKeys = inputs.map((x) => x.key)
 
   // Подготовка картинок: split, если одна картинка нужна в нескольких местах, и масштаб, если размеры не совпали.
   const needScale =
     input.videoSize &&
     input.pngSize &&
     (input.videoSize.w !== input.pngSize.w || input.videoSize.h !== input.pngSize.h)
-  const chainPad = new Map<string, string>()
-  const freezePad = new Map<string, string>() // `${key}#${j}` → метка
-  inputKeys.forEach((key, i) => {
-    const u = usage.get(key)!
+  const chainPad = new Map<string, string>() // слот → метка
+  const freezePad = new Map<string, string>() // `${слот}#${j}` → метка
+  inputs.forEach(({ key, layer }, i) => {
+    const slot = slotId(key, layer)
+    const u = usage.get(slot)!
     const uses = (u.chain ? 1 : 0) + u.freezes.length
     const src = `[${i + 1}:v]`
     const labels: string[] = []
@@ -156,8 +193,8 @@ export function planDrawn(input: GraphInput): GraphPlan {
       labels.push(label)
       return label
     }
-    if (u.chain) chainPad.set(key, take(`[pc${i}]`))
-    u.freezes.forEach((j) => freezePad.set(`${key}#${j}`, take(`[pf${i}_${j}]`)))
+    if (u.chain) chainPad.set(slot, take(`[pc${i}]`))
+    u.freezes.forEach((j) => freezePad.set(`${slot}#${j}`, take(`[pf${i}_${j}]`)))
     const pre = needScale
       ? `scale=${input.videoSize!.w}:${input.videoSize!.h},format=rgba,`
       : 'format=rgba,'
@@ -181,6 +218,29 @@ export function planDrawn(input: GraphInput): GraphPlan {
   const rangeEnds = ranges.map((r) => r.end)
   const windowEnd = (s: OverlaySegment): number =>
     rangeEnds.some((e) => Math.abs(e - s.end) < 1e-6) ? s.end + frame : s.end
+  /** Выражение enable: набор рисунков виден на всех своих сегментах. */
+  const windowsExpr = (key: string): string =>
+    (windows.get(key) ?? [])
+      .map(
+        (s) => `gte(t,${num(s.start - offset - shift)})*lt(t,${num(windowEnd(s) - offset - shift)})`
+      )
+      .join('+')
+  // Рисунки «под игроками»: копия кадра с картинками «under» вливается в кадр по маске газона (до лупы).
+  const underChain = inputs.filter((x) => x.layer === 'under' && windows.has(x.key))
+  if (underChain.length > 0 && grass) {
+    lines.push(`${main}split=3[gb][gd][gk]`)
+    lines.push(...grassMaskLines({ id: 'g', input: '[gk]', output: '[gm]', key: grass }))
+    let drawn = '[gd]'
+    underChain.forEach((x, k) => {
+      const out = `[gx${k}]`
+      lines.push(
+        `${drawn}${chainPad.get(slotId(x.key, 'under'))}overlay=x=0:y=0:eof_action=repeat:enable='${windowsExpr(x.key)}'${out}`
+      )
+      drawn = out
+    })
+    lines.push(`[gb]${drawn}[gm]maskedmerge[gr]`)
+    main = '[gr]'
+  }
   // Лупы «Отрезок»: линза накладывается на основной поток раньше картинок с рисунками (рамка ложится поверх неё).
   const loupes = input.loupes ?? []
   let lensCount = 0
@@ -203,16 +263,10 @@ export function planDrawn(input: GraphInput): GraphPlan {
     lensCount += 1
   }
   let n = 0
-  for (const key of inputKeys) {
-    const w = windows.get(key)
-    if (!w) continue
-    const expr = w
-      .map(
-        (s) => `gte(t,${num(s.start - offset - shift)})*lt(t,${num(windowEnd(s) - offset - shift)})`
-      )
-      .join('+')
+  for (const { key, layer } of inputs) {
+    if (layer !== 'over' || !windows.has(key)) continue
     lines.push(
-      `${main}${chainPad.get(key)}overlay=x=0:y=0:eof_action=repeat:enable='${expr}'[ov${n}]`
+      `${main}${chainPad.get(slotId(key, 'over'))}overlay=x=0:y=0:eof_action=repeat:enable='${windowsExpr(key)}'[ov${n}]`
     )
     main = `[ov${n}]`
     n += 1
@@ -263,7 +317,8 @@ export function planDrawn(input: GraphInput): GraphPlan {
       const j = freezeIndex
       const from = rel(f.time - frame)
       const to = rel(f.time)
-      const pad = freezePad.get(`${f.key}#${j}`)!
+      const overPad = freezePad.get(`${slotId(f.key, 'over')}#${j}`)
+      const underPad = freezePad.get(`${slotId(f.key, 'under')}#${j}`)
       // Кадр показывается свой обычный кадр и ещё seconds секунд (целое число кадров): видео удлиняется на seconds.
       // Число кадров задаётся явно (end_frame): по времени граница плавала на кадр.
       const frames = Math.round(f.seconds * fps) + 1
@@ -271,9 +326,19 @@ export function planDrawn(input: GraphInput): GraphPlan {
       lines.push(
         `${freezeSrc[j]}trim=start=${from}:end=${to},setpts=PTS-STARTPTS,trim=end_frame=1[fz${j}]`
       )
+      let current = `[fz${j}]`
+      // Рисунки «под игроками» на стоп-кадре: тот же приём над одним кадром.
+      if (underPad && grass) {
+        lines.push(`${current}split=3[fgb${j}][fgd${j}][fgk${j}]`)
+        lines.push(
+          ...grassMaskLines({ id: `fg${j}`, input: `[fgk${j}]`, output: `[fgm${j}]`, key: grass })
+        )
+        lines.push(`[fgd${j}]${underPad}overlay=x=0:y=0:eof_action=repeat[fgx${j}]`)
+        lines.push(`[fgb${j}][fgx${j}][fgm${j}]maskedmerge[fgr${j}]`)
+        current = `[fgr${j}]`
+      }
       // Лупы стоп-кадра: те рисунки набора, что являются лупами.
       const members = parseKey(f.key) ?? []
-      let current = `[fz${j}]`
       loupes
         .filter((l) => members.includes(l.index))
         .forEach((l, k) => {
@@ -290,7 +355,7 @@ export function planDrawn(input: GraphInput): GraphPlan {
           current = `[${id}o]`
         })
       lines.push(
-        `${current}${pad}overlay=x=0:y=0:eof_action=repeat,tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
+        `${current}${overPad ? `${overPad}overlay=x=0:y=0:eof_action=repeat,` : ''}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
       )
       if (audio) {
         const silence = sec((frames - 1) / fps)
@@ -316,5 +381,5 @@ export function planDrawn(input: GraphInput): GraphPlan {
     `${outLabels.join('')}concat=n=${total}:v=1:a=${audio ? 1 : 0}${audio ? '[cv][outa]' : '[cv]'}`
   )
   lines.push(`[cv]${EVEN_SIZE}[outv]`)
-  return { offset, span, script: lines.join(';\n') + '\n', inputKeys, outputSeconds }
+  return { offset, span, script: lines.join(';\n') + '\n', inputKeys, inputs, outputSeconds }
 }

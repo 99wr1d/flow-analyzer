@@ -1,6 +1,7 @@
 // Экспорт клипов: запрос, прогресс и результат. Общее для main, preload и интерфейса.
 // Пути к файлам в этом контракте не передаются: видео задаётся идентификатором, папку выбирает пользователь в диалоге main.
 import { z } from 'zod'
+import { GrassKeyValuesSchema } from './grassKey'
 import { LOUPE_ZOOMS, MAX_LOUPE_RADIUS, MIN_LOUPE_RADIUS, TimingSchema } from './annotations'
 
 export const MAX_EXPORT_CLIPS = 500
@@ -43,12 +44,17 @@ export const ExportDrawingsSchema = z.object({
   fps: z.number().finite().gt(0).max(1000),
   timings: z.array(TimingSchema).max(MAX_EXPORT_DRAWINGS),
   /** Лупы среди рисунков. Старые запросы поля не имеют. */
-  loupes: z.array(ExportLoupeSchema).max(MAX_EXPORT_LOUPES).default([])
+  loupes: z.array(ExportLoupeSchema).max(MAX_EXPORT_LOUPES).default([]),
+  /** Ключ «газон» для рисунков «под игроками» (цвет уже определён интерфейсом). Нужен, если среди картинок есть слой «under». */
+  grass: GrassKeyValuesSchema.optional()
 })
 
 /** Ограничения на картинки с рисунками (проверяет main). */
 export const OVERLAY_LIMITS = {
-  maxImages: 300,
+  /** Картинок всего: на каждый набор рисунков до двух (поверх кадра и под игроками). */
+  maxImages: 600,
+  /** Различных наборов рисунков. */
+  maxKeys: 300,
   maxImageBytes: 8 * 1024 * 1024,
   maxTotalBytes: 300 * 1024 * 1024,
   minSide: 16,
@@ -56,13 +62,18 @@ export const OVERLAY_LIMITS = {
   maxKeyLength: 100_000
 } as const
 
+export const OVERLAY_LAYERS = ['over', 'under'] as const
+export type OverlayLayer = (typeof OVERLAY_LAYERS)[number]
+
 export const OverlayImageSchema = z.object({
   /** Набор рисунков на картинке: номера через дефис («3-7-12»), см. exportOverlays.ts. */
   key: z
     .string()
     .max(OVERLAY_LIMITS.maxKeyLength)
     .regex(/^\d+(-\d+)*$/),
-  data: z.instanceof(Uint8Array)
+  data: z.instanceof(Uint8Array),
+  /** Слой: «over» — поверх всего, «under» — под игроками (ключ по газону). Старые запросы — «over». */
+  layer: z.enum(OVERLAY_LAYERS).default('over')
 })
 export const StageOverlaysSchema = z.object({
   width: z.number().int().min(OVERLAY_LIMITS.minSide).max(OVERLAY_LIMITS.maxSide),

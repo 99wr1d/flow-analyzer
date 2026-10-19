@@ -5,6 +5,7 @@ import type { TagDef } from '../../../../shared/settings'
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
+import { savedGrassKey } from '../under/grassStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
 import { getCurrentTime } from '../player/videoElement'
 import { useSettingsStore } from '../settings/settingsStore'
@@ -43,6 +44,7 @@ export function buildSaveRequest(currentPath: string | null): ProjectSaveRequest
   const meta = useProjectStore.getState().meta
   const calibrations = useCalibrationsStore.getState().items
   const known = new Set(calibrations.map((c) => c.id))
+  const grassKey = savedGrassKey()
   return {
     videoId: player.source.id,
     // Рисунки на поле без разметки показать нечем — в файл не пишем.
@@ -56,6 +58,7 @@ export function buildSaveRequest(currentPath: string | null): ProjectSaveRequest
     ...(knownFps ? { fps: player.fps, fpsSource: player.fpsSource } : {}),
     ...(player.status === 'ready' && player.duration > 0 ? { duration: player.duration } : {}),
     ...(meta ? { meta } : {}),
+    ...(grassKey ? { grassKey } : {}),
     currentPath
   }
 }

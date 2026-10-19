@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Annotation } from '../../../../shared/annotations'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
-import { buildOverlaySvg } from './renderOverlays'
+import { buildOverlaySvg, layersFor } from './renderOverlays'
 
 const style = { color: '#ff3b30', width: 0.01, dash: 'solid' as const }
 const timing = { mode: 'range' as const, start: 0, duration: 3 }
@@ -102,5 +102,127 @@ describe('buildOverlaySvg: рисунки как SVG в размер видео'
       expect(near).not.toContain('opacity="0.5"')
       expect(far).toContain('opacity="0.5"')
     })
+  })
+})
+
+describe('слои «под игроками»: что попадает на какую картинку', () => {
+  const cal = sampleCalibration()
+  const ground = { space: 'pitch' as const, calibrationId: cal.id }
+  const frameTiming = { mode: 'frame' as const, start: 12, freezeSeconds: 3 }
+  const id = (n: number): string => `3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c${n}`
+  const ring: Annotation = {
+    id: id(31),
+    ...ground,
+    type: 'ring',
+    center: { x: 8, y: 34 },
+    radius: 1.5,
+    style,
+    timing: frameTiming
+  }
+  const ruler: Annotation = {
+    id: id(32),
+    ...ground,
+    type: 'ruler',
+    p1: { x: 0, y: 13.84 },
+    p2: { x: 0, y: 54.16 },
+    style,
+    timing: frameTiming
+  }
+  const spot: Annotation = {
+    id: id(33),
+    ...ground,
+    type: 'pspot',
+    center: { x: 8, y: 34 },
+    radius: 2.5,
+    dim: 0.5,
+    beam: true,
+    style,
+    timing: frameTiming
+  }
+  const zone: Annotation = {
+    id: id(34),
+    ...ground,
+    type: 'pzone',
+    points: [
+      { x: 2, y: 20 },
+      { x: 12, y: 20 },
+      { x: 12, y: 30 },
+      { x: 2, y: 30 }
+    ],
+    opacity: 0.3,
+    showArea: true,
+    style,
+    timing: frameTiming
+  }
+  const under = (a: Annotation, size = 1280): string =>
+    buildOverlaySvg([a], size, 720, [cal], { part: 'under' })
+  const over = (a: Annotation, size = 1280): string =>
+    buildOverlaySvg([a], size, 720, [cal], { part: 'over' })
+
+  it('кольцо: на «под игроками» — диск и контур, на «поверх» ничего из рисунка', () => {
+    expect(under(ring)).toContain('data-part="disc"')
+    expect(under(ring)).toContain('data-part="body"')
+    expect(over(ring)).not.toContain('data-part="disc"')
+    expect(over(ring)).not.toContain('data-part="body"')
+  })
+
+  it('линейка: линия — под игроками, подпись «м» — всегда поверх', () => {
+    expect(under(ruler)).toContain('data-part="body"')
+    expect(under(ruler)).not.toContain('ruler-label')
+    expect(over(ruler)).toContain('ruler-label')
+    expect(over(ruler)).toContain('40.3 м')
+    expect(over(ruler)).not.toContain('data-part="body"')
+  })
+
+  it('зона: заливка и контур — под игроками, подпись площади — поверх', () => {
+    expect(under(zone)).toContain('data-part="fill"')
+    expect(under(zone)).not.toContain('area-label')
+    expect(over(zone)).toContain('area-label')
+    expect(over(zone)).not.toContain('data-part="fill"')
+  })
+
+  it('прожектор на траве: затемнение и луч поверх (не ключуются), кольцо и диск — под игроками', () => {
+    const u = under(spot)
+    const o = over(spot)
+    expect(u).toContain('data-part="disc"')
+    expect(u).not.toContain('spotlight-dim')
+    expect(u).not.toContain('data-part="beam"')
+    expect(o).toContain('spotlight-dim')
+    expect(o).toContain('data-part="beam"')
+    expect(o).not.toContain('data-part="disc"')
+  })
+
+  it('рисунок на экране по умолчанию целиком на «поверх»; положенный под игроков — на «под игроками»', () => {
+    const arrowUnder: Annotation = { ...arrow, underPlayers: true }
+    expect(buildOverlaySvg([arrow], 640, 360, [], { part: 'under' })).not.toContain('<line')
+    expect(buildOverlaySvg([arrow], 640, 360, [], { part: 'over' })).toContain('<line')
+    expect(buildOverlaySvg([arrowUnder], 640, 360, [], { part: 'under' })).toContain('<line')
+    expect(buildOverlaySvg([arrowUnder], 640, 360, [], { part: 'over' })).not.toContain('<line')
+    // Подпись на экране никогда не уходит вниз, даже если в файле стоит underPlayers.
+    const textUnder = { ...text, underPlayers: true } as Annotation
+    expect(buildOverlaySvg([textUnder], 640, 360, [], { part: 'under' })).not.toContain('Игрок')
+    expect(buildOverlaySvg([textUnder], 640, 360, [], { part: 'over' })).toContain('Игрок')
+  })
+
+  it('масштаб растра: размер картинки больше, система координат прежняя', () => {
+    const svg = buildOverlaySvg([ring], 640, 360, [cal], { part: 'under', scale: 2 })
+    expect(svg).toContain('width="1280" height="720"')
+    expect(svg).toContain('viewBox="0 0 640 360"')
+  })
+
+  it('layersFor: какие слои нужны набору рисунков', () => {
+    expect(layersFor([arrow])).toEqual({ under: false, over: true })
+    expect(layersFor([ring])).toEqual({ under: true, over: false })
+    expect(layersFor([ring, arrow])).toEqual({ under: true, over: true })
+    // У линейки, зоны, связей и прожектора есть часть, которая всегда поверх.
+    expect(layersFor([ruler])).toEqual({ under: true, over: true })
+    expect(layersFor([zone])).toEqual({ under: true, over: true })
+    expect(layersFor([spot])).toEqual({ under: true, over: true })
+    expect(layersFor([text])).toEqual({ under: false, over: true })
+  })
+
+  it('порядок слоёв сохраняется: «поверх» содержит рисунки в порядке набора', () => {
+    const svg = buildOverlaySvg([arrow, ruler], 1280, 720, [cal], { part: 'over' })
+    expect(svg.indexOf('data-type="arrow"')).toBeLessThan(svg.indexOf('data-type="ruler"'))
   })
 })

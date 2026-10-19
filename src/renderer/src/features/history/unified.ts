@@ -6,6 +6,8 @@ import type { Episode } from '../../../../shared/episodes'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useEpisodesStore } from '../episodes/episodesStore'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
+import { useGrassStore } from '../under/grassStore'
+import type { GrassKey } from '../../../../shared/grassKey'
 import { usePitchStore } from '../pitch/pitchStore'
 
 export type HistoryKind = 'annotations' | 'episodes' | 'calibrations'
@@ -139,6 +141,7 @@ export function resetWork(): void {
     useAnnotationsStore.getState().reset()
     useEpisodesStore.getState().reset()
     useCalibrationsStore.getState().reset()
+    useGrassStore.getState().reset()
     // Недоделанная разметка поля относилась к прежнему видео.
     usePitchStore.getState().closeDraft()
   } finally {
@@ -151,7 +154,8 @@ export function resetWork(): void {
 export function loadWork(
   annotations: Annotation[],
   episodes: Episode[],
-  calibrations: Calibration[] = []
+  calibrations: Calibration[] = [],
+  grassKey: GrassKey | null = null
 ): void {
   busy = true
   try {
@@ -162,6 +166,7 @@ export function loadWork(
       .load(annotations.filter((a) => a.space !== 'pitch' || known.has(a.calibrationId)))
     useEpisodesStore.getState().load(episodes)
     useCalibrationsStore.getState().load(calibrations)
+    useGrassStore.getState().load(grassKey)
     usePitchStore.getState().closeDraft()
   } finally {
     busy = false

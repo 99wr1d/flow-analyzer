@@ -5,6 +5,7 @@ import { UNTITLED_PROJECT } from '../../../../shared/project'
 import { usePlayerStore } from '../../store/playerStore'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
+import { effectiveKey, ensureGrassEstimate, grassValues, useGrassStore } from '../under/grassStore'
 import { sortEpisodes, useEpisodesStore } from '../episodes/episodesStore'
 import { getVideoElement } from '../player/videoElement'
 import { useProjectStore } from '../project/projectStore'
@@ -15,7 +16,7 @@ import { chooseEpisodes, parsePadding } from './selection'
 
 const UNKNOWN_ERROR = 'Не удалось выполнить экспорт'
 export const DRAWINGS_ERRORS = {
-  tooMany: `Слишком много разных наборов рисунков для одного экспорта (больше ${OVERLAY_LIMITS.maxImages}). Экспортируйте по частям или отключите «С рисунками»`,
+  tooMany: `Слишком много разных наборов рисунков для одного экспорта (больше ${OVERLAY_LIMITS.maxKeys}). Экспортируйте по частям или отключите «С рисунками»`,
   noVideo: 'Не удалось определить размер видео для рисунков. Откройте видео заново',
   tooBig: 'Видео слишком большое, чтобы нанести на него рисунки. Отключите «С рисунками»',
   render:
@@ -115,8 +116,9 @@ async function prepareDrawings(
   plan: ExportPlan | null
 ): Promise<DrawingsRequest | { error: string } | 'cancelled' | null> {
   if (!plan) return null
-  if (plan.keys.length > OVERLAY_LIMITS.maxImages) return { error: DRAWINGS_ERRORS.tooMany }
+  if (plan.keys.length > OVERLAY_LIMITS.maxKeys) return { error: DRAWINGS_ERRORS.tooMany }
   const video = getVideoElement()
+  const source = usePlayerStore.getState().source
   const width = video?.videoWidth ?? 0
   const height = video?.videoHeight ?? 0
   if (!(width > 0 && height > 0)) return { error: DRAWINGS_ERRORS.noVideo }
@@ -140,13 +142,26 @@ async function prepareDrawings(
     const { token } = await window.api.stageExportOverlays({
       width,
       height,
-      images: images.map((i) => ({ key: i.key, data: i.data }))
+      images: images.map((i) => ({ key: i.key, data: i.data, layer: i.layer }))
     })
     if (prepareCancelled) return 'cancelled'
     const loupes = annotations.flatMap((a, index) =>
       a.type === 'loupe' ? [{ index, pos: a.pos, src: a.src, radius: a.radius, zoom: a.zoom }] : []
     )
-    return { token, fps, timings: annotations.map((a) => a.timing), loupes }
+    // Есть рисунки «под игроками»: ключ газона берётся из тех же настроек, что и на экране.
+    let grass: DrawingsRequest['grass']
+    if (images.some((i) => i.layer === 'under')) {
+      ensureGrassEstimate()
+      const grassState = useGrassStore.getState()
+      grass = grassValues(effectiveKey(grassState, source?.id))
+    }
+    return {
+      token,
+      fps,
+      timings: annotations.map((a) => a.timing),
+      loupes,
+      ...(grass ? { grass } : {})
+    }
   } catch (error) {
     if (error instanceof RenderCancelled) return 'cancelled'
     // Понятное сообщение от main (например, «слишком много рисунков») показываем как есть.

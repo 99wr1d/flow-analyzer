@@ -61,8 +61,10 @@ export interface Staged {
   dir: string
   width: number
   height: number
-  /** Ключ набора рисунков → путь к PNG. */
+  /** Ключ набора рисунков → путь к PNG слоя «поверх всего». */
   files: Map<string, string>
+  /** Ключ набора рисунков → путь к PNG слоя «под игроками». */
+  underFiles: Map<string, string>
 }
 
 export type StageResult = { ok: true; staged: Staged } | { ok: false; error: string }
@@ -84,8 +86,9 @@ export async function stageOverlays(
   const keys = new Set<string>()
   for (const image of images) {
     if (parseKey(image.key) === null) return { ok: false, error: STAGING_ERRORS.bad }
-    if (keys.has(image.key)) return { ok: false, error: STAGING_ERRORS.duplicate }
-    keys.add(image.key)
+    const slot = `${image.layer}:${image.key}`
+    if (keys.has(slot)) return { ok: false, error: STAGING_ERRORS.duplicate }
+    keys.add(slot)
     total += image.data.length
     if (total > OVERLAY_LIMITS.maxTotalBytes) return { ok: false, error: STAGING_ERRORS.total }
     const check = checkPng(image.data, { width, height })
@@ -97,15 +100,16 @@ export async function stageOverlays(
     await mkdir(tempRoot, { recursive: true })
     dir = await mkdtemp(join(tempRoot, STAGING_PREFIX))
     const files = new Map<string, string>()
+    const underFiles = new Map<string, string>()
     let n = 0
     for (const image of images) {
       n += 1
       const path = join(dir, `o${String(n).padStart(4, '0')}.png`)
       await writeFile(path, image.data)
-      files.set(image.key, path)
+      ;(image.layer === 'under' ? underFiles : files).set(image.key, path)
     }
     live.add(dir)
-    return { ok: true, staged: { token: randomUUID(), dir, width, height, files } }
+    return { ok: true, staged: { token: randomUUID(), dir, width, height, files, underFiles } }
   } catch {
     if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined)
     return { ok: false, error: STAGING_ERRORS.disk }
