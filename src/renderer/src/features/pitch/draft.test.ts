@@ -96,7 +96,12 @@ describe('черновик разметки: точки по порядку', ()
 
   it('перемещение точки не выходит за разумные границы', () => {
     const d = movePoint(placedDraft(), 0, { x: 9, y: -9 })
-    expect(d.points[0].image).toEqual({ x: 1.5, y: -0.5 })
+    expect(d.points[0].image).toEqual({ x: 2, y: -1 })
+    // Точка далеко за краем кадра, но в границах: не обрезается.
+    expect(movePoint(placedDraft(), 0, { x: -0.8, y: 1.7 }).points[0].image).toEqual({
+      x: -0.8,
+      y: 1.7
+    })
   })
 })
 

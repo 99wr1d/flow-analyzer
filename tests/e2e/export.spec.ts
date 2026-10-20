@@ -285,6 +285,40 @@ test.describe('экспорт клипов', () => {
     }
   })
 
+  test('качество: «Обычное» по умолчанию, «Меньше размер» запоминается и экспорт с ним проходит; в «Быстро» выбор скрыт', async () => {
+    const ctx = await launch()
+    const { app, win } = ctx
+    const out = makeOutDir()
+    try {
+      await openVideo(ctx, fixture('cfr25.mp4'))
+      await twoEpisodes(win)
+      await stubDialog(app, out)
+
+      await win.getByTestId('export-open').click()
+      await expect(win.getByTestId('export-quality-normal')).toBeChecked()
+      await win.getByTestId('export-quality-small').check()
+      await expect(win.getByTestId('export-quality-small')).toBeChecked()
+      // Быстрый режим не перекодирует: выбора качества нет.
+      await win.getByTestId('export-precision-fast').check()
+      await expect(win.getByTestId('export-quality-group')).toHaveCount(0)
+      await win.getByTestId('export-precision-precise').check()
+      await expect(win.getByTestId('export-quality-small')).toBeChecked()
+      await win.keyboard.press('Escape')
+
+      // При повторном открытии выбор сохранился.
+      await win.getByTestId('export-open').click()
+      await expect(win.getByTestId('export-quality-small')).toBeChecked()
+      await win.getByTestId('export-start').click()
+      await expect(win.getByTestId('export-result')).toHaveAttribute('data-status', 'done', {
+        timeout: 30_000
+      })
+      expect(readdirSync(out).sort()).toEqual(['001_Атака_00-01.mp4', '002_Удар_00-02.mp4'])
+      expect(countFrames(join(out, '001_Атака_00-01.mp4'))).toBe(25)
+    } finally {
+      await app.close()
+    }
+  })
+
   test('одна подборка: имя по умолчанию «<видео>_подборка.mp4», длительность ≈ сумме', async () => {
     const ctx = await launch()
     const { app, win } = ctx

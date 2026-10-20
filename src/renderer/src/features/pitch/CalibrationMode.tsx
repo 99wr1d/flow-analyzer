@@ -258,6 +258,10 @@ function Panel({
         </button>
       </div>
 
+      <p className="cal-hint" data-testid="cal-offframe-hint">
+        {ru.pitch.mode.offFrameHint}
+      </p>
+
       <p
         className={`cal-accuracy cal-accuracy--${accuracyKind}`}
         data-testid="cal-accuracy"
@@ -291,6 +295,9 @@ function Panel({
     </aside>
   )
 }
+
+/** Насколько зона щелчка выходит за поле разметки (ширина панели). */
+const PANEL_REACH = 320
 
 function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -453,6 +460,17 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
           onMouseDown={(e) => e.preventDefault()}
         >
           <rect x={0} y={0} width="100%" height="100%" fill="rgba(5,7,10,0.18)" />
+          {/* Зона щелчка шире окна: захватывает область под панелью, чтобы поставить точку далеко за кадром. */}
+          <rect
+            data-testid="cal-surface-extra"
+            style={{
+              x: -PANEL_REACH,
+              y: 0,
+              width: `calc(100% + ${PANEL_REACH * 2}px)`,
+              height: '100%'
+            }}
+            fill="transparent"
+          />
           {rect && preview && (
             <g transform={`translate(${rect.x} ${rect.y})`} pointerEvents="none">
               {preview.area && (

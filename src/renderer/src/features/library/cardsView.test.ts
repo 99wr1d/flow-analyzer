@@ -159,6 +159,8 @@ describe('подписи', () => {
     expect(durationText(5530)).toBe('1:32:10')
     expect(durationText(2703)).toBe('45:03')
     expect(durationText(undefined)).toBe('')
+    expect(durationText(290.8)).toBe('4:50')
+    expect(durationText(59.99)).toBe('0:59')
     expect(todayIso(new Date(2026, 4, 7))).toBe('2026-05-07')
   })
 })

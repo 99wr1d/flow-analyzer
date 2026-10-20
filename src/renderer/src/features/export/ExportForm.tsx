@@ -285,6 +285,28 @@ export function ExportForm(): React.JSX.Element {
             </div>
           ))}
 
+        {!fast && (
+          <fieldset className="export__group" data-testid="export-quality-group">
+            <legend className="export__legend">{ru.export.qualityLabel}</legend>
+            <Radio
+              name="export-quality"
+              checked={state.quality === 'normal'}
+              onChange={() => set({ quality: 'normal' })}
+              testId="export-quality-normal"
+              title={ru.export.qualityNormal}
+              hint={ru.export.qualityNormalHint}
+            />
+            <Radio
+              name="export-quality"
+              checked={state.quality === 'small'}
+              onChange={() => set({ quality: 'small' })}
+              testId="export-quality-small"
+              title={ru.export.qualitySmall}
+              hint={ru.export.qualitySmallHint}
+            />
+          </fieldset>
+        )}
+
         <fieldset className="export__group">
           <legend className="export__legend">{ru.export.drawingsLabel}</legend>
           <Check

@@ -229,6 +229,24 @@ export function resetEncoderProbeCache(): void {
   cache.clear()
 }
 
+export type EncoderQuality = 'normal' | 'small'
+
+/**
+ * Насколько «Меньше размер» грубее обычного качества: значение качества (CRF/CQ/QP) больше на 6 (x264: CRF 20 → 26,
+ * NVENC: CQ 23 → 29), это примерно вдвое меньше файл при заметно, но не сильно худшей картинке.
+ */
+export const SMALL_QUALITY_STEP = 6
+const QUALITY_FLAGS = new Set(['-crf', '-cq', '-global_quality', '-qp_i', '-qp_p', '-qp_b'])
+
+/** Профиль кодера с нужным качеством. «Обычное» возвращает профиль без изменений. */
+export function withQuality(profile: EncoderProfile, quality: EncoderQuality): EncoderProfile {
+  if (quality === 'normal') return profile
+  const videoArgs = profile.videoArgs.map((arg, i, all) =>
+    i > 0 && QUALITY_FLAGS.has(all[i - 1]) ? String(Number(arg) + SMALL_QUALITY_STEP) : arg
+  )
+  return { ...profile, videoArgs }
+}
+
 export type EncoderChoice = 'auto' | 'cpu'
 
 /** Кодер для задания: «Авто» — видеокарта, если она есть; «Процессор» — всегда x264. */

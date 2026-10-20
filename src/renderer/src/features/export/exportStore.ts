@@ -3,6 +3,7 @@ import { create } from 'zustand'
 import type {
   ExportEncoderChoice,
   ExportEncoderInfo,
+  ExportQuality,
   ExportMode,
   ExportPrecision,
   ExportProgress,
@@ -25,6 +26,8 @@ export interface ExportState {
   encoder: ExportEncoderChoice
   /** Что нашла проверка кодеров; null — проверка ещё идёт. */
   encoderInfo: ExportEncoderInfo | null
+  /** Качество видео: обычное или «Меньше размер». Помнится между открытиями окна. */
+  quality: ExportQuality
   /** «С рисунками»: null — по умолчанию (включено, если рисунки попадают в экспорт). */
   withDrawings: boolean | null
   /** Идёт подготовка картинок с рисунками (до запуска ffmpeg): сделано / всего. */
@@ -53,6 +56,7 @@ export const useExportStore = create<ExportState>()(() => ({
   precision: 'precise',
   encoder: 'auto',
   encoderInfo: null,
+  quality: 'normal',
   withDrawings: null,
   preparing: null,
   animPreparing: null,

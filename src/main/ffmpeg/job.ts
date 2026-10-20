@@ -27,6 +27,7 @@ import { planReadChunks } from './chunks'
 import { runChunked, type AudioTask, type ChunkTask } from './chunked'
 import {
   CPU_ENCODER,
+  withQuality,
   chooseEncoder,
   parallelWorkers,
   probeEncoders,
@@ -249,7 +250,9 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
     choice === 'cpu' || request.precision === 'fast'
       ? { gpu: null, rejected: [] as string[] }
       : await probeEncoders(ffmpegPath, { fakeBrokenGpu: tuning.fakeBrokenGpu })
-  let encoder: EncoderProfile = chooseEncoder(choice, probe)
+  const quality = request.quality ?? 'normal'
+  const cpuEncoder = withQuality(CPU_ENCODER, quality)
+  let encoder: EncoderProfile = withQuality(chooseEncoder(choice, probe), quality)
   const cores = tuning.cores ?? availableParallelism()
   input.log?.(`Экспорт: кодер ${encoder.ffmpegName}`)
 
@@ -266,8 +269,8 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
     input.log?.(
       `Кодер ${encoder.ffmpegName} не сработал, повторяю на процессоре: ${first.stderrTail.slice(-3).join(' | ')}`
     )
-    encoder = CPU_ENCODER
-    return attemptWith(CPU_ENCODER)
+    encoder = cpuEncoder
+    return attemptWith(cpuEncoder)
   }
 
   // Параллельные куски считают кадры по ровной сетке: видео с переменной частотой кадров кодируется обычным способом.
@@ -558,6 +561,7 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
         tasks,
         audio,
         encoder,
+        fallbackEncoder: cpuEncoder,
         logicalCores: cores,
         workers: tuning.workers,
         plainLimit: tuning.plainLimit,
@@ -566,7 +570,7 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
         onProgress: onFraction,
         log: input.log
       })
-      if (outcome.fellBack) encoder = CPU_ENCODER
+      if (outcome.fellBack) encoder = cpuEncoder
       if (outcome.status === 'done') {
         return { code: 0, cancelled: false, stalled: false, stderrTail: [], stderr: '' }
       }
@@ -705,7 +709,7 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
   // ---------- Одна подборка ----------
   async function runCompilation(): Promise<JobOutput> {
     const drawn = plans[0]
-    const plan = planCompilation(clips as PreparedClip[], facts.hasAudio)
+    const plan = planCompilation(clips as PreparedClip[], facts.hasAudio, fps)
     const length = totalDuration(clips) + (drawn?.freezeSeconds ?? 0)
     const name = target.split(/[\\/]/).pop() ?? 'подборка.mp4'
     const part = partPath(target)

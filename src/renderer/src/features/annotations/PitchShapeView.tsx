@@ -326,6 +326,8 @@ interface PitchProps {
   projector: Projector | null | undefined
   shadowClass?: string
   part?: DrawPart
+  /** Сдвиг подписи по вертикали (пиксели), чтобы подписи линеек не ложились друг на друга. */
+  labelDy?: number
 }
 
 export function PitchBody({
@@ -334,12 +336,14 @@ export function PitchBody({
   selected,
   projector,
   shadowClass,
-  part
+  part,
+  labelDy
 }: PitchProps): React.JSX.Element | null {
-  const paint = useMemo(
-    () => (projector ? paintPitch(a, projector, size, measureTextWidth) : null),
-    [a, projector, size]
-  )
+  const paint = useMemo(() => {
+    if (!projector) return null
+    const p = paintPitch(a, projector, size, measureTextWidth)
+    return labelDy && p.label ? { ...p, label: { ...p.label, y: p.label.y + labelDy } } : p
+  }, [a, projector, size, labelDy])
   if (!paint) return null
   return (
     <PaintParts

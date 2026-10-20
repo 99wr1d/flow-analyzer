@@ -16,6 +16,15 @@ export function head(): string[] {
 /** Чётные размеры кадра: yuv420p иначе не кодируется. Для обычных видео ничего не меняет. */
 export const EVEN_SIZE = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
 
+/**
+ * Метки времени куска видео, начинающегося с момента from (секунды, строка): первый кадр кладётся на 0 (setpts=PTS-STARTPTS),
+ * но если до него в исходнике пусто больше чем на кадр (видео начинается позже звука: start_time 0.0333 у фрагментированного
+ * MP4), этот пробел возвращается. Иначе видео уезжало бы на кадр раньше звука. Обычные куски (первый кадр в пределах кадра
+ * от from) получают прежние метки.
+ */
+export const startPts = (from: string, fps: number): string =>
+  `setpts='PTS-STARTPTS+if(gt(STARTPTS*TB-${from},${(0.75 / fps).toFixed(6)}),STARTPTS-${from}/TB,0)'`
+
 /** Параметры видео для перекодирования: процессор (по умолчанию) или кодер видеокарты. */
 export const reencodeVideo = (encoder: EncoderProfile = CPU_ENCODER): string[] => [
   ...encoder.videoArgs
@@ -72,11 +81,13 @@ export interface CompilationPlan {
  * Подборка: trim/atrim каждого эпизода и склейка concat с перекодированием.
  * Граф кладётся в файл, а не в аргумент: у 500 эпизодов он длиннее предела командной строки Windows.
  * Времена в графе отсчитываются от смещения своего входа (так -ss перед -i сдвигает метки времени).
+ * fps (если известен) нужен, чтобы не сдвигать видео, начинающееся позже звука (см. startPts).
  * Эпизоды склеиваются в том порядке, в котором переданы; один эпизод берётся ровно из одного куска.
  */
 export function planCompilation(
   clips: readonly Pick<PreparedClip, 'start' | 'end'>[],
-  hasAudio: boolean
+  hasAudio: boolean,
+  fps?: number
 ): CompilationPlan {
   const n = clips.length
   const chunks = planReadChunks(clips)
@@ -101,7 +112,9 @@ export function planCompilation(
     const from = sec(c.start - chunk.offset)
     const to = sec(c.end - chunk.offset)
     const vin = single ? `[${input}:v]` : `[sv${i}]`
-    lines.push(`${vin}trim=start=${from}:end=${to},setpts=PTS-STARTPTS[tv${i}]`)
+    lines.push(
+      `${vin}trim=start=${from}:end=${to},${fps ? startPts(from, fps) : 'setpts=PTS-STARTPTS'}[tv${i}]`
+    )
     if (hasAudio) {
       const ain = single ? `[${input}:a]` : `[sa${i}]`
       lines.push(`${ain}atrim=start=${from}:end=${to},asetpts=PTS-STARTPTS[ta${i}]`)

@@ -392,6 +392,8 @@ export const ru = {
       } as Record<string, string>,
       save: 'Сохранить разметку',
       cancel: 'Отмена',
+      offFrameHint:
+        'Точки можно ставить и за краем картинки: в чёрных полях и рядом с панелью. Подвинуть: Alt+Shift+стрелки.',
       nudge: 'Alt + стрелки: сдвиг точки на 1 px (с Shift: на 5)',
       moved: 'Видео ушло с кадра разметки',
       back: 'Вернуться к кадру',
@@ -603,6 +605,11 @@ export const ru = {
     encoderCpuHint: 'Всегда x264: файл получается меньше, но экспорт идёт дольше.',
     encoderChecking: 'Кодирование: проверяю, есть ли видеокарта…',
     encoderNone: 'Кодирование: процессор (видеокарта для кодирования не найдена).',
+    qualityLabel: 'Качество',
+    qualityNormal: 'Обычное',
+    qualityNormalHint: 'Почти без потерь: файл может получиться больше исходного.',
+    qualitySmall: 'Меньше размер',
+    qualitySmallHint: 'Файл примерно вдвое меньше, картинка чуть мягче.',
     drawingsLabel: 'Рисунки',
     drawingsTitle: 'С рисунками',
     drawingsHint:

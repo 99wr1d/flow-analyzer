@@ -16,8 +16,11 @@ import {
   projectorFor,
   type Calibration
 } from '../../../../shared/pitch/calibration'
+import { rulerLabelShifts } from '../../../../shared/pitch/labelNudge'
+import type { Projector } from '../../../../shared/pitch/projector'
 import { ShapeView } from '../annotations/ShapeView'
 import { SpotlightDim } from '../annotations/SpotlightDim'
+import { measureTextWidth } from '../annotations/textMetrics'
 
 /** Высота картинки на экране, при которой тени рисунков имеют размер, заданный в CSS (2.5 px); на большем кадре тень растёт. */
 const SCREEN_REFERENCE_HEIGHT = 560
@@ -60,8 +63,14 @@ export function buildOverlaySvg(
   const size = { w: width, h: height }
   const byId = new Map(calibrations.map((c) => [c.id, c]))
   // Затемнение прожектора — эффект на весь кадр: оно не ключуется и всегда поверх (слой «over»).
+  const projectorOf = (id: string): Projector | null => {
+    const cal = byId.get(id)
+    return cal ? projectorFor(cal) : null
+  }
   const dim = part === 'under' ? [] : items.filter(isSpotlight)
   const shown = part === 'under' ? items.filter(isUnderPlayers) : items
+  // Подписи линеек не накладываются друг на друга: тот же расчёт, что и на экране (по всем рисункам, чтобы слои совпали).
+  const shifts = rulerLabelShifts(items, projectorOf, size, measureTextWidth)
   const markup = renderToStaticMarkup(
     <>
       <SpotlightDim
@@ -73,6 +82,7 @@ export function buildOverlaySvg(
         }}
       />
       {shown.map((a) => {
+        const labelDy = shifts.get(a.id)
         const cal = isPitchAnnotation(a) ? byId.get(a.calibrationId) : undefined
         const under = isUnderPlayers(a)
         return (
@@ -83,6 +93,7 @@ export function buildOverlaySvg(
             selected={false}
             showHandles={false}
             projector={cal ? projectorFor(cal) : null}
+            labelDy={labelDy}
             dimmed={
               options.dimmedIds
                 ? options.dimmedIds.has(a.id)

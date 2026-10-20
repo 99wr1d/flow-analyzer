@@ -261,6 +261,7 @@ export function startExport(): Promise<void> {
     // Подборку без перекодирования собрать нельзя, рисунки нанести тоже — тогда всегда «Точно».
     precision: mode === 'compilation' || withDrawings ? 'precise' : state.precision,
     encoder: state.encoder,
+    quality: state.quality,
     padding: whole ? 0 : padding.value,
     projectName: project.path !== null && project.name !== UNTITLED_PROJECT ? project.name : null
   }

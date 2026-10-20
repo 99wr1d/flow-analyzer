@@ -37,6 +37,7 @@ import {
 } from '../../../../shared/pitch/edit'
 import type { Pt } from '../../../../shared/pitch/linalg'
 import type { Projector } from '../../../../shared/pitch/projector'
+import { rulerLabelShifts } from '../../../../shared/pitch/labelNudge'
 import { worldDistance, type PitchHandleId } from '../../../../shared/pitch/shapes'
 import { defaultControl } from '../../../../shared/tools/curve'
 import { hasVertices, vertexIndex } from '../../../../shared/tools/points'
@@ -348,6 +349,11 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
   }, [calibrations, gridId, projectors, size])
 
   const selected = visible.find((a) => a.id === selectedId) ?? null
+  // Подписи линеек, лежащие друг на друге, разводятся (экспорт считает так же).
+  const rulerShifts = useMemo(
+    () => rulerLabelShifts(visible, (id) => projectors.get(id), size, measureTextWidth),
+    [visible, projectors, size]
+  )
   const editingId = editor?.mode === 'edit' ? editor.id : null
 
   const eventPoint = (e: { clientX: number; clientY: number }): { norm: Point; px: PxPoint } => {
@@ -1200,6 +1206,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               dimmed={staleIds.has(a.id)}
               part={underOn && isUnderPlayers(a) ? 'top' : 'all'}
               keepGround
+              labelDy={rulerShifts.get(a.id)}
             />
           ))}
         {draftShown && (

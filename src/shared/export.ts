@@ -22,6 +22,10 @@ export const MIN_CLIP_SECONDS = 0.1
 export const EXPORT_ENCODERS = ['auto', 'cpu'] as const
 export type ExportEncoderChoice = (typeof EXPORT_ENCODERS)[number]
 
+/** Качество видео: «normal» — как раньше; «small» — меньше размер файла. */
+export const EXPORT_QUALITIES = ['normal', 'small'] as const
+export type ExportQuality = (typeof EXPORT_QUALITIES)[number]
+
 export const EXPORT_MODES = ['files', 'compilation'] as const
 export const EXPORT_PRECISIONS = ['precise', 'fast'] as const
 export type ExportMode = (typeof EXPORT_MODES)[number]
@@ -143,7 +147,9 @@ export const ExportRequestSchema = z.object({
   /** Нанести рисунки на видео (только с перекодированием). */
   drawings: ExportDrawingsSchema.optional(),
   /** Чем кодировать видео. Старые запросы поля не имеют — это «auto». */
-  encoder: z.enum(EXPORT_ENCODERS).optional()
+  encoder: z.enum(EXPORT_ENCODERS).optional(),
+  /** Качество видео. Старые запросы поля не имеют — это «normal». */
+  quality: z.enum(EXPORT_QUALITIES).optional()
 })
 
 export type ExportDrawings = z.infer<typeof ExportDrawingsSchema>

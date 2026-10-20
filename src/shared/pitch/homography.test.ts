@@ -102,6 +102,21 @@ describe('fitHomography: восстановление известной гом�
     expect(rms(reprojectionErrors(fit.H, s.pairs, SIZE))).toBeLessThan(1e-4)
   })
 
+  it('углы далеко за кадром (до -1..2): подгонка остаётся точной', () => {
+    const world = [...penaltyAreaRect(pitch, 'left')]
+    const image = [
+      { x: -0.95, y: -0.9 },
+      { x: 1.9, y: -0.8 },
+      { x: 1.95, y: 1.9 },
+      { x: -0.9, y: 1.8 }
+    ]
+    const pairs = world.map((w, i) => ({ world: w, image: image[i] }))
+    const fit = fitHomography(pairs, 16 / 9)
+    expect(fit.ok).toBe(true)
+    if (!fit.ok) return
+    expect(rms(reprojectionErrors(fit.H, pairs, SIZE))).toBeLessThan(1e-3)
+  })
+
   it('N > 4 без шума: точный результат (метод наименьших квадратов)', () => {
     const s = pairsFor(5, true)!
     const fit = fitHomography(s.pairs, s.cam.aspect)

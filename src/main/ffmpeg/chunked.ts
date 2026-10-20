@@ -44,6 +44,8 @@ export interface ChunkedOptions {
   audio: AudioTask | null
   /** Кодер первой попытки. Если это кодер видеокарты и что-то не вышло, всё делается заново на процессоре. */
   encoder: EncoderProfile
+  /** Кодер для повтора после неудачи на видеокарте (по умолчанию x264 обычного качества). */
+  fallbackEncoder?: EncoderProfile
   logicalCores: number
   /** Сколько кусков одновременно (по умолчанию — по кодеру и числу ядер). */
   workers?: number
@@ -302,10 +304,11 @@ export async function runChunked(o: ChunkedOptions): Promise<ChunkedOutcome> {
   // Чистим рабочую папку: куски другого кодера склеивать нельзя (разные параметры потока).
   await rm(o.workDir, { recursive: true, force: true }).catch(() => undefined)
   await rm(o.output, { force: true }).catch(() => undefined)
-  const second = await attempt(o, CPU_ENCODER)
-  if (second.status === 'done') return { status: 'done', encoder: CPU_ENCODER, fellBack: true }
+  const cpu = o.fallbackEncoder ?? CPU_ENCODER
+  const second = await attempt(o, cpu)
+  if (second.status === 'done') return { status: 'done', encoder: cpu, fellBack: true }
   if (second.status === 'cancelled') {
-    return { status: 'cancelled', encoder: CPU_ENCODER, fellBack: true }
+    return { status: 'cancelled', encoder: cpu, fellBack: true }
   }
-  return { status: 'failed', run: second.run as RunResult, encoder: CPU_ENCODER, fellBack: true }
+  return { status: 'failed', run: second.run as RunResult, encoder: cpu, fellBack: true }
 }

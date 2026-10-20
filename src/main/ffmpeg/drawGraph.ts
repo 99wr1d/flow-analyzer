@@ -25,7 +25,7 @@ import {
   type RangePlan
 } from '../../shared/exportOverlays'
 import type { LoupeGeometry } from '../../shared/tools/loupe'
-import { sec } from './args'
+import { sec, startPts } from './args'
 import { grassMaskLines } from './grassFilter'
 import { loupeGeometryFromKeys, loupeLines, type LoupeAnimKey } from './loupe'
 
@@ -398,7 +398,7 @@ export function planDrawn(input: GraphInput): GraphPlan {
       const lone = i < allPieces.length - 1 && framesInWindow(piece.start, piece.end, fps) === 1
       if (lone) needDrop = true
       lines.push(
-        `${cutSrc[cutIndex]}trim=start=${from}:end=${to},setpts=PTS-STARTPTS${lone ? `,${ONE_FRAME_FIX(fps)}` : ''}[v${i}]`
+        `${cutSrc[cutIndex]}trim=start=${from}:end=${to},${startPts(from, fps)}${lone ? `,${ONE_FRAME_FIX(fps)}` : ''}[v${i}]`
       )
       if (audio) {
         lines.push(

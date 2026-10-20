@@ -42,8 +42,8 @@ export interface CalibrationDraft {
   createdAt: string | null
 }
 
-/** Допустимое положение точки на картинке (доли кадра): немного за краем можно — угол поля бывает за кадром. */
-export const IMAGE_BOUNDS = { min: -0.5, max: 1.5 } as const
+/** Допустимое положение точки на картинке (доли кадра): за краем можно (до целого кадра) — угол поля бывает за кадром. */
+export const IMAGE_BOUNDS = { min: -1, max: 2 } as const
 export const clampImage = (p: Pt): Pt => ({
   x: Math.min(IMAGE_BOUNDS.max, Math.max(IMAGE_BOUNDS.min, p.x)),
   y: Math.min(IMAGE_BOUNDS.max, Math.max(IMAGE_BOUNDS.min, p.y))

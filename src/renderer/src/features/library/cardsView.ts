@@ -120,10 +120,10 @@ export function todayIso(now: Date = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
 
-/** «1:32:10» / «45:03». */
+/** «1:32:10» / «45:03»; секунды отбрасываются, как в плеере (290.8 с → «4:50»). */
 export function durationText(seconds: number | undefined): string {
   if (seconds === undefined || !(seconds > 0)) return ''
-  const total = Math.round(seconds)
+  const total = Math.floor(seconds)
   const h = Math.floor(total / 3600)
   const m = Math.floor((total % 3600) / 60)
   const s = total % 60

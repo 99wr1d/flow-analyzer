@@ -10,6 +10,8 @@ import {
   parseEncoderList,
   probeEncoders,
   resetEncoderProbeCache,
+  SMALL_QUALITY_STEP,
+  withQuality,
   type ExecFn
 } from './encoders'
 import { reencodeVideo } from './args'
@@ -171,5 +173,38 @@ describe('сколько процессов одновременно', () => {
     expect(parallelWorkers(GPU_ENCODERS[0], 4)).toBe(3)
     expect(parallelWorkers(GPU_ENCODERS[0], 32)).toBe(3)
     expect(parallelWorkers(GPU_ENCODERS[1], 32)).toBe(2)
+  })
+})
+
+describe('withQuality', () => {
+  it('обычное качество не меняет профиль', () => {
+    expect(withQuality(CPU_ENCODER, 'normal')).toBe(CPU_ENCODER)
+  })
+
+  it('x264: CRF 20 → 26, остальное без изменений', () => {
+    const small = withQuality(CPU_ENCODER, 'small')
+    expect(small.videoArgs).toEqual(CPU_ENCODER.videoArgs.map((a) => (a === '20' ? '26' : a)))
+    expect(small.videoArgs[small.videoArgs.indexOf('-crf') + 1]).toBe('26')
+    expect(CPU_ENCODER.videoArgs[CPU_ENCODER.videoArgs.indexOf('-crf') + 1]).toBe('20')
+  })
+
+  it('у каждой видеокарты качество грубее на тот же шаг; битрейт и прочее не трогаются', () => {
+    for (const p of GPU_ENCODERS) {
+      const small = withQuality(p, 'small')
+      expect(small.videoArgs).toHaveLength(p.videoArgs.length)
+      const changed = small.videoArgs.filter((a, i) => a !== p.videoArgs[i])
+      expect(changed.length, p.id).toBeGreaterThan(0)
+      p.videoArgs.forEach((a, i) => {
+        if (small.videoArgs[i] !== a) {
+          expect(Number(small.videoArgs[i]) - Number(a)).toBe(SMALL_QUALITY_STEP)
+        }
+      })
+    }
+    const nv = withQuality(
+      GPU_ENCODERS.find((p) => p.id === 'nvenc')!,
+      'small'
+    ).videoArgs
+    expect(nv[nv.indexOf('-cq') + 1]).toBe('29')
+    expect(nv[nv.indexOf('-b:v') + 1]).toBe('0')
   })
 })
