@@ -254,6 +254,160 @@ describe.each(MODES)('экспорт с рисунками (ffmpeg) [$name]', (m
     )
   }, 120_000)
 
+  it('между стоп-кадрами 0, 1 и 2 обычных кадра: число кадров точное, промежуточные кадры на месте', async () => {
+    const staged = await stage([
+      { key: '0', rgb: BLACK },
+      { key: '1', rgb: BLACK },
+      { key: '0-1', rgb: BLACK }
+    ])
+    // Кадр k исходника (25 к/с) имеет середину (k + 0.5) / 25; стоп-кадры по 1 с (25 лишних кадров).
+    const at = (k: number): number => (k + 0.5) / 25
+    const srcGray = new Map<number, Buffer>()
+    const src = (k: number): Buffer => {
+      if (!srcGray.has(k)) srcGray.set(k, grayFrame(CFR25, k))
+      return srcGray.get(k)!
+    }
+    for (const between of [0, 1, 2]) {
+      const second = 50 + between + 1
+      const name = `between${between}`
+      const { paths, result } = await run(
+        CFR25,
+        request({}, [frameAt(at(50), 1), frameAt(at(second), 1)]),
+        staged,
+        outDir(name)
+      )
+      expect(result.failures, name).toEqual([])
+      const out = paths[0]
+      // 50 кадров отрезка [1, 3) + 2 × 25.
+      expect(countFrames(out), name).toBe(100)
+      // Порядок: кадры 25..49, кадр 50 ×26, обычные кадры между ними, кадр `second` ×26, остальные до 74.
+      const expected: number[] = []
+      for (let k = 25; k < 50; k += 1) expected.push(k)
+      for (let i = 0; i < 26; i += 1) expected.push(50)
+      for (let k = 51; k < second; k += 1) expected.push(k)
+      for (let i = 0; i < 26; i += 1) expected.push(second)
+      for (let k = second + 1; k <= 74; k += 1) expected.push(k)
+      expect(expected.length, name).toBe(100)
+      // Проверяем кадры на границах повторов и сами промежуточные.
+      for (let i = 22; i < 99; i += 1) {
+        if (expected[i] === expected[i - 1] && expected[i] === expected[i + 1]) continue
+        const got = grayFrame(out, i)
+        const candidates = [expected[i] - 1, expected[i], expected[i] + 1].filter(
+          (k) => k >= 25 && k <= 74
+        )
+        let best = -1
+        let bestD = Infinity
+        for (const k of candidates) {
+          const d = frameDistance(got, src(k))
+          if (d < bestD) {
+            bestD = d
+            best = k
+          }
+        }
+        expect(best, `${name}: кадр ${i}`).toBe(expected[i])
+      }
+    }
+    await disposeStaged(staged)
+  }, 240_000)
+
+  it('между стоп-кадрами 0, 1 и 2 обычных кадра, звук: «писк» после стоп-кадров не сдвигается', async () => {
+    const beep = makeBeepVideo(work, { seconds: 10, beepAt: 5 })
+    const staged = await stage(
+      [
+        { key: '0', rgb: BLACK },
+        { key: '1', rgb: BLACK },
+        { key: '0-1', rgb: BLACK }
+      ],
+      320,
+      180
+    )
+    const at = (k: number): number => (k + 0.5) / 25
+    for (const between of [0, 1, 2]) {
+      const { paths, result } = await run(
+        beep,
+        request({ clips: [{ start: 1, end: 8, label: 'a' }] }, [
+          frameAt(at(50), 1),
+          frameAt(at(51 + between), 1)
+        ]),
+        staged,
+        outDir(`audio-between${between}`)
+      )
+      expect(result.failures).toEqual([])
+      const out = paths[0]
+      const dur = streamDurations(out)
+      expect(Math.abs(dur.video - dur.audio), `между ${between}`).toBeLessThanOrEqual(0.04)
+      expect(Math.abs(dur.video - 9), `между ${between}`).toBeLessThanOrEqual(0.06)
+      // 5 − 1 + 2 с стоп-кадров.
+      const beepAt = firstLoudSample(out) as number
+      expect(Math.abs(beepAt - 6), `между ${between}`).toBeLessThanOrEqual(0.04)
+    }
+    await disposeStaged(staged)
+  }, 240_000)
+
+  it('одиночный обычный кадр в конце и в начале отрезков подборки (на стыке): кадры и звук на месте', async () => {
+    const beep = makeBeepVideo(work, { seconds: 10, beepAt: 5.5 })
+    const staged = await stage(
+      [
+        { key: '0', rgb: BLACK },
+        { key: '1', rgb: BLACK }
+      ],
+      320,
+      180
+    )
+    const at = (k: number): number => (k + 0.5) / 25
+    // Отрезки [1, 3) (кадры 25..74) и [5, 7) (кадры 125..174). Стоп-кадр на кадре 73 оставляет в хвосте первого отрезка
+    // один кадр 74, стоп-кадр на кадре 126 — один кадр 125 в голове второго.
+    const { paths, result } = await run(
+      beep,
+      request(
+        {
+          mode: 'compilation',
+          clips: [
+            { start: 1, end: 3, label: 'a' },
+            { start: 5, end: 7, label: 'b' }
+          ]
+        },
+        [frameAt(at(73), 1), frameAt(at(126), 1)]
+      ),
+      staged,
+      join(outDir('junction'), 'подборка.mp4')
+    )
+    expect(result.failures).toEqual([])
+    const out = paths[0]
+    expect(countFrames(out)).toBe(100 + 50)
+    // Номера кадров результата: 0..47 кадры 25..72, 48..73 кадр 73, 74 кадр 74, 75 кадр 125, 76..101 кадр 126, 102.. кадры 127.
+    const probes: Array<[number, number]> = [
+      [47, 72],
+      [48, 73],
+      [73, 73],
+      [74, 74],
+      [75, 125],
+      [76, 126],
+      [101, 126],
+      [102, 127]
+    ]
+    // Кадр результата сравнивается с исходником (320x180 с отличимыми номерами кадров) по ближайшему соседу.
+    for (const [i, k] of probes) {
+      const got = grayFrame(out, i)
+      let best = -1
+      let bestD = Infinity
+      for (const c of [k - 1, k, k + 1]) {
+        const d = frameDistance(got, grayFrame(beep, c))
+        if (d < bestD) {
+          bestD = d
+          best = c
+        }
+      }
+      expect(best, `кадр ${i}`).toBe(k)
+    }
+    const dur = streamDurations(out)
+    expect(Math.abs(dur.video - dur.audio)).toBeLessThanOrEqual(0.04)
+    // «Писк» 5.5 с: 2 + 1 + 0.5 + 1 с стоп-кадра второго отрезка.
+    const beepAt = firstLoudSample(out) as number
+    expect(Math.abs(beepAt - 4.5)).toBeLessThanOrEqual(0.04)
+    await disposeStaged(staged)
+  }, 120_000)
+
   it('рисунок дольше отрезка виден на всех его кадрах, включая первый и последний', async () => {
     const staged = await stage([{ key: '0', rgb: WHITE }])
     const { paths } = await run(CFR25, request({}, [range(0, 10)]), staged, outDir('whole-clip'))

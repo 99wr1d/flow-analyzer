@@ -144,6 +144,27 @@ export function splitRange(range: RangePlan, fps: number): Piece[] {
   return pieces
 }
 
+/**
+ * Сколько кадров исходника (метки времени k / fps) попадает в кусок [start, end). Кадры зависят только от частоты,
+ * поэтому число точное и для кусков, начинающихся не на границе кадра.
+ */
+export function framesInWindow(start: number, end: number, fps: number): number {
+  const eps = 0.01
+  return Math.max(0, Math.ceil(end * fps - eps) - Math.ceil(start * fps - eps))
+}
+
+/**
+ * Склейка (concat) считает длину куска как «последняя метка + средний шаг между кадрами», а у куска из одного кадра шага
+ * нет — длина нулевая, и следующий кусок ложится на ту же метку (кадр терялся). Поэтому такому куску добавляется копия
+ * кадра на полшага позже: длина получается ровно в один кадр. Настоящие кадры лежат на сетке кадров, копия — посередине
+ * между узлами сетки, и после склейки её убирает DROP_HALF_STEP.
+ */
+const ONE_FRAME_FIX = (fps: number): string =>
+  `tpad=stop_mode=clone:stop_duration=${sec(2 / fps)},trim=end_frame=2,setpts=N/(2*${fps})/TB`
+
+/** Убирает копии одиночных кадров (ONE_FRAME_FIX): метка времени, лежащая посередине между узлами сетки кадров. */
+const dropHalfStep = (fps: number): string => `select='gt(abs(t*${fps}-floor(t*${fps})-0.5),0.4)'`
+
 export function planDrawn(input: GraphInput): GraphPlan {
   const { ranges, segments, fps, audio } = input
   const frame = 1 / fps
@@ -366,13 +387,19 @@ export function planDrawn(input: GraphInput): GraphPlan {
   let audioIndex = 0
 
   const outLabels: string[] = []
+  let needDrop = false
   let cutIndex = 0
   let freezeIndex = 0
   allPieces.forEach((piece, i) => {
     if (piece.kind === 'cut') {
       const from = rel(piece.start)
       const to = rel(piece.end)
-      lines.push(`${cutSrc[cutIndex]}trim=start=${from}:end=${to},setpts=PTS-STARTPTS[v${i}]`)
+      // Одиночный кадр не в конце всего ролика: см. ONE_FRAME_FIX.
+      const lone = i < allPieces.length - 1 && framesInWindow(piece.start, piece.end, fps) === 1
+      if (lone) needDrop = true
+      lines.push(
+        `${cutSrc[cutIndex]}trim=start=${from}:end=${to},setpts=PTS-STARTPTS${lone ? `,${ONE_FRAME_FIX(fps)}` : ''}[v${i}]`
+      )
       if (audio) {
         lines.push(
           `${saLabels[audioIndex]}atrim=start=${rel(piece.audioStart)}:end=${rel(piece.audioEnd)},asetpts=PTS-STARTPTS[a${i}]`
@@ -393,6 +420,10 @@ export function planDrawn(input: GraphInput): GraphPlan {
       // Число кадров задаётся явно (end_frame): по времени граница плавала на кадр.
       const frames = Math.round(f.seconds * fps) + 1
       const stopPad = sec(f.seconds + 2 * frame)
+      // Метки времени по номеру кадра: копии кадра после tpad иначе получают повторную метку, и длина куска в concat плывёт.
+      const lone = frames === 1 && i < allPieces.length - 1
+      if (lone) needDrop = true
+      const freezeTail = lone ? `${ONE_FRAME_FIX(fps)}` : `setpts=N/${fps}/TB`
       lines.push(
         `${freezeSrc[j]}trim=start=${from}:end=${to},setpts=PTS-STARTPTS,trim=end_frame=1[fz${j}]`
       )
@@ -441,11 +472,11 @@ export function planDrawn(input: GraphInput): GraphPlan {
           current = out
         })
         lines.push(
-          `${current}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
+          `${current}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},${freezeTail}[v${i}]`
         )
       } else {
         lines.push(
-          `${current}${overPad ? `${overPad}overlay=x=0:y=0:eof_action=repeat,` : ''}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},setpts=PTS-STARTPTS[v${i}]`
+          `${current}${overPad ? `${overPad}overlay=x=0:y=0:eof_action=repeat,` : ''}tpad=stop_mode=clone:stop_duration=${stopPad},trim=end_frame=${frames},${freezeTail}[v${i}]`
         )
       }
       if (audio) {
@@ -471,7 +502,7 @@ export function planDrawn(input: GraphInput): GraphPlan {
   lines.push(
     `${outLabels.join('')}concat=n=${total}:v=1:a=${audio ? 1 : 0}${audio ? '[cv][outa]' : '[cv]'}`
   )
-  lines.push(`[cv]${EVEN_SIZE}[outv]`)
+  lines.push(`[cv]${needDrop ? `${dropHalfStep(fps)},` : ''}${EVEN_SIZE}[outv]`)
   return {
     offset,
     span,

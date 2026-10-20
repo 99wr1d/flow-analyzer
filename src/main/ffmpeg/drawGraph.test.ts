@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RangePlan } from '../../shared/exportOverlays'
 import { buildDrawnArgs } from './args'
-import { planDrawn, splitRange } from './drawGraph'
+import { framesInWindow, planDrawn, splitRange } from './drawGraph'
 const FPS = 25
 
 const freeze = (frame: number, seconds = 1, key = '0'): RangePlan['freezes'][number] => ({
@@ -243,5 +243,60 @@ describe('buildDrawnArgs', () => {
     })
     expect(args).not.toContain('[outa]')
     expect(args).not.toContain('aac')
+  })
+})
+
+describe('одиночные обычные кадры между стоп-кадрами', () => {
+  it('framesInWindow: считает кадры по сетке частоты, в том числе при сдвинутом начале', () => {
+    expect(framesInWindow(2.02, 2.06, FPS)).toBe(1)
+    expect(framesInWindow(2.02, 2.1, FPS)).toBe(2)
+    expect(framesInWindow(2.02, 2.02, FPS)).toBe(0)
+    expect(framesInWindow(1.01, 1.05, FPS)).toBe(1)
+    expect(framesInWindow(1.01, 1.09, FPS)).toBe(2)
+  })
+
+  it('один кадр между стоп-кадрами: копия кадра на полшага и отбраковка метки посередине сетки', () => {
+    const g = planDrawn({
+      ranges: [R(1, 3, [freeze(50), freeze(52)])],
+      segments: [],
+      fps: FPS,
+      audio: null
+    })
+    expect(g.script).toContain('trim=end_frame=2,setpts=N/(2*25)/TB[v2]')
+    expect(g.script).toContain("select='gt(abs(t*25-floor(t*25)-0.5),0.4)'")
+    // Метки стоп-кадров идут по номеру кадра (иначе копии получают повторную метку).
+    expect(g.script).toContain('trim=end_frame=26,setpts=N/25/TB[v1]')
+  })
+
+  it('0 и 2 кадра между стоп-кадрами, а также одиночный кадр в самом конце: без обходного приёма', () => {
+    for (const second of [51, 53]) {
+      const g = planDrawn({
+        ranges: [R(1, 3, [freeze(50), freeze(second)])],
+        segments: [],
+        fps: FPS,
+        audio: null
+      })
+      expect(g.script).not.toContain('select=')
+      expect(g.script).not.toContain('N/(2*25)')
+    }
+    // Хвост из одного кадра последним куском: его длина не нужна.
+    const tail = planDrawn({
+      ranges: [R(1, 3, [freeze(73)])],
+      segments: [],
+      fps: FPS,
+      audio: null
+    })
+    expect(tail.script).not.toContain('select=')
+  })
+
+  it('одиночный кадр на стыке отрезков подборки (не последний кусок) тоже исправляется', () => {
+    const g = planDrawn({
+      ranges: [R(1, 3, [freeze(73)]), R(5, 7)],
+      segments: [],
+      fps: FPS,
+      audio: null
+    })
+    expect(g.script).toContain('N/(2*25)')
+    expect(g.script).toContain('select=')
   })
 })

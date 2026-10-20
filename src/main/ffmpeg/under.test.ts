@@ -17,6 +17,7 @@ import { loupeGeometry } from '../../shared/tools/loupe'
 import {
   FFMPEG,
   FIXTURE,
+  countFrames,
   durationOf,
   ff,
   frameRgb,
@@ -181,6 +182,12 @@ function checkFrame(frame: Buffer, name: string): void {
   expect(dist(px(frame, red.x + 22, 230), hex(red.color))).toBeLessThan(40)
 }
 
+/** Кольцо под игроками: трава в цвете кольца, игрок его закрывает. */
+function checkFrameUnder(frame: Buffer, name: string): void {
+  expect(dist(px(frame, 60, 196), RING), `${name}: трава`).toBeLessThan(40)
+  expect(dist(px(frame, red.x + 22, 196), hex(red.color)), `${name}: игрок`).toBeLessThan(40)
+}
+
 describe.each(MODES)('экспорт с рисунками «под игроками» (ffmpeg) [$name]', (mode) => {
   beforeEach(() => setTestMode(mode))
   it('«Отрезок»: кольцо видно на траве, игроки его закрывают, подпись поверх видна', async () => {
@@ -269,6 +276,21 @@ describe.each(MODES)('экспорт с рисунками «под игрока
     checkFrame(frameRgb(file, 25 + 5, W, H), 'подборка, клип 2')
     // Второй клип, кадр 25 (1.5 с): рисунка нет.
     expect(dist(px(frameRgb(file, 25, W, H), 60, 196), RING)).toBeGreaterThan(80)
+  }, 120_000)
+
+  it('два стоп-кадра с одним обычным кадром между ними: кадр не теряется, рисунок под игроками на всех', async () => {
+    // Клип 0.2–1.2 (кадры 5..29), стоп-кадры на кадрах 13 и 15 по 1 с, между ними кадр 14.
+    const [file] = await exportWith(
+      [range(0, 3), frameAt(0.54, 1), frameAt(0.62, 1)],
+      [{ start: 0.2, end: 1.2 }],
+      { under: { '0': ringPng(), '0-1': ringPng(), '0-2': ringPng() }, over: { '0-1': labelPng() } }
+    )
+    expect(countFrames(file)).toBe(25 + 50)
+    // Выход: кадры 5..12 (8), кадр 13 ×26, кадр 14 (индекс 34), кадр 15 ×26, дальше 16..29.
+    checkFrameUnder(frameRgb(file, 34, W, H), 'одиночный кадр')
+    checkFrameUnder(frameRgb(file, 20, W, H), 'первый стоп-кадр')
+    checkFrameUnder(frameRgb(file, 50, W, H), 'второй стоп-кадр')
+    checkFrameUnder(frameRgb(file, 70, W, H), 'после стоп-кадров')
   }, 120_000)
 
   it('лупа: линза увеличивает уже готовую картинку (ключ раньше лупы): кольцо на траве есть, на игроке нет', async () => {
