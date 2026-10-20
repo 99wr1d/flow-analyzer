@@ -2,10 +2,10 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, beforeEach } from 'vitest'
 import type { Timing } from '../../shared/annotations'
 import type { ExportProgress, ExportRequest } from '../../shared/export'
-import { runExportJob, type JobOutput } from './job'
+import { type JobOutput } from './job'
 import {
   FFMPEG,
   FIXTURE,
@@ -24,7 +24,10 @@ import {
   pixelAt,
   frameRgb,
   framesWhere,
-  streamDurations
+  streamDurations,
+  MODES,
+  runJob,
+  setTestMode
 } from './ffmpeg.testkit'
 import { disposeStaged, liveCount, stageOverlays, type Staged } from './staging'
 
@@ -112,7 +115,7 @@ async function run(
   target: string,
   extra: { signal?: AbortSignal; onProgress?: (p: ExportProgress) => void; tempRoot?: string } = {}
 ): Promise<JobOutput> {
-  return runExportJob({
+  return runJob({
     ffmpegPath: FFMPEG,
     inputPath: input,
     request: req,
@@ -123,7 +126,8 @@ async function run(
   })
 }
 
-describe('экспорт с рисунками (ffmpeg)', () => {
+describe.each(MODES)('экспорт с рисунками (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   it('наложение по времени, стоп-кадр с рисунком, длительность, пути с кириллицей', async () => {
     // Рисунок-отрезок 1.5–2.0 (красный) и рисунок «только кадр» на кадре 50 (зелёный), стоп-кадр 1.5 с.
     const timings = [range(1.5, 0.5), frameAt(2.02, 1.5)]

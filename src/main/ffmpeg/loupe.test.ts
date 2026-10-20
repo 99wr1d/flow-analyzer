@@ -39,15 +39,19 @@ describe('loupeLines', () => {
     window: { from: 0.4799, to: 0.9799 }
   })
 
-  it('три строки: split, вырезка с увеличением и круглой маской, наложение', () => {
-    expect(lines).toHaveLength(3)
-    expect(lines[0]).toBe('[src]split=2[lm0a][lm0b]')
-    expect(lines[1]).toBe(
-      `[lm0b]crop=w=${geometry.sw}:h=${geometry.sw}:x=${geometry.sx}:y=${geometry.sy},` +
-        `scale=${geometry.d}:${geometry.d}:flags=bicubic,format=rgba,` +
-        `geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='${circleAlphaExpr(geometry.d)}'[lm0l]`
+  it('пять строк: маска-круг на один кадр, split, вырезка с увеличением, прозрачность по маске, наложение', () => {
+    expect(lines).toHaveLength(5)
+    // geq считается один раз на один кадр маски, а не на каждом кадре видео (иначе экспорт с лупой втрое медленнее).
+    expect(lines[0]).toBe(
+      `color=c=white:s=${geometry.d}x${geometry.d}:r=25:d=0.04,format=gray,geq=lum='${circleAlphaExpr(geometry.d)}'[lm0k]`
     )
+    expect(lines[1]).toBe('[src]split=2[lm0a][lm0b]')
     expect(lines[2]).toBe(
+      `[lm0b]crop=w=${geometry.sw}:h=${geometry.sw}:x=${geometry.sx}:y=${geometry.sy},` +
+        `scale=${geometry.d}:${geometry.d}:flags=bicubic,format=yuv420p[lm0c]`
+    )
+    expect(lines[3]).toBe('[lm0c][lm0k]alphamerge[lm0l]')
+    expect(lines[4]).toBe(
       `[lm0a][lm0l]overlay=x=${geometry.ox}:y=${geometry.oy}:enable='gte(t,0.4799)*lt(t,0.9799)'[lm0o]`
     )
   })
@@ -67,11 +71,11 @@ describe('loupeLines', () => {
       geometry,
       single: true
     })
-    expect(single[2]).toContain('eof_action=repeat')
-    expect(single[2]).not.toContain('enable')
+    expect(single[4]).toContain('eof_action=repeat')
+    expect(single[4]).not.toContain('enable')
     const none = loupeLines({ id: 'a', input: '[x]', output: '[y]', geometry })
-    expect(none[2]).not.toContain('enable')
-    expect(none[2]).not.toContain('eof_action')
+    expect(none[4]).not.toContain('enable')
+    expect(none[4]).not.toContain('eof_action')
   })
 
   it('метки уникальны для разных луп: префиксы не пересекаются', () => {

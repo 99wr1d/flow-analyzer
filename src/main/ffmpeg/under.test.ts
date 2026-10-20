@@ -4,7 +4,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, beforeEach } from 'vitest'
 import type { Timing } from '../../shared/annotations'
 import type { ExportRequest } from '../../shared/export'
 import {
@@ -13,8 +13,19 @@ import {
   type GrassKeyValues
 } from '../../shared/grassKey'
 import { loupeGeometry } from '../../shared/tools/loupe'
-import { runExportJob } from './job'
-import { FFMPEG, FIXTURE, durationOf, ff, frameRgb, hasAudio, makePng } from './ffmpeg.testkit'
+
+import {
+  FFMPEG,
+  FIXTURE,
+  durationOf,
+  ff,
+  frameRgb,
+  hasAudio,
+  makePng,
+  MODES,
+  runJob,
+  setTestMode
+} from './ffmpeg.testkit'
 import { disposeStaged, stageOverlays, type Staged } from './staging'
 
 const SRC = FIXTURE('players.mp4')
@@ -125,7 +136,7 @@ async function exportWith(
       grass: GRASS
     }
   }
-  const out = await runExportJob({
+  const out = await runJob({
     ffmpegPath: FFMPEG,
     inputPath: source,
     request,
@@ -170,7 +181,8 @@ function checkFrame(frame: Buffer, name: string): void {
   expect(dist(px(frame, red.x + 22, 230), hex(red.color))).toBeLessThan(40)
 }
 
-describe('экспорт с рисунками «под игроками» (ffmpeg)', () => {
+describe.each(MODES)('экспорт с рисунками «под игроками» (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   it('«Отрезок»: кольцо видно на траве, игроки его закрывают, подпись поверх видна', async () => {
     const [file] = await exportWith([range(0, 3), range(0, 3)], [{ start: 0.2, end: 2 }], {
       under: { '0-1': ringPng() },

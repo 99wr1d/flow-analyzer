@@ -9,6 +9,7 @@ import {
   type VideoSource
 } from '../shared/ipc-contract'
 import type {
+  ExportEncoderInfo,
   ExportProgress,
   ExportRequest,
   ExportResult,
@@ -73,6 +74,7 @@ const api: FlowApi = {
     invoke<{ token: string }>(IPC_CHANNELS.exportStageOverlays, overlays),
   stageExportFrames: (frames: StageFrames) =>
     invoke<{ count: number }>(IPC_CHANNELS.exportStageFrames, frames),
+  getExportEncoderInfo: () => invoke<ExportEncoderInfo>(IPC_CHANNELS.exportEncoders),
   cancelExport: () => invoke<void>(IPC_CHANNELS.exportCancel),
   revealExport: () => invoke<void>(IPC_CHANNELS.exportReveal),
   exportStatsCsv: (data: StatsExport) =>

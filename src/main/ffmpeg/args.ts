@@ -1,32 +1,26 @@
 // Сборка аргументов ffmpeg. Всегда массив для spawn — никаких строк для оболочки.
 import type { PreparedClip } from '../../shared/exportRanges'
 import { planReadChunks } from './chunks'
+import { CPU_ENCODER, type EncoderProfile } from './encoders'
 
-export const VIDEO_QUALITY = { preset: 'veryfast', crf: '20' } as const
 export const AUDIO_BITRATE = '160k'
 
 /** Секунды в виде, понятном ffmpeg (всегда точка, три знака). */
 export const sec = (value: number): string => Math.max(0, value).toFixed(3)
 
 /** Общие параметры: тихий вывод, ход работы в stdout (key=value), без чтения с клавиатуры. */
-function head(): string[] {
+export function head(): string[] {
   return ['-hide_banner', '-nostdin', '-nostats', '-loglevel', 'warning', '-progress', 'pipe:1']
 }
 
 /** Чётные размеры кадра: yuv420p иначе не кодируется. Для обычных видео ничего не меняет. */
-const EVEN_SIZE = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
+export const EVEN_SIZE = 'scale=trunc(iw/2)*2:trunc(ih/2)*2'
 
-const reencodeVideo = (): string[] => [
-  '-c:v',
-  'libx264',
-  '-preset',
-  VIDEO_QUALITY.preset,
-  '-crf',
-  VIDEO_QUALITY.crf,
-  '-pix_fmt',
-  'yuv420p'
+/** Параметры видео для перекодирования: процессор (по умолчанию) или кодер видеокарты. */
+export const reencodeVideo = (encoder: EncoderProfile = CPU_ENCODER): string[] => [
+  ...encoder.videoArgs
 ]
-const reencodeAudio = (): string[] => ['-c:a', 'aac', '-b:a', AUDIO_BITRATE]
+export const reencodeAudio = (): string[] => ['-c:a', 'aac', '-b:a', AUDIO_BITRATE]
 
 /**
  * Один клип.
@@ -42,13 +36,14 @@ export function buildClipArgs(opts: {
   start: number
   end: number
   fast: boolean
+  encoder?: EncoderProfile
 }): string[] {
-  const { input, output, start, end, fast } = opts
+  const { input, output, start, end, fast, encoder } = opts
   const common = ['-ss', sec(start), '-t', sec(end - start), '-i', input]
   const maps = ['-map', '0:v:0', '-map', '0:a:0?', '-sn', '-dn']
   const codecs = fast
     ? ['-c', 'copy', '-avoid_negative_ts', 'make_zero']
-    : ['-vf', EVEN_SIZE, ...reencodeVideo(), ...reencodeAudio()]
+    : ['-vf', EVEN_SIZE, ...reencodeVideo(encoder), ...reencodeAudio()]
   return [
     ...head(),
     ...common,
@@ -128,8 +123,9 @@ export function buildCompilationArgs(opts: {
   scriptPath: string
   plan: CompilationPlan
   hasAudio: boolean
+  encoder?: EncoderProfile
 }): string[] {
-  const { input, output, scriptPath, plan, hasAudio } = opts
+  const { input, output, scriptPath, plan, hasAudio, encoder } = opts
   return [
     ...head(),
     ...plan.inputs.flatMap((part) => ['-ss', sec(part.offset), '-t', sec(part.span), '-i', input]),
@@ -138,7 +134,7 @@ export function buildCompilationArgs(opts: {
     '-map',
     '[outv]',
     ...(hasAudio ? ['-map', '[outa]'] : []),
-    ...reencodeVideo(),
+    ...reencodeVideo(encoder),
     ...(hasAudio ? reencodeAudio() : []),
     '-movflags',
     '+faststart',
@@ -165,8 +161,12 @@ export function buildDrawnArgs(opts: {
   offset: number
   span: number
   hasAudio: boolean
+  encoder?: EncoderProfile
+  /** Потоков кодера (для x264 при параллельных кусках; без значения — решает сам кодер). */
+  encoderThreads?: number
 }): string[] {
-  const { input, pngPaths, output, scriptPath, offset, span, hasAudio } = opts
+  const { input, pngPaths, output, scriptPath, offset, span, hasAudio, encoder, encoderThreads } =
+    opts
   return [
     ...head(),
     '-ss',
@@ -192,7 +192,10 @@ export function buildDrawnArgs(opts: {
     '-map',
     '[outv]',
     ...(hasAudio ? ['-map', '[outa]'] : []),
-    ...reencodeVideo(),
+    ...reencodeVideo(encoder),
+    ...(encoderThreads && (encoder ?? CPU_ENCODER).id === 'cpu'
+      ? ['-threads', String(encoderThreads)]
+      : []),
     ...(hasAudio ? reencodeAudio() : []),
     '-movflags',
     '+faststart',

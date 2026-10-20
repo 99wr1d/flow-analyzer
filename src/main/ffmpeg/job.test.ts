@@ -2,9 +2,9 @@
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, beforeEach } from 'vitest'
 import type { ExportProgress, ExportRequest } from '../../shared/export'
-import { COMPILATION_FAST_ERROR, ExportError, runExportJob, type JobOutput } from './job'
+import { COMPILATION_FAST_ERROR, ExportError, type JobOutput } from './job'
 import { EXPORT_MESSAGES } from './progress'
 import {
   FFMPEG,
@@ -19,7 +19,10 @@ import {
   makeAudioVideo,
   makeBeepVideo,
   makeLongVideo,
-  streamDurations
+  streamDurations,
+  MODES,
+  runJob,
+  setTestMode
 } from './ffmpeg.testkit'
 
 const CFR25 = FIXTURE('cfr25.mp4')
@@ -37,8 +40,10 @@ afterAll(() => {
   rmSync(work, { recursive: true, force: true })
 })
 
+let dirCounter = 0
 const outDir = (name: string): string => {
-  const dir = join(work, name)
+  dirCounter += 1
+  const dir = join(work, `${name}-${dirCounter}`)
   mkdirSync(dir, { recursive: true })
   return dir
 }
@@ -61,9 +66,10 @@ const run = (
   target: string,
   extra: { signal?: AbortSignal; onProgress?: (p: ExportProgress) => void } = {}
 ): Promise<JobOutput> =>
-  runExportJob({ ffmpegPath: FFMPEG, inputPath: input, request: req, target, ...extra })
+  runJob({ ffmpegPath: FFMPEG, inputPath: input, request: req, target, ...extra })
 
-describe('вырезание клипов (ffmpeg)', () => {
+describe.each(MODES)('вырезание клипов (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   it('точный режим [1.0, 2.0] из cfr25: ровно 25 кадров, первый — кадр 25', async () => {
     const dir = outDir('precise')
     const { result, paths } = await run(CFR25, request({}), dir)
@@ -144,7 +150,8 @@ describe('вырезание клипов (ffmpeg)', () => {
   }, 30_000)
 })
 
-describe('подборка (ffmpeg)', () => {
+describe.each(MODES)('подборка (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   it('[0.5, 1.0] + [2.0, 3.0] без звука ≈ 1.5 с (37–38 кадров), звука нет', async () => {
     const dir = outDir('comp')
     const target = join(dir, 'подборка.mp4')
@@ -243,7 +250,8 @@ describe('подборка (ffmpeg)', () => {
   })
 })
 
-describe('отмена и ошибки (ffmpeg)', () => {
+describe.each(MODES)('отмена и ошибки (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   it('отмена посреди клипа убирает недописанный файл', async () => {
     const dir = outDir('cancel')
     const controller = new AbortController()
@@ -276,7 +284,7 @@ describe('отмена и ошибки (ffmpeg)', () => {
       ]
     })
     const target = join(dir, 'c.mp4')
-    const { result } = await runExportJob({
+    const { result } = await runJob({
       ffmpegPath: FFMPEG,
       inputPath: longVideo,
       request: req,
@@ -338,7 +346,7 @@ describe('отмена и ошибки (ffmpeg)', () => {
 
   it('несуществующий ffmpeg: процесс не запускается — ошибка, а не падение', async () => {
     const dir = outDir('nofF')
-    const out = await runExportJob({
+    const out = await runJob({
       ffmpegPath: join(work, 'нет-ffmpeg.exe'),
       inputPath: CFR25,
       request: request({}),
@@ -348,7 +356,8 @@ describe('отмена и ошибки (ffmpeg)', () => {
   })
 })
 
-describe('прогресс', () => {
+describe.each(MODES)('прогресс [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   it('идёт от 0 к 1 по возрастанию', async () => {
     const dir = outDir('progress')
     const seen: ExportProgress[] = []

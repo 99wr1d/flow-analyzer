@@ -258,6 +258,33 @@ export function ExportForm(): React.JSX.Element {
           />
         </fieldset>
 
+        {!fast &&
+          (state.encoderInfo?.gpuLabel ? (
+            <fieldset className="export__group" data-testid="export-encoder-group">
+              <legend className="export__legend">{ru.export.encoderLabel}</legend>
+              <Radio
+                name="export-encoder"
+                checked={state.encoder === 'auto'}
+                onChange={() => set({ encoder: 'auto' })}
+                testId="export-encoder-auto"
+                title={ru.export.encoderAuto}
+                hint={ru.export.encoderAutoHint(state.encoderInfo.gpuLabel)}
+              />
+              <Radio
+                name="export-encoder"
+                checked={state.encoder === 'cpu'}
+                onChange={() => set({ encoder: 'cpu' })}
+                testId="export-encoder-cpu"
+                title={ru.export.encoderCpu}
+                hint={ru.export.encoderCpuHint}
+              />
+            </fieldset>
+          ) : (
+            <div className="export__hint" data-testid="export-encoder-info">
+              {state.encoderInfo === null ? ru.export.encoderChecking : ru.export.encoderNone}
+            </div>
+          ))}
+
         <fieldset className="export__group">
           <legend className="export__legend">{ru.export.drawingsLabel}</legend>
           <Check

@@ -1,5 +1,5 @@
 // Лупа в экспорте: участок кадра вырезается (crop), увеличивается (scale), обрезается по кругу (прозрачность
-// через geq) и накладывается на кадр (overlay) на нужное время. Рамку и соединительную линию лупы рисует
+// через маску-круг: alphamerge) и накладывается на кадр (overlay) на нужное время. Рамку и соединительную линию лупы рисует
 // обычный PNG с рисунками — здесь только содержимое линзы. Чистые функции: ffmpeg не запускают.
 import type { Ease } from '../../shared/annotations'
 import { segmentAt } from '../../shared/animation'
@@ -105,10 +105,13 @@ export function loupeLines(o: LoupeFilterOptions): string[] {
     ...(o.single ? ['eof_action=repeat'] : []),
     ...(o.window ? [`enable=${quoteExpr(windowExpr(o.window.from, o.window.to))}`] : [])
   ].join(':')
+  // Маска круга рисуется один раз на один кадр (geq на целом потоке был самым медленным местом экспорта с лупой:
+  // 78 кадров/с против 1100 без него), последний кадр маски фильтр alphamerge продлевает сам, и она накладывается на линзу как прозрачность (alphamerge).
   return [
+    `color=c=white:s=${g.d}x${g.d}:r=25:d=0.04,format=gray,geq=lum=${quoteExpr(alpha)}[${id}k]`,
     `${o.input}split=2[${id}a][${id}b]`,
-    `[${id}b]crop=w=${g.sw}:h=${g.sw}:x=${anim ? expr((k) => k.sx) : g.sx}:y=${anim ? expr((k) => k.sy) : g.sy},scale=${g.d}:${g.d}:flags=bicubic,format=rgba,` +
-      `geq=r=${quoteExpr('r(X,Y)')}:g=${quoteExpr('g(X,Y)')}:b=${quoteExpr('b(X,Y)')}:a=${quoteExpr(alpha)}[${id}l]`,
+    `[${id}b]crop=w=${g.sw}:h=${g.sw}:x=${anim ? expr((k) => k.sx) : g.sx}:y=${anim ? expr((k) => k.sy) : g.sy},scale=${g.d}:${g.d}:flags=bicubic,format=yuv420p[${id}c]`,
+    `[${id}c][${id}k]alphamerge[${id}l]`,
     `[${id}a][${id}l]overlay=${overlayOptions}${o.output}`
   ]
 }

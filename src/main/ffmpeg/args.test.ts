@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { buildClipArgs, buildCompilationArgs, buildProbeArgs, planCompilation, sec } from './args'
+import {
+  buildClipArgs,
+  buildCompilationArgs,
+  buildDrawnArgs,
+  buildProbeArgs,
+  planCompilation,
+  sec
+} from './args'
+import { CPU_ENCODER, GPU_ENCODERS } from './encoders'
 
 const at = (args: string[], flag: string): number => args.indexOf(flag)
 const slice = (args: string[], flag: string, n: number): string[] =>
@@ -161,5 +169,62 @@ describe('прочее', () => {
   })
   it('buildProbeArgs', () => {
     expect(buildProbeArgs('a.mp4')).toEqual(['-hide_banner', '-nostdin', '-i', 'a.mp4'])
+  })
+})
+
+describe('кодер в аргументах', () => {
+  const nvenc = GPU_ENCODERS[0]
+  const clip = { input: 'a.mp4', output: 'o.mp4', start: 1, end: 2, fast: false }
+  it('по умолчанию — x264, как до этапа 18', () => {
+    const a = buildClipArgs(clip)
+    expect(a.join(' ')).toContain('-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p')
+    expect(buildClipArgs({ ...clip, encoder: CPU_ENCODER })).toEqual(a)
+  })
+  it('кодер видеокарты подставляется во все три способа перекодирования', () => {
+    expect(buildClipArgs({ ...clip, encoder: nvenc }).join(' ')).toContain('-c:v h264_nvenc')
+    const plan = planCompilation([{ start: 1, end: 2 }], false)
+    const comp = buildCompilationArgs({
+      input: 'a.mp4',
+      output: 'o.mp4',
+      scriptPath: 'g.txt',
+      plan,
+      hasAudio: false,
+      encoder: nvenc
+    })
+    expect(comp.join(' ')).toContain('-c:v h264_nvenc')
+    expect(comp.join(' ')).not.toContain('libx264')
+    const drawn = buildDrawnArgs({
+      input: 'a.mp4',
+      pngPaths: [],
+      output: 'o.mp4',
+      scriptPath: 'g.txt',
+      offset: 1,
+      span: 1,
+      hasAudio: true,
+      encoder: nvenc
+    })
+    expect(drawn.join(' ')).toContain('-c:v h264_nvenc')
+    expect(drawn.join(' ')).toContain('-c:a aac')
+  })
+  it('«Быстро» (копирование потока) кодера не использует', () => {
+    const a = buildClipArgs({ ...clip, fast: true, encoder: nvenc })
+    expect(a).toContain('copy')
+    expect(a.join(' ')).not.toContain('nvenc')
+  })
+  it('число потоков кодера задаётся только для процессора', () => {
+    const base = {
+      input: 'a.mp4',
+      pngPaths: [],
+      output: 'o.mp4',
+      scriptPath: 'g.txt',
+      offset: 0,
+      span: 1,
+      hasAudio: false
+    }
+    expect(buildDrawnArgs({ ...base, encoderThreads: 3 }).join(' ')).toContain('-threads 3')
+    expect(buildDrawnArgs({ ...base, encoder: nvenc, encoderThreads: 3 }).join(' ')).not.toContain(
+      '-threads'
+    )
+    expect(buildDrawnArgs(base).join(' ')).not.toContain('-threads')
   })
 })

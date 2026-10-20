@@ -3,6 +3,7 @@ import {
   EXPORT_MESSAGES,
   createProgressParser,
   friendlyFfmpegError,
+  looksVariableRate,
   parseMediaInfo
 } from './progress'
 
@@ -37,6 +38,7 @@ describe('parseMediaInfo', () => {
       width: 640,
       height: 360,
       fps: 25,
+      tbr: null,
       audioRate: 48000,
       audioMono: false
     })
@@ -66,6 +68,20 @@ describe('parseMediaInfo: размер, частота, звук, поворот
       audioRate: 44100,
       audioMono: true
     })
+  })
+  it('базовая частота (tbr) читается, «30k» — это 30000', () => {
+    expect(parseMediaInfo(real).tbr).toBe(29.97)
+    expect(
+      parseMediaInfo('  Stream #0:0: Video: h264, yuv420p, 640x360, 25 fps, 1k tbr, 90k tbn').tbr
+    ).toBe(1000)
+  })
+  it('переменная частота кадров: fps заметно ниже tbr', () => {
+    expect(looksVariableRate({ fps: 25, tbr: 25 })).toBe(false)
+    expect(looksVariableRate({ fps: 29.97, tbr: 29.97 })).toBe(false)
+    expect(looksVariableRate({ fps: 23.98, tbr: 24 })).toBe(false)
+    expect(looksVariableRate({ fps: 27.4, tbr: 30 })).toBe(true)
+    expect(looksVariableRate({ fps: null, tbr: 30 })).toBe(false)
+    expect(looksVariableRate({ fps: 30, tbr: null })).toBe(false)
   })
   it('поворот на 90° меняет ширину и высоту местами', () => {
     const rotated = `${real}

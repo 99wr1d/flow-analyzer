@@ -32,6 +32,8 @@ export interface MediaFacts {
   height: number | null
   /** Частота кадров из заголовка потока (может быть средней); null — не указана. */
   fps: number | null
+  /** «Базовая» частота кадров ffmpeg (tbr); если она заметно выше fps, кадры идут неровно (переменная частота). */
+  tbr: number | null
   /** Звук: частота дискретизации и «моно» ли он. */
   audioRate: number | null
   audioMono: boolean
@@ -48,6 +50,7 @@ export function parseMediaInfo(stderr: string): MediaFacts {
   const videoLine = streams.find((l) => /: Video:/.test(l) && !/attached pic/.test(l))
   const size = videoLine ? /,\s*(\d{2,5})x(\d{2,5})[\s,[]/.exec(videoLine) : null
   const fpsMatch = videoLine ? /(\d+(?:\.\d+)?)\s+fps/.exec(videoLine) : null
+  const tbrMatch = videoLine ? /(\d+(?:\.\d+)?k?)\s+tbr/.exec(videoLine) : null
   // Поворот пишется отдельной строкой после потока («displaymatrix: rotation of -90.00 degrees»).
   const rotation = /rotation of (-?\d+(?:\.\d+)?) degrees/.exec(stderr)
   const quarter = rotation ? Math.round(Math.abs(Number(rotation[1])) / 90) % 2 === 1 : false
@@ -63,6 +66,9 @@ export function parseMediaInfo(stderr: string): MediaFacts {
     width,
     height,
     fps: fpsMatch ? Number(fpsMatch[1]) : null,
+    tbr: tbrMatch
+      ? Number(tbrMatch[1].replace(/k$/, '')) * (tbrMatch[1].endsWith('k') ? 1000 : 1)
+      : null,
     audioRate: audioMatch ? Number(audioMatch[1]) : null,
     audioMono: audioMatch ? /^(mono|1 channels)/.test(audioMatch[2].trim()) : false
   }
@@ -94,4 +100,10 @@ export function friendlyFfmpegError(lines: readonly string[]): string {
   if (/Error opening output|Could not open file/i.test(text)) return EXPORT_MESSAGES.cantCreate
   if (/No such file or directory/i.test(text)) return EXPORT_MESSAGES.inputMissing
   return EXPORT_MESSAGES.generic
+}
+
+/** Похоже ли видео на файл с переменной частотой кадров: параллельный экспорт считает кадры по ровной сетке и ему такие файлы не подходят. */
+export function looksVariableRate(facts: Pick<MediaFacts, 'fps' | 'tbr'>): boolean {
+  if (facts.fps === null || facts.tbr === null || facts.fps <= 0) return false
+  return Math.abs(facts.tbr / facts.fps - 1) > 0.02
 }

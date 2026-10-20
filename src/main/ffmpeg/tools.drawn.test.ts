@@ -3,12 +3,12 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, beforeEach } from 'vitest'
 import type { Timing } from '../../shared/annotations'
 import type { ExportRequest } from '../../shared/export'
 import { loupeGeometry } from '../../shared/tools/loupe'
-import { runExportJob, type JobOutput } from './job'
-import { FFMPEG, FIXTURE, frameRgb, makePng } from './ffmpeg.testkit'
+import { type JobOutput } from './job'
+import { FFMPEG, FIXTURE, frameRgb, makePng, MODES, runJob, setTestMode } from './ffmpeg.testkit'
 import { disposeStaged, stageOverlays, type Staged } from './staging'
 
 const CFR25 = FIXTURE('cfr25.mp4')
@@ -74,7 +74,7 @@ async function exportWith(
     projectName: null,
     drawings: { token: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11', fps: 25, timings, loupes }
   }
-  const out: JobOutput = await runExportJob({
+  const out: JobOutput = await runJob({
     ffmpegPath: FFMPEG,
     inputPath: CFR25,
     request,
@@ -116,7 +116,8 @@ const diff = (a: Rgb, b: Rgb): number =>
 
 const TRANSPARENT = makePng(W, H)
 
-describe('экспорт с лупой (ffmpeg)', () => {
+describe.each(MODES)('экспорт с лупой (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   // Линза в правом верхнем углу показывает центр кадра (там крупно нарисован номер кадра) в увеличении ×2.
   const loupe: LoupeSpec = {
     index: 0,
@@ -241,7 +242,8 @@ describe('экспорт с лупой (ffmpeg)', () => {
   }, 90_000)
 })
 
-describe('экспорт с прожектором (ffmpeg)', () => {
+describe.each(MODES)('экспорт с прожектором (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   const DIM = 0.55
   const CX = 320
   const CY = 180

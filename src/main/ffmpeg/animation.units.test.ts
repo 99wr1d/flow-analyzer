@@ -214,7 +214,8 @@ describe('planDrawn: ряды кадров анимации', () => {
       animation: { runs: [{ first: 30, last: 54 }], layers: { over: true, under: false } }
     })
     expect(g.inputs).toEqual([{ key: '', layer: 'over', seq: { first: 30, last: 54 } }])
-    expect(g.script).toContain('[1:v]format=rgba,setpts=PTS+(0.2000)/TB[ps0]')
+    // 30/25 − 1 = 0.2 с, минус четверть кадра (0.01 с).
+    expect(g.script).toContain('[1:v]format=rgba,settb=1/1000000,setpts=PTS+(0.1900)/TB[ps0]')
     expect(g.script).toMatch(/\[src\]\[ps0\]overlay=x=0:y=0:eof_action=pass\[ov0\]/)
     expect(g.script).not.toContain('maskedmerge')
   })

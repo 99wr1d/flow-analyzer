@@ -233,10 +233,13 @@ export function planDrawn(input: GraphInput): GraphPlan {
         const idx = inputs.length
         inputs.push({ key: '', layer, seq: run })
         const label = `[ps${idx}]`
-        // Картинка n ложится ровно на метку времени кадра n (overlay берёт ближайший по времени кадр ряда:
-        // запас до соседнего кадра — полкадра в обе стороны).
-        const shift = run.first / fps - offset
-        lines.push(`[${idx + 1}:v]${scalePre}format=rgba,setpts=PTS+(${num(shift)})/TB${label}`)
+        // Картинка n ложится на метку времени кадра n, но на четверть кадра раньше: overlay берёт самую позднюю картинку,
+        // не позже кадра, и запас в четверть кадра защищает от погрешностей времени (точное совпадение хрупко).
+        // Шкала времени — микросекунды: в шкале 1/частота сдвиг на долю кадра округлялся бы до целого кадра.
+        const shift = run.first / fps - offset - 0.25 * frame
+        lines.push(
+          `[${idx + 1}:v]${scalePre}format=rgba,settb=1/1000000,setpts=PTS+(${num(shift)})/TB${label}`
+        )
         seqPads.push({ layer, label })
       }
     }

@@ -1,6 +1,8 @@
 // Состояние окна экспорта: настройки, ход работы, результат.
 import { create } from 'zustand'
 import type {
+  ExportEncoderChoice,
+  ExportEncoderInfo,
   ExportMode,
   ExportPrecision,
   ExportProgress,
@@ -19,6 +21,10 @@ export interface ExportState {
   picked: string[]
   mode: ExportMode
   precision: ExportPrecision
+  /** Чем кодировать: «Авто» — видеокарта, если есть, или всегда процессор. */
+  encoder: ExportEncoderChoice
+  /** Что нашла проверка кодеров; null — проверка ещё идёт. */
+  encoderInfo: ExportEncoderInfo | null
   /** «С рисунками»: null — по умолчанию (включено, если рисунки попадают в экспорт). */
   withDrawings: boolean | null
   /** Идёт подготовка картинок с рисунками (до запуска ffmpeg): сделано / всего. */
@@ -45,6 +51,8 @@ export const useExportStore = create<ExportState>()(() => ({
   picked: [],
   mode: 'files',
   precision: 'precise',
+  encoder: 'auto',
+  encoderInfo: null,
   withDrawings: null,
   preparing: null,
   animPreparing: null,

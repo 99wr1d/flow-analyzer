@@ -55,6 +55,8 @@ export function openExportDialog(): void {
           ? 'visible'
           : 'all',
     picked: items.map((e) => e.id),
+    encoder: 'auto',
+    encoderInfo: null,
     withDrawings: null,
     preparing: null,
     animPreparing: null,
@@ -65,6 +67,15 @@ export function openExportDialog(): void {
     error: null,
     closePrompt: false
   })
+  // Проверка видеокарты занимает до пары секунд и запоминается; окно при этом уже открыто.
+  void window.api
+    .getExportEncoderInfo()
+    .then((info) => {
+      if (get().open) set({ encoderInfo: info })
+    })
+    .catch(() => {
+      if (get().open) set({ encoderInfo: { gpuLabel: null } })
+    })
 }
 
 export function closeExportDialog(): void {
@@ -249,6 +260,7 @@ export function startExport(): Promise<void> {
     mode,
     // Подборку без перекодирования собрать нельзя, рисунки нанести тоже — тогда всегда «Точно».
     precision: mode === 'compilation' || withDrawings ? 'precise' : state.precision,
+    encoder: state.encoder,
     padding: whole ? 0 : padding.value,
     projectName: project.path !== null && project.name !== UNTITLED_PROJECT ? project.name : null
   }

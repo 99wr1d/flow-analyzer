@@ -45,6 +45,7 @@ test('приложение запускается безопасно и пока
       'exportStatsCsv',
       'getAboutInfo',
       'getAppInfo',
+      'getExportEncoderInfo',
       'getLicenses',
       'getSettings',
       'importDroppedVideo',

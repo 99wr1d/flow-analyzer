@@ -18,6 +18,10 @@ export const DURATION_TOLERANCE = 0.5
 /** Короче этого клип не вырезается. */
 export const MIN_CLIP_SECONDS = 0.1
 
+/** Кодирование: «auto» — видеокарта, если она есть и работает; «cpu» — процессор (x264). */
+export const EXPORT_ENCODERS = ['auto', 'cpu'] as const
+export type ExportEncoderChoice = (typeof EXPORT_ENCODERS)[number]
+
 export const EXPORT_MODES = ['files', 'compilation'] as const
 export const EXPORT_PRECISIONS = ['precise', 'fast'] as const
 export type ExportMode = (typeof EXPORT_MODES)[number]
@@ -137,7 +141,9 @@ export const ExportRequestSchema = z.object({
   /** Имя проекта для имени подборки; null — взять имя видеофайла. */
   projectName: z.string().max(300).nullable(),
   /** Нанести рисунки на видео (только с перекодированием). */
-  drawings: ExportDrawingsSchema.optional()
+  drawings: ExportDrawingsSchema.optional(),
+  /** Чем кодировать видео. Старые запросы поля не имеют — это «auto». */
+  encoder: z.enum(EXPORT_ENCODERS).optional()
 })
 
 export type ExportDrawings = z.infer<typeof ExportDrawingsSchema>
@@ -177,4 +183,10 @@ export interface ExportResult {
   target: string | null
   failures: ExportFailure[]
   elapsedMs: number
+}
+
+/** Сведения о кодировании для окна экспорта: найдена ли видеокарта, годная для кодирования. */
+export interface ExportEncoderInfo {
+  /** Название найденного кодера видеокарты; null — не найден (остаётся процессор). */
+  gpuLabel: string | null
 }

@@ -2,8 +2,14 @@ import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 import { existsSync, rmSync } from 'fs'
 import { stat } from 'fs/promises'
 import { basename, dirname, extname, join } from 'path'
-import { ExportRequestSchema, type ExportProgress, type ExportResult } from '../../shared/export'
+import {
+  ExportRequestSchema,
+  type ExportEncoderInfo,
+  type ExportProgress,
+  type ExportResult
+} from '../../shared/export'
 import { IPC_CHANNELS, IPC_EVENTS, type IpcResult } from '../../shared/ipc-contract'
+import { probeEncoders } from '../ffmpeg/encoders'
 import { ExportError, runExportJob } from '../ffmpeg/job'
 import { compilationDefaultName } from '../ffmpeg/names'
 import {
@@ -21,7 +27,9 @@ import { getFfmpegPath } from '../ffmpeg/path'
 import { killAllFfmpeg } from '../ffmpeg/runner'
 import { getMediaEntry } from '../media/registry'
 import { MEDIA_ERRORS, checkMediaId } from '../media/validate'
+import { logInfo } from '../log/logger'
 import { isTrustedSender } from '../security'
+import { testFlags } from '../testFlags'
 
 export const EXPORT_IPC_ERRORS = {
   busy: 'Экспорт уже идёт. Дождитесь окончания или отмените его',
@@ -134,6 +142,13 @@ async function startExport(
         onProgress,
         overlays: staged ?? undefined,
         signal: controller.signal,
+        log: (message) => logInfo('export', message),
+        tuning: {
+          fakeBrokenGpu: testFlags().gpuFail,
+          ...(testFlags().exportChunkSeconds !== null
+            ? { chunkSeconds: testFlags().exportChunkSeconds as number }
+            : {})
+        },
         onPartFile: (path) => {
           job.part = path
         }
@@ -178,6 +193,21 @@ export function registerExportHandlers(): void {
     }
   )
   void sweepStale()
+
+  // Каким кодером кодировать: проверка видеокарты делается один раз за запуск и запоминается.
+  ipcMain.handle(
+    IPC_CHANNELS.exportEncoders,
+    async (event): Promise<IpcResult<ExportEncoderInfo>> => {
+      if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }
+      const ffmpeg = getFfmpegPath()
+      if (!ffmpeg.ok) return { ok: true, data: { gpuLabel: null } }
+      const probe = await probeEncoders(ffmpeg.path, { fakeBrokenGpu: testFlags().gpuFail })
+      if (probe.rejected.length > 0) {
+        logInfo('export', `Кодеры видеокарты не прошли проверку: ${probe.rejected.join(', ')}`)
+      }
+      return { ok: true, data: { gpuLabel: probe.gpu?.label ?? null } }
+    }
+  )
 
   ipcMain.handle(IPC_CHANNELS.exportCancel, (event): IpcResult<void> => {
     if (!isTrustedSender(event)) return { ok: false, error: MEDIA_ERRORS.untrusted }

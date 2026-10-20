@@ -10,6 +10,7 @@ import type {
   RecoveryItem
 } from './project'
 import type {
+  ExportEncoderInfo,
   ExportProgress,
   ExportRequest,
   ExportResult,
@@ -53,6 +54,7 @@ export const IPC_CHANNELS = {
   exportStart: 'export:start',
   exportCancel: 'export:cancel',
   exportReveal: 'export:reveal',
+  exportEncoders: 'export:encoders',
   statsExportCsv: 'stats:export-csv',
   statsReveal: 'stats:reveal',
   windowSetTitle: 'window:set-title',
@@ -168,6 +170,8 @@ export interface FlowApi {
   stageExportOverlays(overlays: StageOverlays): Promise<{ token: string }>
   /** Дополняет загрузку (по билету) покадровыми картинками движущихся рисунков. */
   stageExportFrames(frames: StageFrames): Promise<{ count: number }>
+  /** Каким кодером можно кодировать видео на этом компьютере (проверка один раз за запуск, занимает до пары секунд). */
+  getExportEncoderInfo(): Promise<ExportEncoderInfo>
   cancelExport(): Promise<void>
   /** Показывает в проводнике файл, созданный последним экспортом (путь выбирает main, не интерфейс). */
   revealExport(): Promise<void>

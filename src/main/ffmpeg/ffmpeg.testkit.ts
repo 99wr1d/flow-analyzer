@@ -3,6 +3,8 @@ import { spawnSync } from 'child_process'
 import { join, resolve } from 'path'
 import { crc32, deflateSync } from 'zlib'
 import ffmpegStatic from 'ffmpeg-static'
+import { GPU_ENCODERS, buildEncoderTestArgs, parseEncoderList, type EncoderProbe } from './encoders'
+import { runExportJob, type JobInput, type JobOutput } from './job'
 import { parseMediaInfo } from './progress'
 
 export const FFMPEG = ffmpegStatic as string
@@ -290,4 +292,72 @@ export function streamDurations(path: string): { video: number; audio: number } 
     return last ? Number(last[1]) * 3600 + Number(last[2]) * 60 + Number(last[3]) : -1
   }
   return { video: time('0:v:0'), audio: time('0:a:0') }
+}
+
+// ---------- Режимы экспорта для тестов: процессор / видеокарта, обычный запуск / куски ----------
+
+export interface ExportTestMode {
+  name: string
+  encoder: 'auto' | 'cpu'
+  /** Задана — параллельный экспорт кусками включается принудительно, куски по столько секунд. */
+  chunkSeconds?: number
+}
+
+/**
+ * Есть ли на этом компьютере рабочий кодер видеокарты (проверка настоящим кодированием). Синхронно и без top-level await:
+ * файл подключают и тесты Playwright, который собирает их в CommonJS. Тот же порядок и те же проверки, что у detectEncoders.
+ */
+function detectGpuSync(): EncoderProbe {
+  const listed = spawnSync(FFMPEG, ['-hide_banner', '-encoders'], {
+    windowsHide: true,
+    timeout: 15_000
+  })
+  if (listed.status !== 0) return { gpu: null, rejected: [] }
+  const names = parseEncoderList(listed.stdout.toString('utf8'))
+  const rejected: string[] = []
+  for (const profile of GPU_ENCODERS) {
+    if (!names.has(profile.ffmpegName)) continue
+    const test = spawnSync(FFMPEG, buildEncoderTestArgs(profile), {
+      windowsHide: true,
+      timeout: 20_000
+    })
+    if (test.status === 0) return { gpu: profile, rejected }
+    rejected.push(profile.ffmpegName)
+  }
+  return { gpu: null, rejected }
+}
+
+/** Есть ли на этом компьютере рабочий кодер видеокарты. */
+export const GPU_PROBE: EncoderProbe = detectGpuSync()
+export const HAS_GPU = GPU_PROBE.gpu !== null
+
+/** Все проверки экспорта выполняются во всех режимах; режимы с видеокартой пропускаются, если её нет. */
+export const MODES: ExportTestMode[] = [
+  { name: 'x264', encoder: 'cpu' },
+  { name: 'x264, куски по 1 с', encoder: 'cpu', chunkSeconds: 1 },
+  ...(HAS_GPU
+    ? ([
+        { name: 'видеокарта', encoder: 'auto' },
+        { name: 'видеокарта, куски по 1 с', encoder: 'auto', chunkSeconds: 1 }
+      ] satisfies ExportTestMode[])
+    : [])
+]
+
+let currentMode: ExportTestMode = MODES[0]
+export const setTestMode = (mode: ExportTestMode): void => {
+  currentMode = mode
+}
+export const testMode = (): ExportTestMode => currentMode
+
+/** Запуск задания в текущем режиме (см. setTestMode). */
+export function runJob(input: JobInput): Promise<JobOutput> {
+  const m = currentMode
+  return runExportJob({
+    ...input,
+    request: { ...input.request, encoder: m.encoder },
+    tuning: {
+      ...(m.chunkSeconds !== undefined ? { chunkSeconds: m.chunkSeconds } : {}),
+      ...input.tuning
+    }
+  })
 }

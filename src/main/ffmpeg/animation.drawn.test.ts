@@ -4,7 +4,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, beforeEach } from 'vitest'
 import type { Annotation, Circle, Timing } from '../../shared/annotations'
 import { geomAt, setKeyEase, startAnimation, applyGeomEdit } from '../../shared/animation'
 import type { ExportRequest } from '../../shared/export'
@@ -18,8 +18,16 @@ import { fitHomography, type Correspondence } from '../../shared/pitch/homograph
 import { penaltyAreaRect } from '../../shared/pitch/landmarks'
 import { lookAtCamera } from '../../shared/pitch/pitch.testkit'
 import { makeProjector } from '../../shared/pitch/projector'
-import { runExportJob } from './job'
-import { FFMPEG, FIXTURE, boxPng, frameRgb, makePng } from './ffmpeg.testkit'
+import {
+  FFMPEG,
+  FIXTURE,
+  boxPng,
+  frameRgb,
+  makePng,
+  MODES,
+  runJob,
+  setTestMode
+} from './ffmpeg.testkit'
 import { disposeStaged, holdStaged, stageFrames, stageOverlays, type Staged } from './staging'
 
 const CFR25 = FIXTURE('cfr25.mp4')
@@ -152,7 +160,7 @@ async function exportAnimated(
       ...(c.layers.under ? { grass: GRASS } : {})
     }
   }
-  const out = await runExportJob({
+  const out = await runJob({
     ffmpegPath: FFMPEG,
     inputPath: c.source,
     request,
@@ -205,7 +213,8 @@ function boxInRow(
   return max < 0 ? null : { cx: (min + max + 1) / 2, width: max - min + 1 }
 }
 
-describe('движущиеся рисунки в экспорте (ffmpeg)', () => {
+describe.each(MODES)('движущиеся рисунки в экспорте (ffmpeg) [$name]', (mode) => {
+  beforeEach(() => setTestMode(mode))
   it('круг едет слева направо за секунду: в кадрах 0, 12 и 24 центр там, где его считает анимация (±2 px)', async () => {
     const a = movingCircle()
     const { paths } = await exportAnimated({

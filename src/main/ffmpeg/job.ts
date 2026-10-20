@@ -2,7 +2,7 @@
 // Не зависит от Electron — вызывается из IPC и напрямую из тестов.
 import { existsSync } from 'fs'
 import { mkdtemp, rename, rm, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
+import { availableParallelism, tmpdir } from 'os'
 import { join } from 'path'
 import type {
   ExportFailure,
@@ -17,13 +17,34 @@ import {
   buildCompilationArgs,
   buildDrawnArgs,
   buildProbeArgs,
-  planCompilation
+  head,
+  planCompilation,
+  reencodeAudio,
+  sec
 } from './args'
+import { writeBlankPng } from './blankPng'
+import { planReadChunks } from './chunks'
+import { runChunked, type AudioTask, type ChunkTask } from './chunked'
+import {
+  CPU_ENCODER,
+  chooseEncoder,
+  parallelWorkers,
+  probeEncoders,
+  type EncoderProfile
+} from './encoders'
+import { planAudioOnly } from './audioGraph'
+import { planChunks, type PlannedChunk, type TimeWindow } from './exportChunks'
 import { loupeGeometry } from '../../shared/tools/loupe'
 import { planDrawn, type GraphLoupe, type GraphPlan } from './drawGraph'
 import type { LoupeAnimKey } from './loupe'
 import { clipStem, uniqueFileName } from './names'
-import { EXPORT_MESSAGES, friendlyFfmpegError, parseMediaInfo, type MediaFacts } from './progress'
+import {
+  EXPORT_MESSAGES,
+  friendlyFfmpegError,
+  looksVariableRate,
+  parseMediaInfo,
+  type MediaFacts
+} from './progress'
 import { runFfmpeg, type RunResult } from './runner'
 
 export const COMPILATION_FAST_ERROR =
@@ -70,7 +91,37 @@ export interface JobInput {
   tempRoot?: string
   /** Картинки для request.drawings. */
   overlays?: JobOverlays
+  /** Запись в журнал (необязательно). */
+  log?: (message: string) => void
+  /** Настройки скорости; нужны автотестам и замерам, приложение их не задаёт. */
+  tuning?: JobTuning
 }
+
+export interface JobTuning {
+  /**
+   * Длина куска результата, секунд. Если задана, параллельный экспорт включается для любого файла (даже короткого, даже без
+   * рисунков) — так тесты проверяют склейку кусков на коротких видео. Не задана — куски только для длинных результатов с рисунками.
+   */
+  chunkSeconds?: number
+  /** Замеры и тесты: никогда не делить на куски (старый способ — один процесс ffmpeg на весь результат). */
+  noChunks?: boolean
+  /** Сколько обычных кусков (без рисунков) кодировать одновременно; по умолчанию два. */
+  plainLimit?: number
+  /** Потоков x264 на один кусок (по умолчанию решает сам x264). */
+  encoderThreads?: number
+  /** Сколько кусков кодировать одновременно (по умолчанию по кодеру и числу ядер). */
+  workers?: number
+  /** Число логических ядер (по умолчанию — настоящее). */
+  cores?: number
+  /** Автотест: притвориться, что есть видеокарта, кодер которой ломается. */
+  fakeBrokenGpu?: boolean
+}
+
+/** Результат короче этого кодируется одним процессом даже с рисунками, если читать нужно один непрерывный кусок. */
+export const CHUNK_MIN_OUTPUT_SECONDS = 120
+/** Ограничения на длину куска, когда она выбирается сама. */
+const CHUNK_AUTO_MIN_SECONDS = 20
+const CHUNK_AUTO_MAX_SECONDS = 240
 
 export interface JobOutput {
   result: ExportResult
@@ -189,17 +240,45 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
         })
       : clips.map(() => null)
 
-  /** Запуск ffmpeg по графу с рисунками. Временные файлы убираются всегда. */
-  async function runDrawn(
-    plan: OverlayPlan,
-    outputPart: string,
-    onTime: (seconds: number) => void
-  ): Promise<{ run: RunResult; seconds: number }> {
-    const overlays = input.overlays!
-    // Лупы: размер кадра — по файлу, а если он неизвестен, по размеру картинок с рисунками.
-    const frameW = facts.width && facts.height ? facts.width : overlays.width
-    const frameH = facts.width && facts.height ? facts.height : overlays.height
-    const loupes: GraphLoupe[] = (drawings?.loupes ?? [])
+  // ---------- Кодер ----------
+  // «Авто» — видеокарта, если она есть и работает (проверено заранее, один раз за запуск), иначе процессор.
+  const tuning = input.tuning ?? {}
+  const choice = request.encoder ?? 'auto'
+  // Без перекодирования («Быстро») кодер не нужен, и видеокарту проверять незачем.
+  const probe =
+    choice === 'cpu' || request.precision === 'fast'
+      ? { gpu: null, rejected: [] as string[] }
+      : await probeEncoders(ffmpegPath, { fakeBrokenGpu: tuning.fakeBrokenGpu })
+  let encoder: EncoderProfile = chooseEncoder(choice, probe)
+  const cores = tuning.cores ?? availableParallelism()
+  input.log?.(`Экспорт: кодер ${encoder.ffmpegName}`)
+
+  /**
+   * Запуск с откатом: если кодер видеокарты не сработал, то же задание сразу повторяется на процессоре, и дальше
+   * (в остальных файлах этого экспорта) используется процессор.
+   */
+  async function withFallback(
+    attemptWith: (enc: EncoderProfile) => Promise<RunResult>
+  ): Promise<RunResult> {
+    const first = await attemptWith(encoder)
+    const good = first.code === 0 && !first.spawnError && !first.stalled
+    if (encoder.id === 'cpu' || good || first.cancelled) return first
+    input.log?.(
+      `Кодер ${encoder.ffmpegName} не сработал, повторяю на процессоре: ${first.stderrTail.slice(-3).join(' | ')}`
+    )
+    encoder = CPU_ENCODER
+    return attemptWith(CPU_ENCODER)
+  }
+
+  // Параллельные куски считают кадры по ровной сетке: видео с переменной частотой кадров кодируется обычным способом.
+  const chunkable = !looksVariableRate(facts) && fps > 0
+
+  /** Лупы запроса в пикселях видео. */
+  function makeLoupes(): GraphLoupe[] {
+    const overlays = input.overlays
+    const frameW = facts.width && facts.height ? facts.width : (overlays?.width ?? 0)
+    const frameH = facts.width && facts.height ? facts.height : (overlays?.height ?? 0)
+    return (drawings?.loupes ?? [])
       .filter((l) => l.index < (drawings?.timings.length ?? 0))
       .map((l) => ({
         index: l.index,
@@ -215,15 +294,37 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
           )
         }))
       }))
+  }
+
+  interface DrawnOptions {
+    encoder: EncoderProfile
+    encoderThreads?: number
+    /** Только видео (кусок параллельного экспорта): звука в графе нет. */
+    videoOnly?: boolean
+  }
+  interface PreparedDrawn {
+    args: string[]
+    seconds: number
+    cleanup: () => Promise<void>
+  }
+
+  /** Записывает граф и собирает аргументы ffmpeg для плана с рисунками. Уборку (cleanup) вызывает тот, кто запускает. */
+  async function prepareDrawn(
+    plan: OverlayPlan,
+    outputPart: string,
+    o: DrawnOptions
+  ): Promise<PreparedDrawn> {
+    const overlays = input.overlays
     const layers = new Map<string, { over: boolean; under: boolean }>()
     for (const key of plan.keys) {
       layers.set(key, {
-        over: overlays.files.has(key),
-        under: overlays.underFiles?.has(key) ?? false
+        over: overlays?.files.has(key) ?? false,
+        under: overlays?.underFiles?.has(key) ?? false
       })
     }
+    const withAudio = facts.hasAudio && !o.videoOnly
     const graph: GraphPlan = planDrawn({
-      loupes,
+      loupes: makeLoupes(),
       layers,
       grass: drawings?.grass,
       animation:
@@ -233,54 +334,250 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
       ranges: plan.ranges,
       segments: plan.segments,
       fps,
-      audio: facts.hasAudio
-        ? { sampleRate: facts.audioRate ?? 48000, mono: facts.audioMono }
-        : null,
+      audio: withAudio ? { sampleRate: facts.audioRate ?? 48000, mono: facts.audioMono } : null,
       videoSize: facts.width && facts.height ? { w: facts.width, h: facts.height } : null,
-      pngSize: { w: overlays.width, h: overlays.height }
+      pngSize: overlays ? { w: overlays.width, h: overlays.height } : null
     })
     let dir: string | null = null
+    const cleanup = async (): Promise<void> => {
+      if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    }
     try {
       dir = await mkdtemp(join(input.tempRoot ?? tmpdir(), 'flow-export-'))
       const scriptPath = join(dir, 'graph.txt')
       await writeFile(scriptPath, graph.script, 'utf8')
-      const run = await runFfmpeg({
-        ffmpegPath,
-        args: buildDrawnArgs({
-          input: inputPath,
-          pngPaths: graph.inputs.map((x) => {
-            if (x.seq) {
-              const pattern = `${overlays.dir ?? ''}/${x.layer}_%07d.png`.split('\\').join('/')
-              return { pattern, start: x.seq.first, fps }
-            }
-            if (x.still !== undefined) return overlays.frames![x.layer].get(x.still)!
-            return x.layer === 'under'
-              ? overlays.underFiles!.get(x.key)!
-              : overlays.files.get(x.key)!
-          }),
-          output: outputPart,
-          scriptPath,
-          offset: graph.offset,
-          span: graph.span,
-          hasAudio: facts.hasAudio
+      // Ряд кадров анимации кончается пустой картинкой (см. blankPng.ts), если за его концом нет настоящего кадра.
+      for (const x of graph.inputs) {
+        if (!x.seq || !overlays) continue
+        const next = x.seq.last + 1
+        if (overlays.frames?.[x.layer].has(next)) continue
+        await writeBlankPng(
+          join(overlays.dir ?? '', `${x.layer}_${String(next).padStart(7, '0')}.png`),
+          overlays.width,
+          overlays.height
+        )
+      }
+      const args = buildDrawnArgs({
+        input: inputPath,
+        pngPaths: graph.inputs.map((x) => {
+          const ov = overlays as JobOverlays
+          if (x.seq) {
+            const pattern = `${ov.dir ?? ''}/${x.layer}_%07d.png`.split('\\').join('/')
+            return { pattern, start: x.seq.first, fps }
+          }
+          if (x.still !== undefined) return ov.frames![x.layer].get(x.still)!
+          return x.layer === 'under' ? ov.underFiles!.get(x.key)! : ov.files.get(x.key)!
         }),
+        output: outputPart,
+        scriptPath,
+        offset: graph.offset,
+        span: graph.span,
+        hasAudio: withAudio,
+        encoder: o.encoder,
+        encoderThreads: o.encoderThreads
+      })
+      return { args, seconds: graph.outputSeconds, cleanup }
+    } catch (error) {
+      await cleanup()
+      throw error
+    }
+  }
+
+  const spawnFailure = (error: unknown): RunResult => ({
+    code: null,
+    cancelled: false,
+    stalled: false,
+    spawnError: error instanceof Error ? error.message : String(error),
+    stderrTail: [],
+    stderr: ''
+  })
+
+  /** Запуск ffmpeg по графу с рисунками одним процессом. Временные файлы убираются всегда. */
+  async function runDrawn(
+    plan: OverlayPlan,
+    outputPart: string,
+    onTime: (seconds: number) => void
+  ): Promise<{ run: RunResult; seconds: number }> {
+    let seconds = 0
+    const run = await withFallback(async (enc) => {
+      let prepared: PreparedDrawn | null = null
+      try {
+        prepared = await prepareDrawn(plan, outputPart, { encoder: enc })
+        seconds = prepared.seconds
+        return await runFfmpeg({
+          ffmpegPath,
+          args: prepared.args,
+          signal,
+          stallMs: input.stallMs,
+          onTime
+        })
+      } catch (error) {
+        return spawnFailure(error)
+      } finally {
+        await prepared?.cleanup()
+      }
+    })
+    return { run, seconds }
+  }
+
+  // ---------- Параллельный экспорт по кускам ----------
+  /** План без рисунков (чистые отрезки): для кусков, когда режим включён принудительно. */
+  const plainPlan = (ranges: ReadonlyArray<{ start: number; end: number }>): OverlayPlan => ({
+    segments: [],
+    ranges: ranges.map((r) => ({ start: r.start, end: r.end, freezes: [] })),
+    keys: [],
+    freezeSeconds: 0,
+    animation: { frames: [], runs: [] }
+  })
+
+  /** Нужен ли параллельный экспорт для этого плана. */
+  function shouldChunk(plan: OverlayPlan | null, outputSeconds: number): boolean {
+    if (!chunkable || tuning.noChunks) return false
+    if (tuning.chunkSeconds !== undefined) return true
+    if (!plan || !hasDrawings(plan)) return false
+    // Длинный результат или отрезки, далёкие друг от друга: обычный запуск прочитал бы всё между ними.
+    return outputSeconds >= CHUNK_MIN_OUTPUT_SECONDS || planReadChunks(plan.ranges).length > 1
+  }
+
+  function loupeWindows(): TimeWindow[] {
+    return (drawings?.loupes ?? []).flatMap((l) => {
+      const t = drawings?.timings[l.index]
+      return t && t.mode === 'range' ? [{ from: t.start, to: t.start + t.duration }] : []
+    })
+  }
+
+  /** Часть плана для одного куска: ряды и сегменты только этого куска. */
+  function chunkAsPlan(c: PlannedChunk): OverlayPlan {
+    const keys = new Set<string>()
+    for (const s of c.segments) keys.add(s.key)
+    for (const r of c.ranges) for (const f of r.freezes) keys.add(f.key)
+    return {
+      segments: c.segments,
+      ranges: c.ranges,
+      keys: [...keys],
+      freezeSeconds: c.ranges.reduce((n, r) => n + r.freezes.reduce((m, f) => m + f.seconds, 0), 0),
+      animation: { frames: [], runs: c.runs }
+    }
+  }
+
+  /**
+   * Кодирует план кусками: параллельно, затем склейка. Возвращает результат в виде RunResult, чтобы остальной код
+   * (отмена, ошибки, переименование файла) работал так же, как для одного процесса.
+   */
+  async function runChunkedPlan(
+    plan: OverlayPlan,
+    outputPart: string,
+    onFraction: (fraction: number) => void
+  ): Promise<RunResult> {
+    const workers = tuning.workers ?? parallelWorkers(encoder, cores)
+    const totalSeconds = plan.ranges.reduce((n, r) => n + (r.end - r.start), 0) + plan.freezeSeconds
+    const target =
+      tuning.chunkSeconds ??
+      Math.min(
+        CHUNK_AUTO_MAX_SECONDS,
+        Math.max(CHUNK_AUTO_MIN_SECONDS, totalSeconds / (Math.max(1, workers) * 3))
+      )
+    const cp = planChunks({
+      plan,
+      fps,
+      loupeWindows: loupeWindows(),
+      targetSeconds: target
+    })
+    const noFrames: RunResult = {
+      code: null,
+      cancelled: false,
+      stalled: false,
+      spawnError: 'нет кадров для экспорта',
+      stderrTail: [],
+      stderr: ''
+    }
+    if (cp.chunks.length === 0) return noFrames
+    input.log?.(
+      `Экспорт кусками: ${cp.chunks.length} шт., кодер ${encoder.ffmpegName}, одновременно ${workers}`
+    )
+    let workDir: string | null = null
+    try {
+      workDir = await mkdtemp(join(input.tempRoot ?? tmpdir(), 'flow-export-'))
+      const tasks: ChunkTask[] = cp.chunks.map((c) => ({
+        index: c.index,
+        weight: c.outputSeconds,
+        heavy: c.drawn,
+        prepare: async (enc, output) => {
+          const prepared = await prepareDrawn(chunkAsPlan(c), output, {
+            encoder: enc,
+            encoderThreads: c.drawn ? tuning.encoderThreads : undefined,
+            videoOnly: true
+          })
+          return { args: prepared.args, cleanup: prepared.cleanup }
+        }
+      }))
+      const audio: AudioTask | null = facts.hasAudio
+        ? {
+            prepare: async (output) => {
+              const g = planAudioOnly({
+                ranges: cp.ranges,
+                fps,
+                audio: { sampleRate: facts.audioRate ?? 48000, mono: facts.audioMono }
+              })
+              const dir = await mkdtemp(join(input.tempRoot ?? tmpdir(), 'flow-export-'))
+              const scriptPath = join(dir, 'audio.txt')
+              try {
+                await writeFile(scriptPath, g.script, 'utf8')
+              } catch (error) {
+                await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+                throw error
+              }
+              return {
+                args: [
+                  ...head(),
+                  '-ss',
+                  sec(g.offset),
+                  '-t',
+                  sec(g.span),
+                  '-i',
+                  inputPath,
+                  '-filter_complex_script',
+                  scriptPath,
+                  '-map',
+                  '[outa]',
+                  ...reencodeAudio(),
+                  '-f',
+                  'mp4',
+                  '-y',
+                  output
+                ],
+                cleanup: () => rm(dir, { recursive: true, force: true })
+              }
+            }
+          }
+        : null
+      const outcome = await runChunked({
+        ffmpegPath,
+        workDir,
+        output: outputPart,
+        tasks,
+        audio,
+        encoder,
+        logicalCores: cores,
+        workers: tuning.workers,
+        plainLimit: tuning.plainLimit,
         signal,
         stallMs: input.stallMs,
-        onTime
+        onProgress: onFraction,
+        log: input.log
       })
-      return { run, seconds: graph.outputSeconds }
-    } catch (error) {
-      const run: RunResult = {
-        code: null,
-        cancelled: false,
-        stalled: false,
-        spawnError: error instanceof Error ? error.message : String(error),
-        stderrTail: [],
-        stderr: ''
+      if (outcome.fellBack) encoder = CPU_ENCODER
+      if (outcome.status === 'done') {
+        return { code: 0, cancelled: false, stalled: false, stderrTail: [], stderr: '' }
       }
-      return { run, seconds: 0 }
+      if (outcome.status === 'cancelled') {
+        return { ...noFrames, cancelled: true, spawnError: undefined }
+      }
+      return outcome.run
+    } catch (error) {
+      return spawnFailure(error)
     } finally {
-      if (dir) await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+      if (workDir) await rm(workDir, { recursive: true, force: true }).catch(() => undefined)
     }
   }
 
@@ -347,21 +644,34 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
 
       const onTime = (s: number): void =>
         emit(i, clips.length, name, s / length, (doneSeconds + Math.min(s, length)) / total)
-      const run = plan
-        ? (await runDrawn(plan, part, onTime)).run
-        : await runFfmpeg({
+      const precise = request.precision !== 'fast'
+      const chunkSource =
+        plan ?? (precise && tuning.chunkSeconds !== undefined ? plainPlan([clip]) : null)
+      let run: RunResult
+      if (precise && chunkSource && shouldChunk(plan, length)) {
+        run = await runChunkedPlan(chunkSource, part, (f) =>
+          emit(i, clips.length, name, f, (doneSeconds + f * length) / total)
+        )
+      } else if (plan) {
+        run = (await runDrawn(plan, part, onTime)).run
+      } else {
+        run = await withFallback((enc) =>
+          runFfmpeg({
             ffmpegPath,
             args: buildClipArgs({
               input: inputPath,
               output: part,
               start: clip.start,
               end: clip.end,
-              fast: request.precision === 'fast'
+              fast: !precise,
+              encoder: enc
             }),
             signal,
             stallMs: input.stallMs,
             onTime
           })
+        )
+      }
 
       if (run.cancelled) {
         await removeQuietly(part)
@@ -405,25 +715,31 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
     try {
       const onTime = (s: number): void => emit(0, 1, name, s / length, s / length)
       let run: RunResult
-      if (drawn) {
+      const chunkSource = drawn ?? (tuning.chunkSeconds !== undefined ? plainPlan(clips) : null)
+      if (chunkSource && shouldChunk(drawn, length)) {
+        run = await runChunkedPlan(chunkSource, part, (f) => emit(0, 1, name, f, f))
+      } else if (drawn) {
         run = (await runDrawn(drawn, part, onTime)).run
       } else {
         workDir = await mkdtemp(join(input.tempRoot ?? tmpdir(), 'flow-export-'))
         const scriptPath = join(workDir, 'graph.txt')
         await writeFile(scriptPath, plan.script, 'utf8')
-        run = await runFfmpeg({
-          ffmpegPath,
-          args: buildCompilationArgs({
-            input: inputPath,
-            output: part,
-            scriptPath,
-            plan,
-            hasAudio: facts.hasAudio
-          }),
-          signal,
-          stallMs: input.stallMs,
-          onTime
-        })
+        run = await withFallback((enc) =>
+          runFfmpeg({
+            ffmpegPath,
+            args: buildCompilationArgs({
+              input: inputPath,
+              output: part,
+              scriptPath,
+              plan,
+              hasAudio: facts.hasAudio,
+              encoder: enc
+            }),
+            signal,
+            stallMs: input.stallMs,
+            onTime
+          })
+        )
       }
       if (run.cancelled) {
         await removeQuietly(part)
