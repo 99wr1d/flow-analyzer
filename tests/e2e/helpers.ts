@@ -1,6 +1,6 @@
 import { _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
 import { join, resolve } from 'path'
 
 export const SHOTS =
@@ -13,6 +13,11 @@ export const EXE = process.env.FLOW_EXE
 // FLOW_ASAR=dist/win-unpacked/resources/app.asar — подписанный Electron из node_modules запускает собранный app.asar.
 export const ASAR = process.env.FLOW_ASAR ? resolve(process.env.FLOW_ASAR) : undefined
 export const SUFFIX = EXE || ASAR ? '-packaged' : ''
+
+/** Версия приложения из package.json: тесты не привязаны к конкретному номеру. */
+export const APP_VERSION = (
+  JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as { version: string }
+).version
 
 export const FIXTURES = resolve('tests/fixtures')
 export const fixture = (name: string): string => join(FIXTURES, name)
@@ -42,6 +47,8 @@ export interface LaunchOptions {
   args?: string[]
   /** Дополнительные переменные окружения. */
   env?: Record<string, string>
+  /** true — подсказки первого запуска показываются (по умолчанию тесты их отключают флагом FLOW_NO_TIPS). */
+  tips?: boolean
 }
 
 export async function launch(options: LaunchOptions = {}): Promise<{
@@ -67,6 +74,7 @@ export async function launch(options: LaunchOptions = {}): Promise<{
     FLOW_LIBRARY_DIR: projectsDir,
     // FLOW_SHOW_WINDOW=1 — показать окно на экране при отладке тестов.
     ...(process.env.FLOW_SHOW_WINDOW === '1' ? {} : { FLOW_BACKGROUND_WINDOW: '1' }),
+    ...(options.tips ? {} : { FLOW_NO_TIPS: '1' }),
     ...options.env
   }
   const extra = options.args ?? []

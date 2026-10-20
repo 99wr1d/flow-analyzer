@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { useViewStore } from '../../app/viewStore'
 import { usePlayerStore } from '../../store/playerStore'
 import { UNTITLED_PROJECT } from '../../../../shared/project'
+import { installTestHooks } from '../../testHooks'
 import { askStopForClose, cancelExportAndWait, isExportRunning } from '../export/exportActions'
 import { openProject, refreshRecovery, saveProject } from './actions'
 import { installDirtyTracking } from './dirty'
@@ -88,6 +89,7 @@ export function useProjectLifecycle(): void {
     window.api
       .getAppInfo()
       .then((info) => {
+        if (info.testFlags.crash || info.testFlags.bench) installTestHooks(info.testFlags)
         if (!cancelled) offs.push(startAutosave(info.autosaveMs))
       })
       .catch(() => undefined)

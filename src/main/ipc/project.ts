@@ -11,6 +11,7 @@ import {
   type RecoveryItem
 } from '../../shared/project'
 import { resolveProjectsFolder } from '../library/folder'
+import { logInfo } from '../log/logger'
 import { getMediaEntry } from '../media/registry'
 import { MEDIA_ERRORS } from '../media/validate'
 import { isTrustedSender } from '../security'
@@ -36,6 +37,12 @@ const errorText = (error: unknown): string =>
   error instanceof Error && error.message ? error.message : MEDIA_ERRORS.unknown
 
 const userData = (): string => app.getPath('userData')
+
+/** Долгая операция попадает в журнал (только время, без названий и содержимого проекта). */
+function logSlow(what: string, startedAt: number): void {
+  const ms = Date.now() - startedAt
+  if (ms >= 300) logInfo('main', `${what}: ${ms} мс`)
+}
 
 async function pick(
   event: Electron.IpcMainInvokeEvent,
@@ -99,8 +106,10 @@ async function saveProject(
     trustPath(target)
   }
 
+  const startedAt = Date.now()
   const facts = await videoFacts(videoPath)
   const saved = await saveToPath(userData(), request, facts, target, app.getVersion())
+  logSlow('Сохранение проекта', startedAt)
   return { status: 'saved', ...saved }
 }
 
@@ -126,7 +135,10 @@ async function openProject(
       return { status: 'error', message: PROJECT_ERRORS.untrusted }
     }
   }
-  return openProjectFile(userData(), target)
+  const startedAt = Date.now()
+  const opened = await openProjectFile(userData(), target)
+  logSlow('Открытие проекта', startedAt)
+  return opened
 }
 
 async function relink(

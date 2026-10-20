@@ -16,11 +16,16 @@ import type {
   StageFrames,
   StageOverlays
 } from './export'
+import type { AboutInfo, LicenseTexts, LogEntry } from './log'
 import type { Settings, SettingsLoadResult } from './settings'
 import type { StatsExport, StatsExportResult } from './statsExport'
 
 export const IPC_CHANNELS = {
   appGetInfo: 'app:get-info',
+  appAbout: 'app:about',
+  appLicenses: 'app:licenses',
+  appOpenLogs: 'app:open-logs',
+  logWrite: 'log:write',
   videoOpenDialog: 'video:open-dialog',
   videoImportPath: 'video:import-path',
   videoProbe: 'video:probe',
@@ -69,6 +74,11 @@ export interface AppInfo {
   platform: NodeJS.Platform
   /** Как часто интерфейс присылает автосохранение (мс). */
   autosaveMs: number
+  /**
+   * Тестовые возможности. Включаются переменными окружения FLOW_TEST_CRASH / FLOW_BENCH / FLOW_NO_TIPS и только вместе с FLOW_USER_DATA
+   * (то есть в автотестах и замерах): у обычного пользователя всегда false.
+   */
+  testFlags: { crash: boolean; bench: boolean; noTips: boolean }
 }
 
 /** Видеофайл, к которому приложение выдало доступ. Адрес url работает только пока приложение запущено. */
@@ -96,6 +106,14 @@ export type IpcResult<T> = { ok: true; data: T } | { ok: false; error: string }
 /** Полное описание API, которое preload отдаёт в window.api. */
 export interface FlowApi {
   getAppInfo(): Promise<AppInfo>
+  /** Сведения для окна «О программе» (версии, папка журналов). */
+  getAboutInfo(): Promise<AboutInfo>
+  /** Тексты лицензий: FFmpeg и список сторонних компонентов. */
+  getLicenses(): Promise<LicenseTexts>
+  /** Открывает папку журналов в проводнике. */
+  openLogsFolder(): Promise<void>
+  /** Запись в журнал из интерфейса (main проверяет схему и ограничивает частоту; ответа об ошибках нет). */
+  writeLog(entry: LogEntry): Promise<void>
   /** Показывает системный диалог выбора файла. null — пользователь отменил выбор. */
   openVideoDialog(): Promise<VideoSource | null>
   /** Принимает файл, перетащенный в окно. */

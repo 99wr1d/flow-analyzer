@@ -1,0 +1,80 @@
+{
+  "format": "flowanalyzer-project",
+  "version": 1,
+  "createdAt": "2026-02-01T09:00:00.000Z",
+  "updatedAt": "2026-02-03T20:15:00.000Z",
+  "appVersion": "0.11.0",
+  "video": {
+    "path": "C:/placeholder/cfr25.mp4",
+    "relativePath": null,
+    "fileName": "cfr25.mp4",
+    "sizeBytes": 1,
+    "fps": 25,
+    "fpsSource": "container",
+    "duration": 4
+  },
+  "annotations": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "space": "screen",
+      "type": "arrow",
+      "p1": { "x": 0.1, "y": 0.2 },
+      "p2": { "x": 0.6, "y": 0.4 },
+      "style": { "color": "#ffffff", "width": 0.011, "dash": "solid" },
+      "timing": { "mode": "range", "start": 1, "duration": 2 }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "space": "pitch",
+      "calibrationId": "00000000-0000-4000-8000-000000009001",
+      "type": "ring",
+      "center": { "x": 20, "y": 30 },
+      "radius": 3,
+      "style": { "color": "#ffd23f", "width": 0.01, "dash": "solid" },
+      "timing": { "mode": "range", "start": 0.5, "duration": 3 }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "space": "pitch",
+      "calibrationId": "00000000-0000-4000-8000-000000009001",
+      "type": "ruler",
+      "p1": { "x": 5, "y": 20 },
+      "p2": { "x": 25, "y": 40 },
+      "style": { "color": "#ffffff", "width": 0.008, "dash": "solid" },
+      "timing": { "mode": "frame", "start": 2, "freezeSeconds": 3 }
+    }
+  ],
+  "calibrations": [
+    {
+      "id": "00000000-0000-4000-8000-000000009001",
+      "time": 0,
+      "aspect": 1.7777777777777777,
+      "pitch": { "length": 105, "width": 68 },
+      "template": "penalty-left",
+      "points": [
+        { "world": { "x": 0, "y": 13.84 }, "image": { "x": 0.363, "y": 0.319 } },
+        { "world": { "x": 16.5, "y": 13.84 }, "image": { "x": 0.58, "y": 0.334 } },
+        { "world": { "x": 16.5, "y": 54.16 }, "image": { "x": 0.492, "y": 0.746 } },
+        { "world": { "x": 0, "y": 54.16 }, "image": { "x": 0.127, "y": 0.702 } }
+      ],
+      "createdAt": "2026-02-03T20:00:00.000Z"
+    }
+  ],
+  "episodes": [
+    {
+      "id": "00000000-0000-4000-8000-000000001001",
+      "tagId": "goal",
+      "tagName": "Гол",
+      "tagColor": "#ff4d6d",
+      "start": 1,
+      "end": 3,
+      "rating": "good",
+      "review": false
+    }
+  ],
+  "tags": [
+    { "id": "goal", "name": "Гол", "color": "#ff4d6d", "preSeconds": 5, "postSeconds": 5 }
+  ],
+  "ui": { "lastTime": 2 },
+  "meta": { "title": "Матч 3 февраля", "type": "match", "date": "2026-02-03" }
+}

@@ -12,9 +12,14 @@ import {
   closestSourceFrame,
   countFrames,
   durationOf,
+  firstLoudSample,
+  frameDistance,
+  grayFrame,
   hasAudio,
   makeAudioVideo,
-  makeLongVideo
+  makeBeepVideo,
+  makeLongVideo,
+  streamDurations
 } from './ffmpeg.testkit'
 
 const CFR25 = FIXTURE('cfr25.mp4')
@@ -181,6 +186,54 @@ describe('подборка (ffmpeg)', () => {
     expect(d).toBeGreaterThan(2.4)
     expect(d).toBeLessThan(2.7)
   }, 30_000)
+
+  it('далёкие эпизоды (разные входы с быстрой перемоткой): кадры и их порядок точные', async () => {
+    const dir = outDir('comp-far')
+    const target = join(dir, 'far.mp4')
+    const req = request({
+      mode: 'compilation',
+      clips: [
+        { start: 30, end: 32, label: 'б' },
+        { start: 1, end: 3, label: 'а' }
+      ]
+    })
+    const { result } = await run(longVideo, req, target)
+    expect(result.status).toBe('done')
+    const frames = countFrames(target)
+    expect(frames).toBeGreaterThanOrEqual(119)
+    expect(frames).toBeLessThanOrEqual(121)
+    // longVideo — 30 к/с: первый кадр подборки — кадр 30 (1.0 с), кадр №60 подборки — кадр 900 (30.0 с).
+    expect(closestSourceFrame(longVideo, target, [29, 30, 31, 900])).toBeGreaterThanOrEqual(29)
+    expect(closestSourceFrame(longVideo, target, [29, 30, 31, 900])).toBeLessThanOrEqual(31)
+    const second = grayFrame(target, 60)
+    const best = [899, 900, 901, 30].sort(
+      (a, b) =>
+        frameDistance(second, grayFrame(longVideo, a)) -
+        frameDistance(second, grayFrame(longVideo, b))
+    )[0]
+    expect([899, 900, 901]).toContain(best)
+  }, 60_000)
+
+  it('далёкие эпизоды со звуком: звук не уезжает от картинки (писк на нужной секунде)', async () => {
+    const dir = outDir('comp-far-audio')
+    const source = makeBeepVideo(dir, { seconds: 40, beepAt: 31 })
+    const target = join(dir, 'out.mp4')
+    const req = request({
+      mode: 'compilation',
+      clips: [
+        { start: 1, end: 3, label: 'а' },
+        { start: 30, end: 32, label: 'б' }
+      ]
+    })
+    const { result } = await run(source, req, target)
+    expect(result.status).toBe('done')
+    // Первый кусок — 2 с, во втором писк на 1-й секунде от его начала: ждём писк на 3.0 с.
+    const beepAt = firstLoudSample(target) as number
+    expect(Math.abs(beepAt - 3)).toBeLessThanOrEqual(0.05)
+    const d = streamDurations(target)
+    expect(Math.abs(d.video - d.audio)).toBeLessThan(0.1)
+    expect(Math.abs(d.video - 4)).toBeLessThan(0.15)
+  }, 60_000)
 
   it('«Быстро» для подборки отклоняется понятным сообщением', async () => {
     const dir = outDir('comp-fast')

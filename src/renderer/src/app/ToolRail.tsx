@@ -66,7 +66,7 @@ function ToolButton({ tool }: { tool: Tool }): React.JSX.Element {
 /** Рейка инструментов: три группы (основные, поле и анализ, дополнительные) с разделителями. */
 export function ToolRail(): React.JSX.Element {
   return (
-    <nav className="tool-rail" aria-label={ru.toolRail.label}>
+    <nav className="tool-rail" aria-label={ru.toolRail.label} data-testid="tool-rail">
       {TOOL_GROUPS.map((group, i) => (
         <div
           key={group.id}

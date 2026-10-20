@@ -1,5 +1,6 @@
 // Сборка аргументов ffmpeg. Всегда массив для spawn — никаких строк для оболочки.
 import type { PreparedClip } from '../../shared/exportRanges'
+import { planReadChunks } from './chunks'
 
 export const VIDEO_QUALITY = { preset: 'veryfast', crf: '20' } as const
 export const AUDIO_BITRATE = '160k'
@@ -63,10 +64,11 @@ export function buildClipArgs(opts: {
 }
 
 export interface CompilationPlan {
-  /** Смещение входа: всё до первого клипа пропускается быстрой перемоткой. */
-  offset: number
-  /** Сколько секунд входа нужно прочитать от смещения. */
-  span: number
+  /**
+   * Входы ffmpeg: один кусок видео на вход (-ss до -i, поэтому пропущенное между кусками не декодируется).
+   * Близкие эпизоды читаются одним куском, далёкие — разными (см. chunks.ts).
+   */
+  inputs: Array<{ offset: number; span: number }>
   /** Содержимое файла с описанием фильтров (-filter_complex_script). */
   script: string
 }
@@ -74,29 +76,39 @@ export interface CompilationPlan {
 /**
  * Подборка: trim/atrim каждого эпизода и склейка concat с перекодированием.
  * Граф кладётся в файл, а не в аргумент: у 500 эпизодов он длиннее предела командной строки Windows.
- * Времена в графе отсчитываются от offset (так -ss перед -i сдвигает метки времени).
+ * Времена в графе отсчитываются от смещения своего входа (так -ss перед -i сдвигает метки времени).
+ * Эпизоды склеиваются в том порядке, в котором переданы; один эпизод берётся ровно из одного куска.
  */
 export function planCompilation(
   clips: readonly Pick<PreparedClip, 'start' | 'end'>[],
   hasAudio: boolean
 ): CompilationPlan {
-  const offset = Math.min(...clips.map((c) => c.start))
-  const span = Math.max(...clips.map((c) => c.end)) - offset
   const n = clips.length
+  const chunks = planReadChunks(clips)
   const lines: string[] = []
+  // Для каждого эпизода: из какого входа он берётся.
+  const where = new Map<number, number>()
 
-  const labels = (prefix: string): string => clips.map((_, i) => `[${prefix}${i}]`).join('')
-  if (n > 1) {
-    lines.push(`[0:v]split=${n}${labels('sv')}`)
-    if (hasAudio) lines.push(`[0:a]asplit=${n}${labels('sa')}`)
-  }
+  chunks.forEach((chunk, ci) => {
+    const k = chunk.clips.length
+    const names = (prefix: string): string =>
+      chunk.clips.map((clip) => `[${prefix}${clip}]`).join('')
+    if (k > 1) {
+      lines.push(`[${ci}:v]split=${k}${names('sv')}`)
+      if (hasAudio) lines.push(`[${ci}:a]asplit=${k}${names('sa')}`)
+    }
+    for (const clip of chunk.clips) where.set(clip, ci)
+  })
   clips.forEach((c, i) => {
-    const from = sec(c.start - offset)
-    const to = sec(c.end - offset)
-    const vin = n > 1 ? `[sv${i}]` : '[0:v]'
+    const input = where.get(i) as number
+    const chunk = chunks[input]
+    const single = chunk.clips.length === 1
+    const from = sec(c.start - chunk.offset)
+    const to = sec(c.end - chunk.offset)
+    const vin = single ? `[${input}:v]` : `[sv${i}]`
     lines.push(`${vin}trim=start=${from}:end=${to},setpts=PTS-STARTPTS[tv${i}]`)
     if (hasAudio) {
-      const ain = n > 1 ? `[sa${i}]` : '[0:a]'
+      const ain = single ? `[${input}:a]` : `[sa${i}]`
       lines.push(`${ain}atrim=start=${from}:end=${to},asetpts=PTS-STARTPTS[ta${i}]`)
     }
   })
@@ -104,7 +116,10 @@ export function planCompilation(
   const outputs = hasAudio ? '[cv][outa]' : '[cv]'
   lines.push(`${inputs}concat=n=${n}:v=1:a=${hasAudio ? 1 : 0}${outputs}`)
   lines.push(`[cv]${EVEN_SIZE}[outv]`)
-  return { offset, span, script: lines.join(';\n') + '\n' }
+  return {
+    inputs: chunks.map((c) => ({ offset: c.offset, span: c.span })),
+    script: lines.join(';\n') + '\n'
+  }
 }
 
 export function buildCompilationArgs(opts: {
@@ -117,12 +132,7 @@ export function buildCompilationArgs(opts: {
   const { input, output, scriptPath, plan, hasAudio } = opts
   return [
     ...head(),
-    '-ss',
-    sec(plan.offset),
-    '-t',
-    sec(plan.span),
-    '-i',
-    input,
+    ...plan.inputs.flatMap((part) => ['-ss', sec(part.offset), '-t', sec(part.span), '-i', input]),
     '-filter_complex_script',
     scriptPath,
     '-map',

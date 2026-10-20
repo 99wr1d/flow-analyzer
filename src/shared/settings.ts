@@ -34,7 +34,9 @@ export const SettingsSchema = z
     keybindings: z
       .record(z.string().min(1).max(64), z.array(BindingSchema).max(MAX_BINDINGS_PER_COMMAND))
       .refine((r) => Object.keys(r).length <= MAX_KEYBINDING_COMMANDS, 'Слишком много команд'),
-    tags: z.array(TagDefSchema).max(MAX_TAGS)
+    tags: z.array(TagDefSchema).max(MAX_TAGS),
+    /** Подсказки первого запуска уже показаны. В старых файлах поля нет: подсказки покажутся один раз. */
+    onboardingSeen: z.boolean().default(false)
   })
   .superRefine((value, ctx) => {
     const seen = new Set<string>()
@@ -84,7 +86,12 @@ export const DEFAULT_TAG_KEYS: Readonly<Record<string, string>> = Object.fromEnt
 export const tagCommandId = (tagId: string): string => `tag:${tagId}`
 
 export function defaultSettings(): Settings {
-  return { version: SETTINGS_VERSION, keybindings: {}, tags: DEFAULT_TAGS.map((t) => ({ ...t })) }
+  return {
+    version: SETTINGS_VERSION,
+    keybindings: {},
+    tags: DEFAULT_TAGS.map((t) => ({ ...t })),
+    onboardingSeen: false
+  }
 }
 
 export type SettingsParse = { ok: true; settings: Settings } | { ok: false; error: string }
@@ -101,7 +108,8 @@ export function parseSettings(raw: unknown): SettingsParse {
   const merged = {
     version: input.version ?? SETTINGS_VERSION,
     keybindings: input.keybindings ?? {},
-    tags: input.tags ?? defaultSettings().tags
+    tags: input.tags ?? defaultSettings().tags,
+    onboardingSeen: input.onboardingSeen ?? false
   }
   const result = SettingsSchema.safeParse(merged)
   if (result.success) return { ok: true, settings: result.data }

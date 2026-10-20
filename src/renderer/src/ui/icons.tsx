@@ -392,3 +392,11 @@ export const ChainToolIcon = (p: IconProps): React.JSX.Element => (
     <circle cx="19.500" cy="6.500" r="1.900" fill="currentColor" />
   </Svg>
 )
+
+export const HelpIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.2c-.8.5-1.2 1-1.2 1.9" />
+    <circle cx="12" cy="17" r=".6" fill="currentColor" />
+  </Svg>
+)

@@ -15,6 +15,7 @@ import type {
   StageFrames,
   StageOverlays
 } from '../shared/export'
+import type { AboutInfo, LicenseTexts, LogEntry } from '../shared/log'
 import type { CreateProjectRequest, LibraryListing } from '../shared/library'
 import type {
   ProjectMeta,
@@ -35,6 +36,10 @@ async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 
 const api: FlowApi = {
   getAppInfo: () => invoke<AppInfo>(IPC_CHANNELS.appGetInfo),
+  getAboutInfo: () => invoke<AboutInfo>(IPC_CHANNELS.appAbout),
+  getLicenses: () => invoke<LicenseTexts>(IPC_CHANNELS.appLicenses),
+  openLogsFolder: () => invoke<void>(IPC_CHANNELS.appOpenLogs),
+  writeLog: (entry: LogEntry) => invoke<void>(IPC_CHANNELS.logWrite, entry),
   openVideoDialog: () => invoke<VideoSource | null>(IPC_CHANNELS.videoOpenDialog),
   probeVideo: (id: string) => invoke<VideoProbe>(IPC_CHANNELS.videoProbe, id),
   getSettings: () => invoke<SettingsLoadResult>(IPC_CHANNELS.settingsGet),

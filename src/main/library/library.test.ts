@@ -270,6 +270,31 @@ describe('карточки: чтение папки и библиотеки', ()
     // В карточках нет ни рисунков, ни эпизодов целиком.
     expect(JSON.stringify(cards)).not.toContain('"annotations"')
   })
+
+  it('сводки кэшируются, пока файл не изменился; правка и порча файла видны сразу', async () => {
+    const ud = dir('cache-ud')
+    const folder = dir('cache-folder')
+    const path = join(dir('cache-else'), 'p.flowproj')
+    writeProject(path, { meta: { title: 'Первый', type: 'match' } })
+    await rememberInLibrary(ud, path)
+    const first = await buildCards(ud, folder)
+    expect(first[0]).toMatchObject({ status: 'ok', title: 'Первый' })
+
+    // Файл не менялся: тот же результат (из кэша).
+    expect((await buildCards(ud, folder))[0]).toMatchObject({ status: 'ok', title: 'Первый' })
+
+    // Изменили описание (размер и время файла другие): карточка обновилась.
+    await updateMetaInFile(path, { title: 'Второй, подлиннее', type: 'training' })
+    expect((await buildCards(ud, folder))[0]).toMatchObject({
+      status: 'ok',
+      title: 'Второй, подлиннее',
+      type: 'training'
+    })
+
+    // Файл испортили: кэш не прячет ошибку.
+    writeFileSync(path, '{"format": "нет"}', 'utf8')
+    expect((await buildCards(ud, folder))[0].status).toBe('error')
+  })
 })
 
 const ffmpeg = getFfmpegPath()

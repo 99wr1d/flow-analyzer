@@ -48,17 +48,18 @@ describe('buildClipArgs', () => {
 describe('планирование подборки', () => {
   const clips = [
     { start: 10, end: 12 },
-    { start: 30, end: 31.5 }
+    { start: 20, end: 21.5 }
   ]
 
   it('со звуком: split/asplit, trim+atrim, concat с v=1:a=1', () => {
     const plan = planCompilation(clips, true)
-    expect(plan.offset).toBe(10)
-    expect(plan.span).toBeCloseTo(21.5)
+    expect(plan.inputs).toHaveLength(1)
+    expect(plan.inputs[0].offset).toBe(10)
+    expect(plan.inputs[0].span).toBeCloseTo(11.5)
     expect(plan.script).toContain('[0:v]split=2[sv0][sv1]')
     expect(plan.script).toContain('[0:a]asplit=2[sa0][sa1]')
     expect(plan.script).toContain('[sv0]trim=start=0.000:end=2.000,setpts=PTS-STARTPTS[tv0]')
-    expect(plan.script).toContain('[sa1]atrim=start=20.000:end=21.500,asetpts=PTS-STARTPTS[ta1]')
+    expect(plan.script).toContain('[sa1]atrim=start=10.000:end=11.500,asetpts=PTS-STARTPTS[ta1]')
     expect(plan.script).toContain('[tv0][ta0][tv1][ta1]concat=n=2:v=1:a=1[cv][outa]')
     expect(plan.script).toContain('[cv]scale=trunc(iw/2)*2:trunc(ih/2)*2[outv]')
   })
@@ -78,6 +79,42 @@ describe('планирование подборки', () => {
     expect(plan.script).toContain('concat=n=1:v=1:a=1')
   })
 
+  it('далёкие эпизоды — отдельные входы с быстрой перемоткой, пропущенное не читается', () => {
+    const far = [
+      { start: 100, end: 110 },
+      { start: 105, end: 108 }, // внутри первого куска
+      { start: 4000, end: 4010 }
+    ]
+    const plan = planCompilation(far, true)
+    expect(plan.inputs).toEqual([
+      { offset: 100, span: 10 },
+      { offset: 4000, span: 10 }
+    ])
+    // Первый кусок делится между двумя эпизодами, второй — один эпизод без split.
+    expect(plan.script).toContain('[0:v]split=2[sv0][sv1]')
+    expect(plan.script).toContain('[sv1]trim=start=5.000:end=8.000,setpts=PTS-STARTPTS[tv1]')
+    expect(plan.script).toContain('[1:v]trim=start=0.000:end=10.000,setpts=PTS-STARTPTS[tv2]')
+    expect(plan.script).toContain('[1:a]atrim=start=0.000:end=10.000,asetpts=PTS-STARTPTS[ta2]')
+    expect(plan.script).toContain('concat=n=3:v=1:a=1[cv][outa]')
+    const a = buildCompilationArgs({
+      input: 'in.mp4',
+      output: 'o',
+      scriptPath: 'g',
+      plan,
+      hasAudio: true
+    })
+    expect(a.filter((x) => x === '-i')).toHaveLength(2)
+    expect(slice(a, '-ss', 6)).toEqual(['-ss', '100.000', '-t', '10.000', '-i', 'in.mp4'])
+    expect(a.slice(a.indexOf('-i') + 2).slice(0, 6)).toEqual([
+      '-ss',
+      '4000.000',
+      '-t',
+      '10.000',
+      '-i',
+      'in.mp4'
+    ])
+  })
+
   it('аргументы: граф из файла, звук — только если он есть', () => {
     const plan = planCompilation(clips, true)
     const a = buildCompilationArgs({
@@ -87,7 +124,7 @@ describe('планирование подборки', () => {
       plan,
       hasAudio: true
     })
-    expect(slice(a, '-ss', 6)).toEqual(['-ss', '10.000', '-t', '21.500', '-i', 'in.mp4'])
+    expect(slice(a, '-ss', 6)).toEqual(['-ss', '10.000', '-t', '11.500', '-i', 'in.mp4'])
     expect(slice(a, '-filter_complex_script', 2)).toEqual(['-filter_complex_script', 'g.txt'])
     expect(a).toContain('[outa]')
     const silent = buildCompilationArgs({

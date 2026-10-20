@@ -515,6 +515,8 @@
 }
 .timeline__playhead {
   position: absolute;
+  left: 0;
+  will-change: transform;
   top: var(--u);
   bottom: 0;
   width: 0;

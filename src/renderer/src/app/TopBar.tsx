@@ -9,6 +9,7 @@ import { canOpenStats, openStats } from '../features/stats/statsActions'
 import { BarChartIcon, FolderOpenIcon, GearIcon, HomeIcon } from '../ui/icons'
 import { goHome } from '../features/project/actions'
 import { Logo } from '../ui/Logo'
+import { HelpMenu } from '../features/help/HelpMenu'
 
 function FileName(): React.JSX.Element | null {
   const name = usePlayerStore((s) => s.source?.fileName)
@@ -106,6 +107,7 @@ export function TopBar(): React.JSX.Element {
         <BarChartIcon />
         {ru.stats.open}
       </button>
+      <HelpMenu />
       <button
         type="button"
         className="icon-btn"

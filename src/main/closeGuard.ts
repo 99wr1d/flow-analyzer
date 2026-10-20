@@ -22,6 +22,8 @@ export function markQuitting(): void {
   quitting = true
 }
 
+export const isQuitting = (): boolean => quitting
+
 function stopTimer(guard: Guard): void {
   if (guard.timer) clearTimeout(guard.timer)
   guard.timer = null

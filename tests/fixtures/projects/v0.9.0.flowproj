@@ -1,0 +1,65 @@
+{
+  "format": "flowanalyzer-project",
+  "version": 1,
+  "createdAt": "2025-12-01T10:00:00.000Z",
+  "updatedAt": "2025-12-05T18:00:00.000Z",
+  "appVersion": "0.9.0",
+  "video": {
+    "path": "C:/placeholder/cfr25.mp4",
+    "relativePath": null,
+    "fileName": "cfr25.mp4",
+    "sizeBytes": 1,
+    "fps": 25,
+    "fpsSource": "container"
+  },
+  "annotations": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "type": "line",
+      "p1": { "x": 0.2, "y": 0.8 },
+      "p2": { "x": 0.8, "y": 0.8 },
+      "style": { "color": "#ffffff", "width": 0.011, "dash": "solid" },
+      "timing": { "mode": "range", "start": 1, "duration": 2 }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "type": "circle",
+      "p1": { "x": 0.3, "y": 0.3 },
+      "p2": { "x": 0.5, "y": 0.6 },
+      "style": { "color": "#ff4d6d", "width": 0.008, "dash": "solid" },
+      "timing": { "mode": "frame", "start": 2, "freezeSeconds": 4 }
+    }
+  ],
+  "episodes": [
+    {
+      "id": "00000000-0000-4000-8000-000000001001",
+      "tagId": "shot",
+      "tagName": "Удар",
+      "tagColor": "#ff8a3d",
+      "start": 1,
+      "end": 2
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001002",
+      "tagId": "tackle",
+      "tagName": "Отбор",
+      "tagColor": "#2ec4c4",
+      "start": 2.5,
+      "end": 3.5,
+      "note": "Чистый отбор"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001003",
+      "tagId": "shot",
+      "tagName": "Удар",
+      "tagColor": "#ff8a3d",
+      "start": 3,
+      "end": 3.9
+    }
+  ],
+  "tags": [
+    { "id": "shot", "name": "Удар", "color": "#ff8a3d", "preSeconds": 5, "postSeconds": 5 },
+    { "id": "tackle", "name": "Отбор", "color": "#2ec4c4", "preSeconds": 5, "postSeconds": 5 }
+  ],
+  "ui": { "lastTime": 2 }
+}

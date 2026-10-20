@@ -38,12 +38,43 @@ export function summarizeProject(project: Project, path: string): CardSummary {
   }
 }
 
-async function isFile(path: string): Promise<boolean> {
+/** Размер и время изменения файла; null — файла нет (или это не файл). */
+async function fileStamp(path: string): Promise<{ size: number; mtimeMs: number } | null> {
   try {
-    return (await stat(path)).isFile()
+    const info = await stat(path)
+    return info.isFile() ? { size: info.size, mtimeMs: info.mtimeMs } : null
   } catch {
-    return false
+    return null
   }
+}
+
+type ReadSummary = { status: 'ok'; summary: CardSummary } | { status: 'error'; error: string }
+
+/**
+ * Сводки уже прочитанных проектов. Ключ — путь; запись действует, пока не изменились размер и время изменения файла.
+ * Возврат на стартовый экран (он обновляет список каждый раз) не перечитывает и не проверяет заново сотни файлов:
+ * проверка схемой файла с тысячами эпизодов — десятки миллисекунд, а у большой библиотеки это секунды.
+ */
+const summaryCache = new Map<string, { size: number; mtimeMs: number; value: ReadSummary }>()
+/** Предел памяти: сводка маленькая, но список не должен расти бесконечно. */
+const SUMMARY_CACHE_MAX = 2000
+
+/** Для тестов. */
+export const clearSummaryCache = (): void => summaryCache.clear()
+
+async function readSummary(
+  path: string,
+  stamp: { size: number; mtimeMs: number }
+): Promise<ReadSummary> {
+  const cached = summaryCache.get(path)
+  if (cached && cached.size === stamp.size && cached.mtimeMs === stamp.mtimeMs) return cached.value
+  const parsed = await readProjectFile(path)
+  const value: ReadSummary = parsed.ok
+    ? { status: 'ok', summary: summarizeProject(parsed.project, path) }
+    : { status: 'error', error: parsed.message }
+  if (summaryCache.size >= SUMMARY_CACHE_MAX) summaryCache.clear()
+  summaryCache.set(path, { ...stamp, value })
+  return value
 }
 
 async function buildCard(entry: MergedEntry, folder: string): Promise<LibraryCard> {
@@ -63,10 +94,11 @@ async function buildCard(entry: MergedEntry, folder: string): Promise<LibraryCar
     drawings: 0,
     updatedAt: null
   }
-  if (!(await isFile(entry.path))) return { ...base, ...empty, status: 'missing' }
-  const parsed = await readProjectFile(entry.path)
-  if (!parsed.ok) return { ...base, ...empty, status: 'error', error: parsed.message }
-  return { ...base, ...summarizeProject(parsed.project, entry.path), status: 'ok' }
+  const stamp = await fileStamp(entry.path)
+  if (!stamp) return { ...base, ...empty, status: 'missing' }
+  const read = await readSummary(entry.path, stamp)
+  if (read.status === 'error') return { ...base, ...empty, status: 'error', error: read.error }
+  return { ...base, ...read.summary, status: 'ok' }
 }
 
 /** Выполняет задания пачками, чтобы не открывать сотни файлов сразу. */

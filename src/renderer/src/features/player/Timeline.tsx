@@ -21,12 +21,20 @@ function useWidth(ref: React.RefObject<HTMLElement | null>): number {
   return width
 }
 
-function Playhead(): React.JSX.Element {
-  const percent = usePlayerStore((s) =>
-    s.duration > 0 ? Math.min(100, (s.currentTime / s.duration) * 100) : 0
+/**
+ * Бегунок. Двигается через transform на своём слое композитора: смена положения не вызывает раскладку и перерисовку
+ * дорожек (на длинном матче под ним тысячи полос эпизодов; с left: % каждый кадр перерисовывал бы их все).
+ */
+function Playhead({ width }: { width: number }): React.JSX.Element {
+  const fraction = usePlayerStore((s) =>
+    s.duration > 0 ? Math.min(1, Math.max(0, s.currentTime / s.duration)) : 0
   )
   return (
-    <div className="timeline__playhead" style={{ left: `${percent}%` }} data-testid="playhead" />
+    <div
+      className="timeline__playhead"
+      style={{ transform: `translateX(${Math.round(fraction * width * 10) / 10}px)` }}
+      data-testid="playhead"
+    />
   )
 }
 
@@ -77,7 +85,7 @@ export function Timeline(): React.JSX.Element {
         </div>
         <AnnotationTrack />
         <EpisodeTrack />
-        {ready && <Playhead />}
+        {ready && <Playhead width={width} />}
       </div>
     </section>
   )

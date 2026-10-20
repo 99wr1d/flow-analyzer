@@ -1,4 +1,7 @@
 import { useEffect } from 'react'
+import { AboutDialog } from '../features/help/AboutDialog'
+import { autoStartTips } from '../features/help/helpStore'
+import { Onboarding } from '../features/help/Onboarding'
 import { ExportDialog } from '../features/export/ExportDialog'
 import { StatsDialog } from '../features/stats/StatsDialog'
 import { installExportProgress } from '../features/export/exportActions'
@@ -14,6 +17,7 @@ import { UnsavedDialog } from '../features/project/UnsavedDialog'
 import { useProjectLifecycle } from '../features/project/useProjectLifecycle'
 import { SettingsDialog } from '../features/settings/SettingsDialog'
 import { useSettingsStore } from '../features/settings/settingsStore'
+import { CrashProbe, ErrorBoundary } from './ErrorBoundary'
 import { BottomDock } from './BottomDock'
 import { EpisodesPanel } from './EpisodesPanel'
 import { StatusBar } from './StatusBar'
@@ -27,6 +31,7 @@ export function App(): React.JSX.Element {
   const dialogOpen = useSettingsStore((s) => s.dialogOpen)
   const view = useViewStore((s) => s.view)
   const booting = useViewStore((s) => s.booting)
+  const onboardingSeen = useSettingsStore((s) => s.settings.onboardingSeen)
   useCommandDispatcher()
   useDropImport()
   useProjectLifecycle()
@@ -41,21 +46,42 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  // Первый запуск: когда настройки загружены и экран готов, показываем подсказки (один раз).
+  useEffect(() => {
+    if (loaded && !booting && !onboardingSeen) void autoStartTips()
+  }, [loaded, booting, onboardingSeen])
+
   return (
     <div
       className={view === 'start' ? 'app app--start' : 'app'}
       data-settings={loaded ? 'loaded' : 'loading'}
       data-view={booting ? 'booting' : view}
     >
+      <CrashProbe area="app" />
       {booting ? null : view === 'start' ? (
-        <StartScreen />
+        <ErrorBoundary area="start">
+          <StartScreen />
+          <CrashProbe area="start" />
+        </ErrorBoundary>
       ) : (
         <>
           <TopBar />
-          <ToolRail />
-          <VideoStage />
-          <EpisodesPanel />
-          <BottomDock />
+          <ErrorBoundary area="tools" className="boundary--rail">
+            <ToolRail />
+            <CrashProbe area="tools" />
+          </ErrorBoundary>
+          <ErrorBoundary area="video" className="boundary--stage">
+            <VideoStage />
+            <CrashProbe area="video" />
+          </ErrorBoundary>
+          <ErrorBoundary area="episodes" className="boundary--side">
+            <EpisodesPanel />
+            <CrashProbe area="episodes" />
+          </ErrorBoundary>
+          <ErrorBoundary area="timeline" className="boundary--dock">
+            <BottomDock />
+            <CrashProbe area="timeline" />
+          </ErrorBoundary>
         </>
       )}
       <StatusBar />
@@ -67,6 +93,8 @@ export function App(): React.JSX.Element {
       <StatsDialog />
       <UnsavedDialog />
       <RelinkDialog />
+      <AboutDialog />
+      <Onboarding />
     </div>
   )
 }

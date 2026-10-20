@@ -1,0 +1,65 @@
+{
+  "format": "flowanalyzer-project",
+  "version": 1,
+  "createdAt": "2025-11-01T10:00:00.000Z",
+  "updatedAt": "2025-11-02T11:30:00.000Z",
+  "appVersion": "0.6.0",
+  "video": {
+    "path": "C:/placeholder/cfr25.mp4",
+    "relativePath": null,
+    "fileName": "cfr25.mp4",
+    "sizeBytes": 1,
+    "fps": 25,
+    "fpsSource": "container"
+  },
+  "annotations": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "type": "arrow",
+      "p1": { "x": 0.1, "y": 0.2 },
+      "p2": { "x": 0.6, "y": 0.4 },
+      "style": { "color": "#ffffff", "width": 0.011, "dash": "solid" },
+      "timing": { "mode": "range", "start": 1, "duration": 2 }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "type": "circle",
+      "p1": { "x": 0.3, "y": 0.3 },
+      "p2": { "x": 0.5, "y": 0.6 },
+      "style": { "color": "#ff4d6d", "width": 0.008, "dash": "dashed" },
+      "timing": { "mode": "frame", "start": 2 }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "type": "text",
+      "pos": { "x": 0.5, "y": 0.1 },
+      "text": "Пресс",
+      "style": { "color": "#ffd23f", "size": 0.05, "background": true },
+      "timing": { "mode": "range", "start": 0.5, "duration": 3 }
+    }
+  ],
+  "episodes": [
+    {
+      "id": "00000000-0000-4000-8000-000000001001",
+      "tagId": "attack",
+      "tagName": "Атака",
+      "tagColor": "#2bd67b",
+      "start": 0.5,
+      "end": 2.5,
+      "note": "Быстрый выход"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001002",
+      "tagId": "goal",
+      "tagName": "Гол",
+      "tagColor": "#ff4d6d",
+      "start": 2.6,
+      "end": 3.8
+    }
+  ],
+  "tags": [
+    { "id": "attack", "name": "Атака", "color": "#2bd67b", "preSeconds": 5, "postSeconds": 5 },
+    { "id": "goal", "name": "Гол", "color": "#ff4d6d", "preSeconds": 5, "postSeconds": 5 }
+  ],
+  "ui": { "lastTime": 1.5 }
+}

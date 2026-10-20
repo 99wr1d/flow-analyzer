@@ -4,6 +4,8 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { IPC_EVENTS } from '../shared/ipc-contract'
 import { bringToFront } from './bringToFront'
 import { markQuitting } from './closeGuard'
+import { installProcessLogging } from './crashHandlers'
+import { initLogger, logInfo } from './log/logger'
 import { registerIpcHandlers } from './ipc/register'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { pickProjectArg, setLaunchPath } from './project/launch'
@@ -13,6 +15,10 @@ import { applySessionSecurity, createMainWindow } from './window'
 // Для автотестов: отдельная папка данных (настройки и т. п.), чтобы не трогать настоящие. Только абсолютный путь.
 const customUserData = process.env['FLOW_USER_DATA']
 if (customUserData && isAbsolute(customUserData)) app.setPath('userData', customUserData)
+
+// Журнал работы: userData/logs. Включается сразу, чтобы ловить и ошибки запуска.
+initLogger(app.getPath('userData'))
+installProcessLogging()
 
 // Схема flow-media должна быть объявлена до готовности приложения.
 registerMediaScheme()
@@ -56,6 +62,10 @@ if (gotLock) {
 
   app.whenReady().then(async () => {
     electronApp.setAppUserModelId('com.wr1d99.flowanalyzer')
+    logInfo(
+      'main',
+      `FlowAnalyzer ${app.getVersion()} запущен (Electron ${process.versions.electron}, Chromium ${process.versions.chrome}, ${process.platform})`
+    )
 
     // F12 открывает DevTools только в разработке; Ctrl+R блокируется в готовой сборке.
     app.on('browser-window-created', (_, window) => {

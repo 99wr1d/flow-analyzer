@@ -1,0 +1,70 @@
+{
+  "format": "flowanalyzer-project",
+  "version": 1,
+  "createdAt": "2026-01-10T09:00:00.000Z",
+  "updatedAt": "2026-01-12T20:15:00.000Z",
+  "appVersion": "0.10.0",
+  "video": {
+    "path": "C:/placeholder/cfr25.mp4",
+    "relativePath": null,
+    "fileName": "cfr25.mp4",
+    "sizeBytes": 1,
+    "fps": 25,
+    "fpsSource": "container",
+    "duration": 4
+  },
+  "annotations": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "type": "arrow",
+      "p1": { "x": 0.1, "y": 0.2 },
+      "p2": { "x": 0.6, "y": 0.4 },
+      "style": { "color": "#ffffff", "width": 0.011, "dash": "solid" },
+      "timing": { "mode": "range", "start": 1, "duration": 2 }
+    }
+  ],
+  "episodes": [
+    {
+      "id": "00000000-0000-4000-8000-000000001001",
+      "tagId": "attack",
+      "tagName": "Атака",
+      "tagColor": "#2bd67b",
+      "start": 0.5,
+      "end": 2.5,
+      "rating": "good",
+      "review": false
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001002",
+      "tagId": "loss",
+      "tagName": "Потеря",
+      "tagColor": "#c0a3ff",
+      "start": 2.6,
+      "end": 3.8,
+      "note": "Потеря в центре",
+      "rating": "bad",
+      "review": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001003",
+      "tagId": "attack",
+      "tagName": "Атака",
+      "tagColor": "#2bd67b",
+      "start": 3,
+      "end": 3.9,
+      "rating": null,
+      "review": true
+    }
+  ],
+  "tags": [
+    { "id": "attack", "name": "Атака", "color": "#2bd67b", "preSeconds": 5, "postSeconds": 5 },
+    { "id": "loss", "name": "Потеря", "color": "#c0a3ff", "preSeconds": 5, "postSeconds": 5 }
+  ],
+  "ui": { "lastTime": 1.5 },
+  "meta": {
+    "title": "Тренировка 10 января",
+    "type": "training",
+    "date": "2026-01-10",
+    "notes": "Отработка прессинга"
+  }
+}

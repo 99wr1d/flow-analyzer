@@ -1,7 +1,16 @@
 import { expect, test } from '@playwright/test'
 import { existsSync } from 'fs'
 import { join, resolve } from 'path'
-import { FIXTURES, SHOTS, SUFFIX, fixture, launch, stubDialog, videoState } from './helpers'
+import {
+  APP_VERSION,
+  FIXTURES,
+  SHOTS,
+  SUFFIX,
+  fixture,
+  launch,
+  stubDialog,
+  videoState
+} from './helpers'
 
 const PLAYBACK_ERROR =
   'Не удалось воспроизвести файл. Поддерживаются MP4 (H.264), WebM и MOV. Другие форматы научимся открывать позже.'
@@ -10,7 +19,7 @@ test('приложение запускается безопасно и пока
   const { app, win } = await launch()
   try {
     await expect(win).toHaveTitle('FlowAnalyzer')
-    await expect(win.getByTestId('app-info')).toContainText('FlowAnalyzer 0.14.0')
+    await expect(win.getByTestId('app-info')).toContainText(`FlowAnalyzer ${APP_VERSION}`)
 
     const leaks = await win.evaluate(() => {
       const w = window as unknown as Record<string, unknown>
@@ -34,7 +43,9 @@ test('приложение запускается безопасно и пока
       'deleteProject',
       'discardRecovery',
       'exportStatsCsv',
+      'getAboutInfo',
       'getAppInfo',
+      'getLicenses',
       'getSettings',
       'importDroppedVideo',
       'listLibrary',
@@ -43,6 +54,7 @@ test('приложение запускается безопасно и пока
       'onCloseRequested',
       'onExportProgress',
       'onOpenProjectRequested',
+      'openLogsFolder',
       'openProject',
       'openVideoDialog',
       'probeVideo',
@@ -61,7 +73,8 @@ test('приложение запускается безопасно и пока
       'stageExportOverlays',
       'startExport',
       'takeLaunchProject',
-      'updateProjectMeta'
+      'updateProjectMeta',
+      'writeLog'
     ])
 
     await win.screenshot({ path: join(SHOTS, `e2e-empty${SUFFIX}.png`) })

@@ -146,7 +146,7 @@ export function SettingsDialog(): React.JSX.Element {
   }
 
   const save = async (): Promise<void> => {
-    const built = buildSettings(tags, overrides)
+    const built = buildSettings(tags, overrides, initial.onboardingSeen)
     if (!built.ok) {
       setTab('tags')
       return

@@ -222,7 +222,14 @@
   outline-offset: 1px;
 }
 
+.ep-spacer {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: none;
+}
 .ep-list {
+  overflow-anchor: none;
   flex: 1;
   min-height: 0;
   margin: 0;

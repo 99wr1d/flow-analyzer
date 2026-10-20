@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MAX_NOTE,
   editRange,
@@ -15,6 +15,7 @@ import { getCurrentTime, playVideo, seekTo } from '../player/videoElement'
 import { selectedEpisode, sortEpisodes, useEpisodesStore } from './episodesStore'
 import { RatingButtons } from './RatingButtons'
 import { fmt, fmtRange, type RateKind } from './tagging'
+import { VIRTUAL_THRESHOLD, buildOffsets, scrollToReveal, windowRange } from './windowing'
 
 const RATING_ICONS: Record<RatingFilter, React.JSX.Element | null> = {
   good: <ThumbUpIcon size={13} />,
@@ -221,21 +222,24 @@ function EpisodeEditor({ episode }: { episode: Episode }): React.JSX.Element {
   )
 }
 
-function EpisodeRow({
+/** Оценка из строки списка. Хранилище берётся в момент нажатия: строка на него не подписана и не перерисовывается зря. */
+function rateRow(id: string, kind: RateKind): void {
+  const store = useEpisodesStore.getState()
+  if (kind === 'review') store.toggleReview(id)
+  else store.toggleRating(id, kind)
+}
+
+/**
+ * Строка списка. memo: при добавлении или изменении одного эпизода перерисовывается только он (и выбранный),
+ * а не все строки — иначе на тысяче эпизодов каждый тег заметно тормозил бы.
+ */
+const EpisodeRow = memo(function EpisodeRow({
   episode,
   selected
 }: {
   episode: Episode
   selected: boolean
 }): React.JSX.Element {
-  const select = useEpisodesStore((s) => s.select)
-  const remove = useEpisodesStore((s) => s.remove)
-  const toggleRating = useEpisodesStore((s) => s.toggleRating)
-  const toggleReview = useEpisodesStore((s) => s.toggleReview)
-  const rate = (kind: RateKind): void => {
-    if (kind === 'review') toggleReview(episode.id)
-    else toggleRating(episode.id, kind)
-  }
   const rowRef = useRef<HTMLLIElement>(null)
 
   // Выбрали на таймлайне — строка должна быть видна в списке.
@@ -248,6 +252,7 @@ function EpisodeRow({
       ref={rowRef}
       className={selected ? 'ep-row ep-row--selected' : 'ep-row'}
       style={{ '--tag': episode.tagColor } as React.CSSProperties}
+      data-ep-id={episode.id}
     >
       <div className="ep-row__line">
         <button
@@ -261,7 +266,7 @@ function EpisodeRow({
           data-start={episode.start}
           data-end={episode.end}
           onClick={(e) => {
-            select(episode.id)
+            useEpisodesStore.getState().select(episode.id)
             seekTo(episode.start)
             e.currentTarget.blur()
           }}
@@ -278,14 +283,19 @@ function EpisodeRow({
           <span className="ep-row__time">{fmtRange(episode.start, episode.end)}</span>
           {episode.note && <span className="ep-row__note">{episode.note}</span>}
         </button>
-        <RatingButtons episodeId={episode.id} onToggle={rate} />
+        <RatingButtons
+          episodeId={episode.id}
+          rating={episode.rating}
+          review={episode.review}
+          onToggle={(kind) => rateRow(episode.id, kind)}
+        />
         <button
           type="button"
           className="icon-btn icon-btn--small"
           title={`${ru.episodes.remove} (Delete)`}
           aria-label={ru.episodes.remove}
           data-testid="episode-delete"
-          onClick={() => remove(episode.id)}
+          onClick={() => useEpisodesStore.getState().remove(episode.id)}
         >
           <TrashIcon size={15} />
         </button>
@@ -293,9 +303,18 @@ function EpisodeRow({
       {selected && <EpisodeEditor key={episode.id} episode={episode} />}
     </li>
   )
-}
+})
 
-/** Список эпизодов: фильтр по тегам, строки по порядку начала, правка выбранного. */
+/** Примерные высоты строк (px), пока настоящие не измерены: обычная, добавка за заметку, добавка за редактор выбранной. */
+const ROW_EST = 52
+const NOTE_EST = 17
+const EDITOR_EST = 170
+
+/**
+ * Список эпизодов: фильтр по тегам, строки по порядку начала, правка выбранного.
+ * Когда эпизодов больше VIRTUAL_THRESHOLD, в DOM лежат только строки около видимой области (остальное — пустое место
+ * нужной высоты): список из 2000 эпизодов работает так же быстро, как из 20.
+ */
 export function EpisodeList(): React.JSX.Element {
   const items = useEpisodesStore((s) => s.items)
   const filter = useEpisodesStore((s) => s.filter)
@@ -308,6 +327,81 @@ export function EpisodeList(): React.JSX.Element {
     () => filterEpisodes(sorted, filter, ratingFilter),
     [sorted, filter, ratingFilter]
   )
+  const selectedId = selected?.id ?? null
+
+  const listRef = useRef<HTMLUListElement>(null)
+  const virtual = visible.length > VIRTUAL_THRESHOLD
+  const [view, setView] = useState({ top: 0, height: 600 })
+  const [measured] = useState(() => new Map<string, number>())
+  const [tick, setTick] = useState(0)
+
+  const offsets = useMemo(() => {
+    if (!virtual) return buildOffsets([])
+    void tick // пересчёт после измерения настоящих высот
+    return buildOffsets(
+      visible.map(
+        (e) =>
+          measured.get(e.id) ??
+          ROW_EST + (e.note ? NOTE_EST : 0) + (e.id === selectedId ? EDITOR_EST : 0)
+      )
+    )
+  }, [virtual, visible, selectedId, measured, tick])
+
+  // Размер списка (прокрутку отслеживает onScroll).
+  useEffect(() => {
+    const el = listRef.current
+    if (!el || !virtual) return
+    const sync = (): void =>
+      setView((v) =>
+        v.top === el.scrollTop && v.height === el.clientHeight
+          ? v
+          : { top: el.scrollTop, height: el.clientHeight }
+      )
+    const observer = new ResizeObserver(sync)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [virtual])
+
+  // Настоящие высоты показанных строк (шрифт, заметки, редактор выбранной) уточняют оценку.
+  // Измеряем после отрисовки, в кадре анимации: состояние меняется не прямо в эффекте.
+  useEffect(() => {
+    if (!virtual) return
+    const frame = requestAnimationFrame(() => {
+      const el = listRef.current
+      if (!el) return
+      let changed = false
+      el.querySelectorAll<HTMLElement>('li[data-ep-id]').forEach((li) => {
+        const id = li.dataset.epId as string
+        const h = Math.round((li.getBoundingClientRect().height + 2) * 2) / 2
+        const before = measured.get(id)
+        if (before === undefined || Math.abs(before - h) > 0.5) {
+          measured.set(id, h)
+          changed = true
+        }
+      })
+      if (changed) setTick((t) => t + 1)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [virtual, visible, selectedId, view.top, view.height, tick, measured])
+
+  // Выбрали эпизод на таймлайне — прокручиваем список к нему, даже если его строки сейчас нет в DOM.
+  const revealed = useRef<string | null>(null)
+  useEffect(() => {
+    if (selectedId === null) {
+      revealed.current = null
+      return
+    }
+    if (!virtual || revealed.current === selectedId) return
+    const el = listRef.current
+    const index = visible.findIndex((e) => e.id === selectedId)
+    if (!el || index < 0) return
+    revealed.current = selectedId
+    const to = scrollToReveal(offsets, index, el.scrollTop, el.clientHeight)
+    if (to !== null) el.scrollTop = to
+  }, [virtual, selectedId, visible, offsets])
+
+  const range = virtual ? windowRange(offsets, view.top, view.height) : null
+  const shown = range ? visible.slice(range.start, range.end) : visible
 
   return (
     <section className="episodes" aria-label={ru.episodes.title}>
@@ -341,10 +435,31 @@ export function EpisodeList(): React.JSX.Element {
           </div>
         </div>
       ) : (
-        <ul className="ep-list" data-testid="episode-list">
-          {visible.map((e) => (
-            <EpisodeRow key={e.id} episode={e} selected={e.id === selected?.id} />
+        <ul
+          ref={listRef}
+          className="ep-list"
+          data-testid="episode-list"
+          data-virtual={virtual ? 'true' : 'false'}
+          onScroll={
+            virtual
+              ? (e) => {
+                  const el = e.currentTarget
+                  setView((v) =>
+                    v.top === el.scrollTop ? v : { top: el.scrollTop, height: el.clientHeight }
+                  )
+                }
+              : undefined
+          }
+        >
+          {range && range.before > 0 && (
+            <li className="ep-spacer" aria-hidden="true" style={{ height: range.before }} />
+          )}
+          {shown.map((e) => (
+            <EpisodeRow key={e.id} episode={e} selected={e.id === selectedId} />
           ))}
+          {range && range.after > 0 && (
+            <li className="ep-spacer" aria-hidden="true" style={{ height: range.after }} />
+          )}
           {visible.length === 0 && (
             <li className="episodes__empty-hint episodes__filter-empty">
               {ratingFilter.length > 0 ? ru.episodes.filterEmptyRated : ru.episodes.filterEmpty}

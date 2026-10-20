@@ -6,6 +6,7 @@ import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { FilmIcon, FolderOpenIcon, GearIcon, PlusIcon, SearchIcon, CloseIcon } from '../../ui/icons'
 import { Logo } from '../../ui/Logo'
+import { HelpMenu } from '../help/HelpMenu'
 import { useKeyHint } from '../commands/useKeys'
 import { openVideoFromDialog } from '../player/importVideo'
 import { newProject, openProject } from '../project/actions'
@@ -277,6 +278,7 @@ export function StartScreen(): React.JSX.Element {
           <PlusIcon size={16} />
           {ru.start.newProject}
         </button>
+        <HelpMenu />
         <button
           type="button"
           className="icon-btn"

@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 import type { Settings } from '../../../../shared/settings'
 import { useExportStore } from '../export/exportStore'
 import { useDialogsStore } from '../library/dialogsStore'
+import { useHelpStore } from '../help/helpStore'
 import { useStatsStore } from '../stats/statsStore'
 import { usePitchStore } from '../pitch/pitchStore'
 import { useProjectStore } from '../project/projectStore'
@@ -56,6 +57,7 @@ export function handleKeyDown(e: KeyboardEvent): void {
   if (state.dialogOpen) return
   if (useExportStore.getState().open) return
   if (useStatsStore.getState().open) return
+  if (useHelpStore.getState().aboutOpen) return
   const dialogs = useDialogsStore.getState()
   if (dialogs.newProject || dialogs.properties) return
   // Вопросы о проекте — модальные окна: пока они открыты, клавиши команд молчат.

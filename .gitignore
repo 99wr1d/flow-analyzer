@@ -7,3 +7,6 @@ playwright-report
 *.log*
 .eslintcache
 .DS_Store
+
+# Создаётся при сборке: scripts/gen-notices.mjs
+licenses/THIRD_PARTY_NOTICES.txt

@@ -18,21 +18,31 @@ const COMMANDS: Record<RateKind, string> = {
 }
 const KINDS: RateKind[] = ['good', 'bad', 'review']
 
+/** Состояние оценки, если вызывающий его уже знает (строка списка): тогда кнопка не ищет эпизод в хранилище. */
+interface RateState {
+  rating: 'good' | 'bad' | null
+  review: boolean
+}
+
 function RateButton({
   episodeId,
   kind,
   size,
+  state,
   onToggle
 }: {
   episodeId: string
   kind: RateKind
   size: number
+  state?: RateState
   onToggle: (kind: RateKind) => void
 }): React.JSX.Element {
-  const active = useEpisodesStore((s) => {
+  const fromStore = useEpisodesStore((s) => {
+    if (state) return false
     const e = s.items.find((x) => x.id === episodeId)
     return kind === 'review' ? e?.review === true : e?.rating === kind
   })
+  const active = state ? (kind === 'review' ? state.review : state.rating === kind) : fromStore
   const hint = useKeyHint(COMMANDS[kind])
   const Icon = ICONS[kind]
   return (
@@ -57,16 +67,29 @@ function RateButton({
 export function RatingButtons({
   episodeId,
   size = 15,
+  rating,
+  review,
   onToggle
 }: {
   episodeId: string
   size?: number
+  /** Если заданы оба, оценка берётся отсюда (строка списка), иначе читается из хранилища (подсказка после тега). */
+  rating?: 'good' | 'bad' | null
+  review?: boolean
   onToggle: (kind: RateKind) => void
 }): React.JSX.Element {
+  const state = rating !== undefined && review !== undefined ? { rating, review } : undefined
   return (
     <div className="rate-group" role="group" aria-label={ru.ratings.groupLabel}>
       {KINDS.map((kind) => (
-        <RateButton key={kind} episodeId={episodeId} kind={kind} size={size} onToggle={onToggle} />
+        <RateButton
+          key={kind}
+          episodeId={episodeId}
+          kind={kind}
+          size={size}
+          state={state}
+          onToggle={onToggle}
+        />
       ))}
     </div>
   )

@@ -4,16 +4,24 @@ import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { isBackgroundWindow } from './bringToFront'
 import { installCloseGuard } from './closeGuard'
+import { installCrashHandlers } from './crashHandlers'
 import { isAppUrl } from './security'
 
 const BACKGROUND = '#0E1014'
 
+/**
+ * Единственное разрешение, которое получает наш интерфейс, — запись текста в буфер обмена («Скопировать подробности»),
+ * и только когда запрашивает его сама страница приложения. Остальное (камера, микрофон, геолокация…) отклоняется.
+ */
+const ALLOWED_PERMISSION = 'clipboard-sanitized-write'
+
 export function applySessionSecurity(): void {
-  // Приложению не нужны разрешения (камера, микрофон, геолокация...) — отклоняем все.
-  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) =>
-    callback(false)
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback) =>
+    callback(permission === ALLOWED_PERMISSION && wc !== null && isAppUrl(wc.getURL()))
   )
-  session.defaultSession.setPermissionCheckHandler(() => false)
+  session.defaultSession.setPermissionCheckHandler(
+    (wc, permission) => permission === ALLOWED_PERMISSION && wc !== null && isAppUrl(wc.getURL())
+  )
 }
 
 // Для автотестов: окно открывается за пределами экрана, без фокуса и без кнопки
@@ -44,6 +52,7 @@ export function createMainWindow(): BrowserWindow {
 
   win.removeMenu()
   installCloseGuard(win)
+  installCrashHandlers(win)
   win.on('ready-to-show', () => (backgroundWindow ? win.showInactive() : win.show()))
 
   // Страница не может поменять заголовок окна: его задаёт только main (см. project/title.ts).

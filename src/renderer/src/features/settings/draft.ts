@@ -98,7 +98,11 @@ export const canAddTag = (count: number): boolean => count < MAX_TAGS
 export type BuildResult = { ok: true; settings: Settings } | { ok: false }
 
 /** Собирает настройки из черновика. Ошибки в полях тегов — отказ (поля уже подсвечены). */
-export function buildSettings(drafts: readonly TagDraft[], overrides: Overrides): BuildResult {
+export function buildSettings(
+  drafts: readonly TagDraft[],
+  overrides: Overrides,
+  onboardingSeen = false
+): BuildResult {
   const tags: TagDef[] = []
   for (const d of drafts) {
     if (hasErrors(validateTagDraft(d))) return { ok: false }
@@ -118,7 +122,8 @@ export function buildSettings(drafts: readonly TagDraft[], overrides: Overrides)
       keybindings: Object.fromEntries(
         Object.entries(keybindings).map(([id, list]) => [id, [...list]])
       ),
-      tags
+      tags,
+      onboardingSeen
     }
   }
 }
