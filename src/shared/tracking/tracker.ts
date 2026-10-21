@@ -190,6 +190,17 @@ export class SingleTracker {
     return this.coast(pred)
   }
 
+  /** Где трекер ждёт игрока на кадре index (состояние не меняется): центр выреза для детектора. */
+  predictBox(index: number): Box {
+    const dt = this.lastIndex === null ? 1 : Math.max(1, index - this.lastIndex)
+    return {
+      x: this.kx.p + this.kx.v * dt - this.w / 2,
+      y: this.ky.p + this.ky.v * dt - this.h / 2,
+      w: this.w,
+      h: this.h
+    }
+  }
+
   /** Ответ на «Кто из них ваш?»: слежение продолжается с выбранной рамки. */
   resolve(det: Detection): void {
     const clean =

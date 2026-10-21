@@ -66,13 +66,16 @@ interface Pending {
   reject: (e: Error) => void
 }
 
-export async function createDetector(): Promise<Detector> {
+/** signal: отмена во время запуска (чтение модели, создание сессии) сразу уничтожает окно, обещание отклоняется. */
+export async function createDetector(signal?: AbortSignal): Promise<Detector> {
+  if (signal?.aborted) throw new Error('Детектор закрыт')
   const model = await readFile(modelPath()).catch(() => {
     throw new Error(
       'Не найдена модель распознавания игроков. Переустановите FlowAnalyzer (или выполните npm run models).'
     )
   })
 
+  if (signal?.aborted) throw new Error('Детектор закрыт')
   const win = new BrowserWindow({
     show: false,
     focusable: false,
@@ -160,7 +163,9 @@ export async function createDetector(): Promise<Detector> {
   ipcMain.on(CH.ready, onReady)
   ipcMain.on(CH.result, onResult)
 
+  const onAbort = (): void => close()
   const dispose = (): void => {
+    signal?.removeEventListener('abort', onAbort)
     ipcMain.off(CH.hello, onHello)
     ipcMain.off(CH.ready, onReady)
     ipcMain.off(CH.result, onResult)
@@ -193,7 +198,17 @@ export async function createDetector(): Promise<Detector> {
     fail(new Error('Детектор закрыт'))
   })
 
-  void win.loadURL(devServer ? `${devUrl}/detector.html` : DETECTOR_URL)
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted) close()
+  const pageUrl = devServer ? `${devUrl}/detector.html` : DETECTOR_URL
+  const loadDelay = testFlags().detectorLoadDelayMs
+  if (loadDelay > 0) {
+    setTimeout(() => {
+      if (!closed) void win.loadURL(pageUrl)
+    }, loadDelay)
+  } else if (!closed) {
+    void win.loadURL(pageUrl)
+  }
 
   const timer = setTimeout(
     () => fail(new Error('Детектор не запустился за отведённое время')),

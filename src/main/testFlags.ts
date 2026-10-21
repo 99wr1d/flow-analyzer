@@ -8,6 +8,7 @@
 //   FLOW_TEST_DETECTOR=1 — в главном процессе доступна globalThis.__flowCreateDetector (автотест окна-детектора).
 //   FLOW_DETECTOR_STUB=1 — слежение использует детектор-заглушку (src/main/tracking/stubDetector.ts) вместо модели; сценарий рамок —
 //                      файл FLOW_DETECTOR_STUB_PATTERN=<абсолютный путь .json> (иначе стандартный), пауза на запрос — FLOW_DETECTOR_STUB_DELAY_MS.
+//   FLOW_DETECTOR_LOAD_DELAY_MS=N — окно-детектор запускает страницу через N мс (имитация долгой загрузки модели: проверка отмены при запуске).
 //   FLOW_DETECTOR_DEBUG=1 — сообщения страницы окна-детектора дублируются в stderr.
 //   FLOW_NO_TIPS=1    — подсказки первого запуска не показываются сами (иначе они мешали бы остальным автотестам).
 import { isAbsolute } from 'path'
@@ -20,6 +21,8 @@ export interface TestFlags {
   /** Автотест окна-детектора может создать детектор из главного процесса. */
   detectorProbe: boolean
   detectorDebug: boolean
+  /** Задержка запуска страницы окна-детектора, мс (только для тестов отмены). */
+  detectorLoadDelayMs: number
   /** Слежение работает на детекторе-заглушке (без модели). */
   detectorStub: boolean
   /** Файл сценария заглушки (абсолютный путь) или null — стандартный сценарий. */
@@ -37,9 +40,9 @@ function parseChunkSeconds(raw: string | undefined): number | null {
   return raw !== undefined && Number.isFinite(value) && value >= 0.5 && value <= 600 ? value : null
 }
 
-function parseDelay(raw: string | undefined): number {
+function parseDelay(raw: string | undefined, max = 5000): number {
   const value = Number(raw)
-  return raw !== undefined && Number.isFinite(value) && value >= 0 && value <= 5000 ? value : 0
+  return raw !== undefined && Number.isFinite(value) && value >= 0 && value <= max ? value : 0
 }
 
 export function parseTestFlags(env: NodeJS.ProcessEnv): TestFlags {
@@ -51,6 +54,7 @@ export function parseTestFlags(env: NodeJS.ProcessEnv): TestFlags {
     gpuFail: isolated && env['FLOW_TEST_GPU_FAIL'] === '1',
     detectorProbe: isolated && env['FLOW_TEST_DETECTOR'] === '1',
     detectorDebug: isolated && env['FLOW_DETECTOR_DEBUG'] === '1',
+    detectorLoadDelayMs: isolated ? parseDelay(env['FLOW_DETECTOR_LOAD_DELAY_MS'], 120_000) : 0,
     detectorStub: isolated && env['FLOW_DETECTOR_STUB'] === '1',
     detectorStubPattern:
       isolated && isAbsolute(env['FLOW_DETECTOR_STUB_PATTERN'] ?? '')

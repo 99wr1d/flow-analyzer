@@ -3,7 +3,7 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { spawnSync } from 'child_process'
-import { closeWindow, fixture, launch, stubDialog } from './helpers'
+import { closeWindow, fixture, launch, makeUserData, stubDialog } from './helpers'
 
 const VIDEO = fixture('players.mp4')
 /** Игрок стандартного сценария заглушки в начале: рамка x 0.30–0.36, y 0.35–0.65. */
@@ -165,7 +165,9 @@ test('отмена посреди расчёта: ни события «гото
 
 test('отмена с настоящим окном-детектором: окно закрыто, события «готово» нет', async () => {
   test.setTimeout(240_000)
-  const { app, win } = await launch({ env: { FLOW_DETECTOR_BACKEND: 'wasm' } })
+  const { app, win } = await launch({
+    env: { FLOW_DETECTOR_BACKEND: 'wasm', FLOW_DETECTOR_LOAD_DELAY_MS: '30000' }
+  })
   try {
     const windows = (): Promise<number> =>
       app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
@@ -174,11 +176,104 @@ test('отмена с настоящим окном-детектором: окн
     const jobId = await start(win, id)
     // окно-детектор появилось
     await waitFor(async () => (await windows()) === before + 1, 60_000)
+    // отмена посреди загрузки модели: возвращается быстро (не ждёт готовности детектора), окно уже уничтожено
+    const t0 = Date.now()
     await win.evaluate((j) => window.api.cancelTracking(j), jobId)
-    await waitFor(async () => (await windows()) === before, 60_000)
+    expect(Date.now() - t0).toBeLessThan(3000)
+    expect(await windows()).toBe(before)
     await win.waitForTimeout(1000)
     expect((await seen(win)).done).toHaveLength(0)
     expect(ffmpegCount()).toBe(0)
+  } finally {
+    await app.close()
+  }
+})
+
+test('закрытие главного окна во время загрузки модели: приложение выходит быстро, окна-детектора нет', async () => {
+  test.setTimeout(120_000)
+  const { app, win } = await launch({
+    env: { FLOW_DETECTOR_BACKEND: 'wasm', FLOW_DETECTOR_LOAD_DELAY_MS: '60000' }
+  })
+  const exited = new Promise<void>((resolve) => app.process().once('exit', () => resolve()))
+  const windows = (): Promise<number> =>
+    app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
+  const before = await windows()
+  const id = await prepare(app, win)
+  await start(win, id)
+  await waitFor(async () => (await windows()) === before + 1, 60_000)
+  // закрываем именно главное окно (в списке окон есть и скрытое окно-детектор)
+  await app.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()
+      .find((w) => w.webContents.getURL().startsWith('file:'))
+      ?.close()
+  })
+  await Promise.race([
+    exited,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('приложение не вышло')), 20_000))
+  ])
+})
+
+test('перезагрузка страницы во время слежения: задача отменена, новая принимается, ничего не висит', async () => {
+  const { app, win } = await launch({ env: { ...STUB_ENV, FLOW_DETECTOR_STUB_DELAY_MS: '80' } })
+  try {
+    const id = await prepare(app, win)
+    await start(win, id)
+    await waitFor(async () => (await seen(win)).progress.length >= 3)
+    expect(ffmpegCount()).toBeGreaterThan(0)
+    await win.reload()
+    await win.getByTestId('open-video').waitFor()
+    await waitFor(() => ffmpegCount() === 0, 10_000)
+    // в новой странице задача снова запускается (прежняя не держит место)
+    await win.evaluate(() => {
+      const w = window as unknown as { __seen: Seen }
+      w.__seen = { progress: [], ask: [], done: [] }
+      window.api.onTrackingProgress((p) => w.__seen.progress.push(p))
+      window.api.onTrackingDone((d) => w.__seen.done.push(d as unknown as Record<string, unknown>))
+    })
+    const jobId = await start(win, id)
+    await waitFor(async () => (await seen(win)).progress.length >= 2)
+    await win.evaluate((j) => window.api.cancelTracking(j), jobId)
+    expect(ffmpegCount()).toBe(0)
+    expect((await seen(win)).done).toHaveLength(0)
+  } finally {
+    await app.close()
+  }
+})
+
+test('вопрос «Кто из них ваш?»: ask по IPC, ответ, слежение идёт дальше за выбранным', async () => {
+  const userData = makeUserData()
+  const { app, win } = await launch({
+    userData,
+    env: { ...STUB_ENV, FLOW_DETECTOR_STUB_PATTERN: fixture('stub-cross.json') }
+  })
+  try {
+    const id = await prepare(app, win)
+    await start(win, id)
+    await waitFor(async () => (await seen(win)).ask.length > 0, 30_000)
+    const ask = (await seen(win)).ask[0] as {
+      jobId: string
+      t: number
+      candidates: Array<{ x: number; y: number; w: number; h: number }>
+    }
+    expect(ask.candidates).toHaveLength(2)
+    expect(ask.t).toBeGreaterThan(1.2)
+    // до ответа итога нет
+    await win.waitForTimeout(300)
+    expect((await seen(win)).done).toHaveLength(0)
+    const mine = ask.candidates.findIndex((c) => c.y > 0.4)
+    await win.evaluate(
+      ([j, i]) => window.api.resolveTracking(j as string, i as number),
+      [ask.jobId, mine]
+    )
+    await waitFor(async () => (await seen(win)).done.length > 0, 30_000)
+    const done = (await seen(win)).done[0] as {
+      samples: Array<{ t: number; foot: { x: number; y: number } }>
+      stop: unknown
+    }
+    expect(done.stop).toBeNull()
+    expect(done.samples).toHaveLength(75)
+    // последние отсчёты — у нижнего игрока (ноги на y = 0,77), не у верхнего (0,53)
+    expect(done.samples[74].foot.y).toBeCloseTo(0.77, 1)
   } finally {
     await app.close()
   }

@@ -128,8 +128,11 @@ describe('runTrackingJob', () => {
       if (i % FPS === 0) expect(c.roi).toBeUndefined()
       else {
         expect(c.roi).toBeDefined()
-        // вырез строится вокруг рамки прошлого кадра
-        expect(c.roi!.x + c.roi!.w / 2).toBeCloseTo(200 + 2 * (i - 1), 0)
+        // вырез строится вокруг прогноза трекера на этот кадр: ближе к настоящему положению, чем рамка прошлого кадра
+        const centre = c.roi!.x + c.roi!.w / 2
+        const actual = 200 + 2 * i
+        if (i > 5)
+          expect(Math.abs(centre - actual)).toBeLessThan(Math.abs(actual - 2 - actual) - 0.5)
       }
     })
   })
@@ -231,6 +234,46 @@ describe('runTrackingJob', () => {
     )
     expect(out).toEqual({ kind: 'cancelled' })
     expect(returned).toBe(true)
+    expect(det.closed).toBe(true)
+  })
+
+  it('отмена во время создания детектора: создание получает сигнал и прерывается быстро', async () => {
+    const controller = new AbortController()
+    let closedByAbort = false
+    const started = Date.now()
+    const run = runTrackingJob(
+      options({
+        signal: controller.signal,
+        createDetector: (signal) =>
+          new Promise<Detector>((_resolve, reject) => {
+            signal.addEventListener('abort', () => {
+              closedByAbort = true
+              reject(new Error('Детектор закрыт'))
+            })
+          })
+      })
+    )
+    setTimeout(() => controller.abort(), 30)
+    expect(await run).toEqual({ kind: 'cancelled' })
+    expect(closedByAbort).toBe(true)
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
+
+  it('пустой ответ на вопрос без отмены — сбой, а не вечное ожидание', async () => {
+    const a = (f: number): Detection => person(100 + 3 * f, 270)
+    const det = scripted((f) =>
+      f < 30 ? [a(f)] : f < 42 ? [a(f), a(f)] : [person(100 + 3 * f, 320), person(100 + 3 * f, 220)]
+    )
+    await expect(
+      runTrackingJob(
+        options({
+          frames: frames(100),
+          createDetector: () => Promise.resolve(det),
+          anchor: { x: 100 / W, y: 270 / H },
+          onAsk: () => Promise.resolve(null)
+        })
+      )
+    ).rejects.toThrow(/выбранного игрока/)
     expect(det.closed).toBe(true)
   })
 

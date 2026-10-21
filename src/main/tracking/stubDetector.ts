@@ -6,6 +6,8 @@
 // Без файла работает DEFAULT_STUB_PATTERN: один игрок, идущий вправо.
 //   players[].start    — рамка в момент 0 (x, y, w, h — верхний левый угол и размер);
 //   players[].velocity — сдвиг рамки {x, y} в долях кадра за секунду;
+//   players[].look     — номер приметы (по умолчанию номер игрока в списке): у игроков с одинаковым look примета одна и та же,
+//                        и трекер не может различить их по виду (сценарий «Кто из них ваш?»);
 //   players[].from/until — игрок виден только в этом интервале времени (по умолчанию всегда);
 //   cuts               — моменты «смены плана»: на каждом гистограмма кадра меняется скачком.
 // Игроки различаются «приметой» (цветом): номер игрока = его место в списке.
@@ -25,6 +27,7 @@ export const StubPatternSchema = z.object({
     .array(
       z.object({
         start: fractionBox,
+        look: z.number().int().min(0).max(1000).optional(),
         velocity: z
           .object({ x: z.number().finite(), y: z.number().finite() })
           .default({ x: 0, y: 0 }),
@@ -111,7 +114,7 @@ export function createStubDetector(options: StubOptions = {}): Detector {
         const cy = box.y + box.h / 2
         if (cx < crop.x || cx > crop.x + crop.w || cy < crop.y || cy > crop.y + crop.h) return
       }
-      detections.push({ box, score: 0.9, look: stubLook(id) })
+      detections.push({ box, score: 0.9, look: stubLook(p.look ?? id) })
     })
     const cutsBefore = pattern.cuts.filter((c) => c <= t).length
     return { detections, frameHist: stubFrameHist(cutsBefore) }

@@ -55,13 +55,15 @@ let active: ActiveJob | null = null
 
 const OK: IpcResult<void> = { ok: true, data: undefined }
 
-/** Останавливает слежение (если идёт): ffmpeg, окно-детектор и ожидание ответа. Возвращает, когда всё остановлено. */
+/**
+ * Останавливает слежение (если идёт): ffmpeg этой задачи (по сигналу), окно-детектор и ожидание ответа. Чужие ffmpeg
+ * (экспорт, миниатюры) не трогаются. Возвращает, когда всё остановлено.
+ */
 export async function cancelActiveTracking(): Promise<void> {
   const job = active
   if (!job) return
   job.controller.abort()
   job.asking?.answer(null)
-  killAllFfmpeg()
   await Promise.race([job.done, new Promise((r) => setTimeout(r, CANCEL_WAIT_MS))])
 }
 
@@ -114,12 +116,23 @@ async function startTracking(
       throw error
     }
     const sender = event.sender
+    // Страница, с которой запускали, ушла (закрыта, перезагружена, упала): задача ей больше не нужна и отвечать некому.
+    const onGone = (): void => void cancelActiveTracking()
+    const onNavigate = (details: { isMainFrame?: boolean; isSameDocument?: boolean }): void => {
+      if (details.isMainFrame && !details.isSameDocument) onGone()
+    }
+    sender.on('did-start-navigation', onNavigate)
+    sender.on('render-process-gone', onGone)
+    sender.on('destroyed', onGone)
+    const release = (): void => {
+      if (sender.isDestroyed()) return
+      sender.off('did-start-navigation', onNavigate)
+      sender.off('render-process-gone', onGone)
+      sender.off('destroyed', onGone)
+    }
     const send = (channel: string, payload: unknown): void => {
       if (!sender.isDestroyed()) sender.send(channel, payload)
     }
-    // Закрыли окно, с которого запускали: расчёт больше никому не нужен.
-    sender.once('destroyed', () => controller.abort())
-
     let lastProgress = 0
     const run = async (): Promise<void> => {
       let final: TrackingDone | null = null
@@ -136,10 +149,10 @@ async function startTracking(
             to: request.to,
             signal: controller.signal
           }),
-          createDetector: () =>
+          createDetector: (signal) =>
             pattern
               ? Promise.resolve(createStubDetector({ pattern, delayMs: flags.detectorStubDelayMs }))
-              : createDetector(),
+              : createDetector(signal),
           onProgress: (done, total) => {
             const now = Date.now()
             if (done < total && now - lastProgress < PROGRESS_INTERVAL_MS) return
@@ -184,6 +197,7 @@ async function startTracking(
         }
       } finally {
         active = null
+        release()
       }
       // Отменённая задача итога не присылает.
       if (final && !controller.signal.aborted) send(IPC_EVENTS.trackingDone, final)

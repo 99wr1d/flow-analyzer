@@ -22,7 +22,8 @@ export interface RunTrackingOptions {
   signal: AbortSignal
   /** Кадры отрезка (decodeFrames). Итерация начинается после запуска детектора; по выходу ffmpeg останавливается. */
   frames: AsyncIterable<DecodedFrame>
-  createDetector: () => Promise<Detector>
+  /** Создание прерывается сигналом: при отмене окно-детектор уничтожается, обещание отклоняется. */
+  createDetector: (signal: AbortSignal) => Promise<Detector>
   onProgress?: (done: number, total: number) => void
   /** Вопрос «Кто из них ваш?»: индекс выбранной рамки или null, если отменили. */
   onAsk: (t: number, candidates: FractionBox[]) => Promise<number | null>
@@ -58,13 +59,12 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
   let detector: Detector | null = null
   let iterator: AsyncIterator<DecodedFrame> | null = null
   try {
-    detector = await opts.createDetector()
+    detector = await opts.createDetector(signal)
     if (signal.aborted) return { kind: 'cancelled' }
     iterator = opts.frames[Symbol.asyncIterator]()
 
     const samples: TrackSample[] = []
     let tracker: SingleTracker | null = null
-    let lastBox: Box | null = null
     let coasting = false
     let forceFull = false
     let ordinal = 0
@@ -77,10 +77,11 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       const fw = frame.width
       const fh = frame.height
 
-      // Целый кадр: старт, после вопроса, пока игрок «пережидается» (выход из пережидания), и раз в секунду.
+      // Целый кадр: старт, после вопроса, пока игрок «пережидается» (иначе вернувшегося вне выреза не найти; не дольше
+      // COAST/LOST_SECONDS подряд) и раз в секунду. Иначе — вырез вокруг прогноза трекера на этот кадр.
       const needFull = tracker === null || forceFull || coasting || ordinal % fullEvery === 0
       forceFull = false
-      const roi = needFull || !lastBox ? undefined : lastBox
+      const roi = needFull || !tracker ? undefined : tracker.predictBox(frame.index)
       const out = await detector.detect(
         { rgba: frame.rgba, width: fw, height: fh, index: frame.index, t: frame.t },
         roi
@@ -113,9 +114,10 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           frame.t,
           cands.map((d) => toFraction(d.box, fw, fh))
         )
-        if (signal.aborted || index === null) return { kind: 'cancelled' }
-        const chosen = cands[index]
-        if (!chosen) return { kind: 'cancelled' }
+        if (signal.aborted) return { kind: 'cancelled' }
+        // Пустой или неверный ответ без отмены — сбой: интерфейс не должен ждать итога вечно.
+        const chosen = index === null ? undefined : cands[index]
+        if (!chosen) throw new Error('Не удалось определить выбранного игрока')
         tracker.resolve(chosen)
         forceFull = true
         step = { kind: 'track', box: { ...chosen.box }, coasting: false }
@@ -128,7 +130,6 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           backend: detector.backend
         }
       }
-      lastBox = step.box
       coasting = step.coasting
       samples.push(boxToSample(step.box, frame.t, fw, fh))
       ordinal += 1
