@@ -456,6 +456,48 @@ describe('SingleTracker: не перепрыгивать на другого (и
     expect(res.some(confident)).toBe(false)
   })
 
+  describe('рамка резко выше: не вечная блокировка', () => {
+    const OURS = (): Detection => det(300, 300, RED, 40, 100)
+    const never = (res: StepResult[]): boolean => res.every((r) => r.kind !== 'lost') // без вопроса не теряем
+
+    it('(а) 4 кадра ниже обычного (62), затем снова 100: ведётся дальше', () => {
+      const tr = new SingleTracker(OURS(), FPS, { frame: FRAME })
+      run(tr, 1, 10, () => [OURS()])
+      run(tr, 10, 14, () => [det(300, 320, RED, 40, 62)])
+      const res = run(tr, 14, 60, () => [OURS()])
+      expect(never(res)).toBe(true)
+      expect(confident(res[res.length - 1])).toBe(true)
+    })
+
+    it('(б) один кадр 64 px, затем 100: ведётся дальше', () => {
+      const tr = new SingleTracker(OURS(), FPS, { frame: FRAME })
+      run(tr, 1, 10, () => [OURS()])
+      run(tr, 10, 11, () => [det(300, 320, RED, 40, 64)])
+      const res = run(tr, 11, 60, () => [OURS()])
+      expect(never(res)).toBe(true)
+      expect(confident(res[res.length - 1])).toBe(true)
+    })
+
+    it('высокая рамка, которая не уходит: к порогу вопроса — вопрос, а не молчаливая потеря', () => {
+      const tr = new SingleTracker(det(300, 300, RED, 40, 60), FPS, { frame: FRAME })
+      run(tr, 1, 20, () => [det(300, 300, RED, 40, 60)])
+      const res = run(tr, 20, 60, () => [det(300, 280, RED, 40, 100)])
+      expect(res.some(confident)).toBe(false)
+      const askIdx = res.findIndex((r) => r.kind === 'ask')
+      expect(askIdx).toBeGreaterThanOrEqual(0)
+      expect(res.slice(0, askIdx).every((r) => r.kind !== 'lost')).toBe(true)
+    })
+
+    it('высокая рамка чужой формы рядом с прогнозом не мешает вернуть своего', () => {
+      const tr = new SingleTracker(OURS(), FPS, { frame: FRAME })
+      run(tr, 1, 10, () => [OURS()])
+      const res = run(tr, 10, 40, (f) =>
+        f < 14 ? [det(350, 280, BLUE, 40, 160)] : [OURS(), det(350, 280, BLUE, 40, 160)]
+      )
+      expect(confident(res[res.length - 1])).toBe(true)
+    })
+  })
+
   it('чистый свой на прогнозе и сомнительный чужой в 45 px: ведётся непрерывно, без чередования пережидания', () => {
     const shaded = look([150, 40, 40], [180, 180, 180])
     const tr = new SingleTracker(det(300, 270, RED), FPS, { frame: FRAME })

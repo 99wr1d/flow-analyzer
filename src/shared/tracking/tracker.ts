@@ -97,6 +97,8 @@ interface Cand {
   app: number
   overlapped: boolean
   merged: boolean
+  /** Рамка резко выше сглаженного роста игрока (слита с соседом?): молча не берётся, но в вопросе предлагается. */
+  tall?: boolean
 }
 
 export class SingleTracker {
@@ -205,6 +207,8 @@ export class SingleTracker {
       return this.coast(pred)
     }
 
+    // Высокие «слитые» рамки: на пороге вопроса предлагаем их, а не останавливаемся молча.
+    const tallCands = cands.filter((c) => c.tall && !c.overlapped)
     const ranked = cands
       .filter((c) => !c.overlapped && !c.merged)
       .map((c) => ({ c, cost: recoverCost(c) }))
@@ -220,10 +224,10 @@ export class SingleTracker {
       ((hidden.length > 0 && Math.min(...hidden) + HIDDEN_BETTER_MARGIN < ranked[0].cost) ||
         (doubtCosts.length > 0 && ranked[0].cost > Math.min(...doubtCosts) - ASK_GAP))
     ) {
-      if (this.miss + 1 >= this.coastFrames && this.doubtful.length > 0) {
+      if (this.miss + 1 >= this.coastFrames && (this.doubtful.length > 0 || tallCands.length > 0)) {
         return {
           kind: 'ask',
-          candidates: [...ranked.map((r) => r.c), ...this.doubtful]
+          candidates: [...ranked.map((r) => r.c), ...this.doubtful, ...tallCands]
             .sort((p, q) => recoverCost(p) - recoverCost(q))
             .slice(0, ASK_MAX_CANDIDATES)
             .map((c) => c.det)
@@ -249,6 +253,15 @@ export class SingleTracker {
           kind: 'ask',
           candidates: ranked.slice(0, ASK_MAX_CANDIDATES).map((r) => r.c.det)
         }
+      }
+    }
+    if (this.miss + 1 >= this.coastFrames && tallCands.length > 0) {
+      return {
+        kind: 'ask',
+        candidates: [...ranked.map((r) => r.c), ...tallCands]
+          .sort((p, q) => recoverCost(p) - recoverCost(q))
+          .slice(0, ASK_MAX_CANDIDATES)
+          .map((c) => c.det)
       }
     }
     return this.coast(pred)
@@ -300,19 +313,22 @@ export class SingleTracker {
       if (ov < GATE_IOU && dist >= radius) continue
       const app = appearanceDistance(this.look, det.look)
       const overlapped = dets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU)
-      const merged =
-        det.box.w > this.w * MERGE_WIDTH_RATIO ||
-        (this.miss < this.coastFrames && det.box.h > this.lastBox.h * HEIGHT_JUMP_RATIO)
+      // Резко выше сглаженного роста: считается слитой, только если примета не отвергает её как чужую.
+      const tall =
+        this.miss < this.coastFrames &&
+        det.box.h > this.h * HEIGHT_JUMP_RATIO &&
+        app <= APPEARANCE_REJECT
+      const merged = det.box.w > this.w * MERGE_WIDTH_RATIO || tall
       // Другая форма — не наш игрок, как бы близко он ни стоял (пока примета не «грязная»). У слитой/перекрытой рамки
       // примета испорчена соседом: её не отбрасываем (взять её нельзя, но она показывает, что настоящий игрок ещё тут).
       if (!this.dirty && app > APPEARANCE_REJECT && !overlapped && !merged) {
         // Чуть непохожа, но стоит почти там, где ждали игрока: брать нельзя, но и молча брать другого рядом тоже.
         if (app <= DOUBT_APPEARANCE && dist <= DOUBT_DIST) {
-          this.doubtful.push({ det, iou: ov, dist, app, overlapped, merged })
+          this.doubtful.push({ det, iou: ov, dist, app, overlapped, merged, tall })
         }
         continue
       }
-      out.push({ det, iou: ov, dist, app, overlapped, merged })
+      out.push({ det, iou: ov, dist, app, overlapped, merged, tall })
     }
     return out
   }
