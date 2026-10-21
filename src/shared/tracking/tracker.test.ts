@@ -21,6 +21,8 @@ function look(top: [number, number, number], bottom: [number, number, number]): 
   return lookOf(px, w, h, { x: 0, y: 0, w, h })
 }
 
+const lookMix = (a: Float32Array, b: Float32Array, k: number): Float32Array =>
+  a.map((v, i) => v * (1 - k) + b[i] * k) as Float32Array
 const RED = look([220, 30, 30], [255, 255, 255])
 const BLUE = look([30, 60, 220], [20, 20, 20])
 const WHITE_FRAME = frameHistOf(new Uint8Array(64 * 64 * 4).fill(235), 64, 64)
@@ -454,6 +456,36 @@ describe('SingleTracker: не перепрыгивать на другого (и
     const merged = det(300, 252, RED, 40, 110)
     const res = run(tr, 14, 18, () => [merged])
     expect(res.some(confident)).toBe(false)
+  })
+
+  describe('рамка резко выше: два тихих пути на соседа закрыты', () => {
+    it('грязный старт: одинокая высокая рамка чужой формы на прогнозе не берётся', () => {
+      const tr = new SingleTracker(det(300, 300, RED, 40, 100), FPS, {
+        frame: FRAME,
+        dirtyStart: true,
+        startNeighbours: [det(330, 300, BLUE, 40, 100)]
+      })
+      const foreign = look([220, 30, 30], [230, 220, 40])
+      const res = run(tr, 1, 30, () => [det(300, 300, foreign, 40, 160)])
+      expect(res.some(confident)).toBe(false)
+    })
+
+    it('resolve по высокой рамке: примета и рост прежние, соседа молча не берём', () => {
+      const mixed = lookMix(RED, BLUE, 0.5)
+      const tr = new SingleTracker(det(300, 300, RED, 40, 60), FPS, { frame: FRAME })
+      run(tr, 1, 20, () => [det(300, 300, RED, 40, 60)])
+      const tall = det(300, 280, mixed, 40, 100)
+      let asked: StepResult | null = null
+      for (let f = 20; f < 60 && !asked; f += 1) {
+        const r = tr.step(frame(f, [tall]))
+        if (r.kind === 'ask') asked = r
+      }
+      expect(asked).not.toBeNull()
+      if (!asked || asked.kind !== 'ask') return
+      tr.resolve(asked.candidates[0])
+      const res = run(tr, 61, 91, () => [det(305, 280, BLUE, 40, 100)])
+      expect(res.some(confident)).toBe(false)
+    })
   })
 
   describe('рамка резко выше: не вечная блокировка', () => {

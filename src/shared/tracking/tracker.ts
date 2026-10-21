@@ -280,15 +280,21 @@ export class SingleTracker {
 
   /** Ответ на «Кто из них ваш?»: слежение продолжается с выбранной рамки. */
   resolve(det: Detection): void {
+    // Резко выше сглаженного роста (проверка до обновления this.h): рамка слита с соседом, она не чистая.
+    const tall = det.box.h > this.h * HEIGHT_JUMP_RATIO
     const clean =
+      !tall &&
       det.box.w <= this.w * MERGE_WIDTH_RATIO &&
       !this.lastDets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU)
     const c = centerOf(det.box)
     // Прогноз по старой траектории больше не годится: заново с выбранной рамки.
     this.kx = new Kalman1D(c.x, KALMAN_Q, KALMAN_R)
     this.ky = new Kalman1D(c.y, KALMAN_Q, KALMAN_R)
-    this.w = det.box.w
-    this.h = det.box.h
+    // Размер слитой рамки не берём: он включает соседа.
+    if (!tall) {
+      this.w = det.box.w
+      this.h = det.box.h
+    }
     this.lastBox = { ...det.box }
     this.miss = 0
     // Рамка с примесью соседа примету не обновляет и «грязность» не снимает.
@@ -317,7 +323,7 @@ export class SingleTracker {
       const tall =
         this.miss < this.coastFrames &&
         det.box.h > this.h * HEIGHT_JUMP_RATIO &&
-        app <= APPEARANCE_REJECT
+        (this.dirty || app <= APPEARANCE_REJECT)
       const merged = det.box.w > this.w * MERGE_WIDTH_RATIO || tall
       // Другая форма — не наш игрок, как бы близко он ни стоял (пока примета не «грязная»). У слитой/перекрытой рамки
       // примета испорчена соседом: её не отбрасываем (взять её нельзя, но она показывает, что настоящий игрок ещё тут).
