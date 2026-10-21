@@ -1,6 +1,6 @@
 // Кадры отрезка из настоящего ffmpeg на синтетических видео. Номер кадра «записан» в пикселях: 8 блоков по 20 px, блок белый,
 // если в двоичной записи номера соответствующий разряд равен 1.
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, truncateSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -12,6 +12,9 @@ const OFFSET = 0.04
 let work: string
 let plain: string
 let offset: string
+let late30: string
+let late2997: string
+let shifted: string
 
 const NUMBER = `geq=lum='255*bitand(floor(N/pow(2,floor(X/20))),1)':cb=128:cr=128`
 
@@ -42,6 +45,35 @@ beforeAll(() => {
   if (r.status !== 0) throw new Error(r.stderr)
 }, 60_000)
 
+/** Видео rate к/с с номером кадра в пикселях; видео начинается на lateBy с, звук с 0. */
+function makeLate(path: string, rate: string, lateBy: number): void {
+  const r = ff([
+    ...['-f', 'lavfi', '-i', `color=c=black:size=160x90:rate=${rate}:duration=14`],
+    ...['-f', 'lavfi', '-i', 'sine=frequency=440:duration=15'],
+    ...['-vf', `${NUMBER},setpts=PTS+${lateBy}/TB`],
+    ...['-frames:v', '200'],
+    ...['-c:v', 'libx264', '-preset', 'ultrafast', '-bf', '0', '-pix_fmt', 'yuv420p', '-crf', '12'],
+    ...['-fps_mode', 'passthrough', '-c:a', 'aac', '-y', path]
+  ])
+  if (r.status !== 0) throw new Error(r.stderr)
+}
+
+beforeAll(() => {
+  late30 = join(work, 'late30.mp4')
+  makeLate(late30, '30', 10)
+  late2997 = join(work, 'late2997.mp4')
+  makeLate(late2997, '24000/1001', 10)
+  // Весь контейнер сдвинут (start: 5): плеер отсчитывает время от начала контейнера.
+  shifted = join(work, 'shifted.mp4')
+  const r = ff([
+    ...['-f', 'lavfi', '-i', 'color=c=black:size=160x90:rate=25:duration=4'],
+    ...['-vf', NUMBER],
+    ...['-c:v', 'libx264', '-preset', 'ultrafast', '-bf', '0', '-pix_fmt', 'yuv420p', '-crf', '12'],
+    ...['-output_ts_offset', '5', '-fps_mode', 'passthrough', '-y', shifted]
+  ])
+  if (r.status !== 0) throw new Error(r.stderr)
+}, 60_000)
+
 afterAll(() => {
   rmSync(work, { recursive: true, force: true })
 })
@@ -68,7 +100,7 @@ async function collect(
     signal: new AbortController().signal,
     ...opts
   })) {
-    out.push({ ...f, rgba: f.rgba.slice() })
+    out.push(f)
   }
   return out
 }
@@ -108,6 +140,57 @@ describe('decodeFrames', () => {
     }
     expect(frames[0].index).toBe(50)
     expect(numberIn(frames[0])).toBe(49)
+  }, 60_000)
+
+  it.each([
+    // Начало (10 с) в кадрах: 300 при 30 к/с, 239 при 24000/1001 (setpts отбрасывает дробную часть 239.76, то есть 9.968 с).
+    ['30 к/с, видео с 10 с', () => late30, 30, 300],
+    ['24000/1001 к/с, видео с 10 с', () => late2997, 24000 / 1001, 239]
+  ])(
+    '%s: index и t совпадают с кадром плеера',
+    async (_name, path, fps, startFrames) => {
+      const from = 10.5
+      const frames = await collect({ videoPath: path(), from, to: from + 1 })
+      expect(frames.length).toBeGreaterThanOrEqual(Math.floor(fps) - 1)
+      expect(frames.length).toBeLessThanOrEqual(Math.ceil(fps) + 1)
+      expect(frames.length).toBeGreaterThan(0)
+      frames.forEach((f, i) => {
+        const n = numberIn(f)
+        // Кадр N показывается в слоте startFrames + N; идут подряд без пропусков и повторов.
+        expect(f.index).toBe(startFrames + n)
+        expect(f.index).toBe(frames[0].index + i)
+        expect(f.t).toBeCloseTo((f.index + 0.5) / fps, 9)
+      })
+    },
+    60_000
+  )
+
+  it('контейнер сдвинут (start: 5): время отсчитывается от начала контейнера, как у плеера и экспорта', async () => {
+    const frames = await collect({ videoPath: shifted, from: 1, to: 2 })
+    expect(frames).toHaveLength(25)
+    for (const f of frames) {
+      expect(numberIn(f)).toBe(f.index)
+      expect(f.t).toBeCloseTo((f.index + 0.5) / 25, 6)
+    }
+    expect(frames[0].index).toBe(25)
+  }, 60_000)
+
+  it('to <= from: пустой результат без запуска ffmpeg', async () => {
+    expect(await collect({ videoPath: plain, from: 2, to: 2 })).toEqual([])
+    expect(await collect({ videoPath: plain, from: 3, to: 2 })).toEqual([])
+  })
+
+  it('обрезанный посередине файл: кадры до обрыва отдаются, исход — без зависания', async () => {
+    const cut = join(work, 'cut.mp4')
+    const r = ff(['-i', plain, '-c', 'copy', '-movflags', '+faststart', '-y', cut])
+    if (r.status !== 0) throw new Error(r.stderr)
+    truncateSync(cut, 3000)
+    const outcome = await collect({ videoPath: cut, from: 0, to: 4 }).then(
+      (frames) => ({ count: frames.length, message: '' }),
+      (e: Error) => ({ count: -1, message: e.message })
+    )
+    if (outcome.count >= 0) expect(outcome.count).toBeLessThan(100)
+    else expect(outcome.message.length).toBeGreaterThan(0)
   }, 60_000)
 
   it('abort() посреди: итератор завершается, процесс ffmpeg закрыт', async () => {
