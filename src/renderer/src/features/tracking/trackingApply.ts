@@ -274,7 +274,18 @@ export function applyTrackResult(
     const tracked: Keyframe[] = trackToKeys(src, thinTrack(usable, tolerance), plan.at)
     const merged = mergeTrackedKeys(existing, tracked, plan.at)
     if (merged.keys.length <= MAX_KEYFRAMES) {
-      const keys = straightenFromPlace(merged.keys, plan.at)
+      let all = merged.keys
+      if (diverged) {
+        // Старое слежение после ручной опоры не трогаем: пересчитано только до неё.
+        const anchor = diverged.t
+        const kept = existing.filter((k) => k.auto && k.t > anchor + KEY_EPS)
+        all = [...merged.keys, ...kept].sort((x, y) => x.t - y.t)
+        if (all.length > MAX_KEYFRAMES) {
+          tolerance *= 1.5
+          continue
+        }
+      }
+      const keys = straightenFromPlace(all, plan.at)
       return { ok: true, annotation: withKeys(src, keys), ...(diverged ? { diverged } : {}) }
     }
     tolerance *= 1.5

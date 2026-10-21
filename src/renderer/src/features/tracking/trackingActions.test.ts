@@ -273,8 +273,10 @@ describe('applyTrackResult: траектория → ключи рисунка',
     expect(again.diverged).toBeDefined()
     expect(again.diverged!.t).toBeCloseTo(far3.t, 6)
     const keys = keysOf(again.annotation)
-    // Авто-ключи кончаются до ручного; ручной на месте.
-    expect(keys.filter((k) => k.auto && k.t >= far3.t - 1e-9)).toHaveLength(0)
+    // Новое слежение кончается до ручного; старые авто-ключи после опоры остаются; ручной на месте.
+    const oldAfter = keysOf(a).filter((k) => k.auto && k.t > far3.t + 1e-9)
+    expect(oldAfter.length).toBeGreaterThan(0)
+    expect(keys.filter((k) => k.auto && k.t > far3.t + 1e-9)).toEqual(oldAfter)
     expect(keys.some((k) => !k.auto && Math.abs(k.t - far3.t) < 1e-9)).toBe(true)
   })
 

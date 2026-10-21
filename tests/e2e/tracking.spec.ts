@@ -25,7 +25,9 @@ const H = 360
 const FPS = 25
 const VIDEO = fixture('runner.mp4')
 const PATTERN = fixture('stub-runner.json')
+// cross.mp4 + stub-cross.json: до 1.2 с один красный игрок, потом два одинаковых красных (рамки заглушки лежат на фигурах видео).
 const CROSS = fixture('stub-cross.json')
+const CROSS_VIDEO = fixture('cross.mp4')
 
 type Ctx = { app: ElectronApplication; win: Page }
 
@@ -34,12 +36,13 @@ const shot = (win: Page, name: string): Promise<Buffer> =>
 
 async function open(
   pattern: string = PATTERN,
-  extraEnv: Record<string, string> = {}
+  extraEnv: Record<string, string> = {},
+  video: string = VIDEO
 ): Promise<Ctx> {
   const { app, win } = await launch({
     env: { FLOW_DETECTOR_STUB: '1', FLOW_DETECTOR_STUB_PATTERN: pattern, ...extraEnv }
   })
-  await stubDialog(app, VIDEO)
+  await stubDialog(app, video)
   await win.getByTestId('open-video').click()
   await expect(win.getByTestId('play-toggle')).toBeEnabled()
   await expect(win.getByTestId('annotation-layer')).toBeVisible()
@@ -272,16 +275,19 @@ test.describe('слежение за игроком (заглушка детек
     }
   })
 
-  test('«Кто из них ваш?»: рамки на кадре вопроса, щелчок продолжает слежение; Esc отменяет', async () => {
-    const { app, win } = await open(CROSS)
+  test('«Кто из них ваш?»: рамки лежат на настоящих фигурах кадра, щелчок продолжает слежение; Esc отменяет', async () => {
+    const { app, win } = await open(CROSS, {}, CROSS_VIDEO)
     try {
-      // Сценарий stub-cross: игрок виден до 1.2 с (центр 0.33, 0.5), потом два одинаковых игрока.
-      await drawRing(win, { from: [0.3, 0.47], to: [0.36, 0.53], duration: 2.9 })
+      // Кольцо у ног единственного игрока кадра 0 (ноги на 0.65).
+      await drawRing(win, { from: [0.3, 0.62], to: [0.36, 0.68], duration: 2.9 })
       const runs0 = await runsOf(win)
       await win.getByTestId('track-button').click()
       await expect(win.getByTestId('pick-overlay')).toBeVisible({ timeout: 60_000 })
       await expect(win.getByTestId('pick-text')).toHaveText('Кто из них ваш? Щёлкните по игроку.')
       await expect(win.getByTestId('pick-box')).toHaveCount(2)
+      // Каждая рамка лежит на настоящей (красной) фигуре показанного кадра.
+      const kinds = await boxKinds(win)
+      expect(kinds).toEqual(['red', 'red'])
       await shot(win, 'tracking-pick')
 
       // Esc отменяет без изменений.
@@ -299,14 +305,43 @@ test.describe('слежение за игроком (заглушка детек
       await waitRun(win, runs1)
       await seekVideo(win, (72 + 0.5) / FPS)
       const end = await ringCenter(win)
-      // Нижний игрок: ноги на 0.47 + 0.3 = 0.77, кольцо нарисовано на 0.15 выше ног (центр 0.5, ноги 0.65): центр 0.62 (±3 %).
-      // Верхний игрок дал бы 0.38 (ноги на 0.53).
-      expect(Math.abs(end.y - 0.62)).toBeLessThan(0.03)
+      // Нижний игрок: ноги на 0.47 + 0.3 = 0.77, кольцо у ног (центр 0.65 при ногах 0.65). Верхний дал бы 0.53.
+      expect(Math.abs(end.y - 0.77)).toBeLessThan(0.03)
     } finally {
       await app.close()
     }
   })
 })
+
+/** Какая фигура кадра под каждой рамкой выбора: по цвету пикселей самого видео внутри рамки. */
+async function boxKinds(win: Page): Promise<string[]> {
+  return win.evaluate(() => {
+    const v = document.querySelector('video') as HTMLVideoElement
+    const c = document.createElement('canvas')
+    c.width = v.videoWidth
+    c.height = v.videoHeight
+    const ctx = c.getContext('2d') as CanvasRenderingContext2D
+    ctx.drawImage(v, 0, 0)
+    const layer = (
+      document.querySelector('[data-testid="annotation-layer"]') as HTMLElement
+    ).getBoundingClientRect()
+    return Array.from(document.querySelectorAll('[data-testid="pick-box"]')).map((el) => {
+      const r = el.getBoundingClientRect()
+      const x0 = Math.round(((r.left - layer.left) / layer.width) * c.width)
+      const y0 = Math.round(((r.top - layer.top) / layer.height) * c.height)
+      const w = Math.max(1, Math.round((r.width / layer.width) * c.width))
+      const h = Math.max(1, Math.round((r.height / layer.height) * c.height))
+      const d = ctx.getImageData(Math.max(0, x0), Math.max(0, y0), w, h).data
+      let red = 0
+      let blue = 0
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i] > 170 && d[i + 1] < 90 && d[i + 2] < 110) red += 1
+        else if (d[i + 2] > 170 && d[i] < 80) blue += 1
+      }
+      return red > 100 && red >= blue ? 'red' : blue > 100 ? 'blue' : 'none'
+    })
+  })
+}
 
 /** Доля ширины кадра, где центр красного бегуна на кадре, показанном плеером (по пикселям самого видео). */
 async function redCentre(win: Page): Promise<number> {

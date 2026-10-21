@@ -7,6 +7,7 @@
 //   node scripts/make-fixtures.mjs pitch    # только pitch.mp4 и pitch.json (нужны Google Chrome и ffmpeg-static)
 //   node scripts/make-fixtures.mjs players  # только players.mp4 (нужен лишь ffmpeg-static)
 //   node scripts/make-fixtures.mjs runner   # только runner.mp4 (нужен лишь ffmpeg-static)
+//   node scripts/make-fixtures.mjs cross    # только cross.mp4 (нужен лишь ffmpeg-static)
 //
 // 1) cfr25.mp4 (H.264, 25 к/с) и cfr30.webm (VP8, 30 к/с): ровная частота кадров, на каждом кадре крупно
 //    нарисован его номер (drawtext). Делает ffmpeg из пакета ffmpeg-static (devDependency).
@@ -659,15 +660,53 @@ function makeRunner() {
   console.log(`runner.mp4: ${(statSync(join(OUT, 'runner.mp4')).size / 1024).toFixed(0)} КБ`)
 }
 
+// ---------- Два одинаковых игрока (вопрос «Кто из них ваш?») ----------
+// Совпадает со сценарием заглушки tests/fixtures/stub-cross.json: до 1,2 с виден один красный игрок (рамка x 0.30, y 0.35..0.65),
+// потом два одинаковых красных (y 0.47..0.77 и 0.23..0.53); все идут вправо на 0,05 кадра/с (x = 0.30 + 0.05 · t, t — середина кадра).
+export const CROSS = { frame: { w: 640, h: 360 }, fps: 25, seconds: 3, splitAt: 1.2 }
+
+function makeCross() {
+  const ffmpeg = createRequire(import.meta.url)('ffmpeg-static')
+  if (!ffmpeg) throw new Error('ffmpeg-static не нашёл ffmpeg для этой системы')
+  const { frame, fps, seconds, splitAt } = CROSS
+  const { grass, skin, runner } = RUNNER
+  const w = Math.round(0.06 * frame.w)
+  const h = Math.round(0.3 * frame.h)
+  const x = `${frame.w}*(0.3+0.05*(t+${0.5 / fps}))`
+  const y = (top) => Math.round(top * frame.h)
+  const layer = figureLayer(w, h, runner.color, skin, seconds, fps)
+  const graph = [
+    '[1:v]split=3[a][b][c]',
+    `[0:v][a]overlay=x='${x}':y=${y(0.35)}:eval=frame:enable='lt(t,${splitAt})'[o1]`,
+    `[o1][b]overlay=x='${x}':y=${y(0.47)}:eval=frame:enable='gte(t,${splitAt})'[o2]`,
+    `[o2][c]overlay=x='${x}':y=${y(0.23)}:eval=frame:enable='gte(t,${splitAt})',format=yuv420p[v]`
+  ].join(';')
+  execFileSync(
+    ffmpeg,
+    [
+      ...['-y', '-hide_banner', '-loglevel', 'error'],
+      ...['-f', 'lavfi', '-i', `color=c=${grass}:s=${frame.w}x${frame.h}:r=${fps}:d=${seconds}`],
+      ...['-f', 'lavfi', '-i', layer],
+      ...['-filter_complex', graph, '-map', '[v]'],
+      ...['-c:v', 'libx264', '-profile:v', 'main', '-preset', 'slow', '-crf', '16', '-g', '25'],
+      ...['-r', String(fps), '-an', '-movflags', '+faststart', join(OUT, 'cross.mp4')]
+    ],
+    { stdio: 'inherit' }
+  )
+  console.log(`cross.mp4: ${(statSync(join(OUT, 'cross.mp4')).size / 1024).toFixed(0)} КБ`)
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true })
   const mode = process.argv[2] ?? 'all'
   if (mode === 'pitch') return makePitch()
   if (mode === 'players') return makePlayers()
   if (mode === 'runner') return makeRunner()
+  if (mode === 'cross') return makeCross()
   if (mode === 'all' || mode === 'cfr') makeCfr()
   if (mode === 'all') makePlayers()
   if (mode === 'all') makeRunner()
+  if (mode === 'all') makeCross()
   if (mode === 'cfr') return
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
   try {

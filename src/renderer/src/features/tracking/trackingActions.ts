@@ -137,13 +137,19 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
       resolve(end)
     }
     running = job
-    const mine = (id: string): boolean => job.jobId === null || job.jobId === id
-    offs.push(
-      window.api.onTrackingProgress((p) => {
-        if (mine(p.jobId)) store.setProgress(p.done, p.total)
-      }),
-      window.api.onTrackingAsk((ask) => {
-        if (!mine(ask.jobId) || job.cancelled) return
+    // События приходят по идентификатору задачи, который известен только после ответа на запуск: до этого
+    // события складываются в очередь (запоздавшее событие отменённой задачи не достанется новой).
+    type Ev =
+      | { kind: 'progress'; p: { jobId: string; done: number; total: number } }
+      | { kind: 'ask'; ask: Parameters<Parameters<typeof window.api.onTrackingAsk>[0]>[0] }
+      | { kind: 'done'; done: TrackingDone }
+    const queue: Ev[] = []
+    const handle = (ev: Ev): void => {
+      if (ev.kind === 'progress') {
+        if (ev.p.jobId === job.jobId) store.setProgress(ev.p.done, ev.p.total)
+      } else if (ev.kind === 'ask') {
+        const ask = ev.ask
+        if (ask.jobId !== job.jobId || job.cancelled) return
         // Рамки лежат на кадре вопроса: показываем именно его.
         seekTo(ask.t)
         job.answerPick = (index) => {
@@ -153,10 +159,18 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
           void window.api.resolveTracking(ask.jobId, index).catch(() => undefined)
         }
         useTrackingStore.getState().setPick({ candidates: ask.candidates })
-      }),
-      window.api.onTrackingDone((done) => {
-        if (mine(done.jobId)) job.finish({ kind: 'done', done })
-      })
+      } else if (ev.done.jobId === job.jobId) {
+        job.finish({ kind: 'done', done: ev.done })
+      }
+    }
+    const feed = (ev: Ev): void => {
+      if (job.jobId === null) queue.push(ev)
+      else handle(ev)
+    }
+    offs.push(
+      window.api.onTrackingProgress((p) => feed({ kind: 'progress', p })),
+      window.api.onTrackingAsk((ask) => feed({ kind: 'ask', ask })),
+      window.api.onTrackingDone((done) => feed({ kind: 'done', done }))
     )
     store.startRunning()
     window.api
@@ -169,6 +183,7 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
       })
       .then((r) => {
         job.jobId = r.jobId
+        queue.splice(0).forEach(handle)
         // Отмену нажали, пока запуск ещё не вернул идентификатор.
         if (job.cancelled) {
           void window.api

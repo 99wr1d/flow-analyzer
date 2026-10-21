@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { TargetIcon } from '../../ui/icons'
@@ -14,10 +16,16 @@ export function TrackButton(): React.JSX.Element | null {
   const annotation = useAnnotationsStore(selectedAnnotation)
   const busy = useTrackingStore(trackingBusy)
   // Подпись и доступность зависят от текущего кадра.
-  usePlayerStore((s) => s.currentTime)
-  usePlayerStore((s) => s.duration)
-  if (!annotation || !canTrack(annotation)) return null
-  const plan = planFor(annotation)
+  const frame = usePlayerStore((s) => Math.floor(s.currentTime * s.fps + 1e-6))
+  const duration = usePlayerStore((s) => s.duration)
+  const calibrations = useCalibrationsStore((s) => s.items)
+  // План считается один раз на кадр, а не на каждый такт времени.
+  const plan = useMemo(
+    () => (annotation && canTrack(annotation) ? planFor(annotation) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [annotation, frame, duration, calibrations]
+  )
+  if (!annotation || !plan) return null
   const resume = plan.ok && plan.mode === 'continue'
   const label = resume ? ru.tracking.buttonContinue : ru.tracking.button
   const title = !plan.ok
