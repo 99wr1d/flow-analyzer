@@ -407,6 +407,13 @@ describe('SingleTracker: не перепрыгивать на другого (и
     }
   })
 
+  it('грязный старт: наш игрок бежит один, соседа нет — ведётся без остановок', () => {
+    const a = (f: number): Detection => det(300 + 5 * f, 270, RED)
+    const tr = new SingleTracker({ ...a(0), look: BLUE }, FPS, { frame: FRAME, dirtyStart: true })
+    const res = run(tr, 1, 40, (f) => [a(f)])
+    expect(res.every(confident)).toBe(true)
+  })
+
   it('resolve по рамке с примесью соседа не снимает «грязность»', () => {
     // примета старта испорчена соседом (синее на красном игроке)
     const a = { ...det(300, 270, RED), look: BLUE }
@@ -414,7 +421,7 @@ describe('SingleTracker: не перепрыгивать на другого (и
     const tr = new SingleTracker(a, FPS, { frame: FRAME, dirtyStart: true })
     tr.step(frame(1, [a, b]))
     tr.resolve(a) // a перекрыта b: рамка нечистая, примету не берём
-    const res = run(tr, 2, 10, () => [det(310, 270, BLUE)])
+    const res = run(tr, 2, 10, () => [det(345, 270, BLUE)])
     expect(res.some(confident)).toBe(false)
   })
 

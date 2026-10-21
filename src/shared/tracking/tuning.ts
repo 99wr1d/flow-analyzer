@@ -67,3 +67,10 @@ export const RECOVER_FAR_DIST = 1.0
 /** «Сомнительная» рамка: примета хуже APPEARANCE_REJECT, но не хуже этого, и стоит не дальше DOUBT_DIST высот от прогноза. */
 export const DOUBT_APPEARANCE = 0.45
 export const DOUBT_DIST = 0.5
+
+/**
+ * «Грязная» примета (старт рядом с соседом): единственный кандидат принимается молча, только если он продолжает движение —
+ * почти там же, где прогноз (в высотах игрока) и с большим перекрытием с ним. Любой другой одиночка — сомнение: ждём и спрашиваем.
+ */
+export const DIRTY_CONTINUITY_DIST = 0.2
+export const DIRTY_CONTINUITY_IOU = 0.35

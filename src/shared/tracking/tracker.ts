@@ -22,6 +22,8 @@ import {
   GATE_GROW,
   GATE_IOU,
   GATE_MAX,
+  DIRTY_CONTINUITY_DIST,
+  DIRTY_CONTINUITY_IOU,
   DOUBT_APPEARANCE,
   DOUBT_DIST,
   HIDDEN_BETTER_MARGIN,
@@ -143,9 +145,23 @@ export class SingleTracker {
     const cands = this.candidates(f.detections, pred)
 
     if (this.miss === 0) {
-      // Пока примета «грязная» (взята рядом с соседом), даже единственный кандидат в воротах — сомнение: это может быть
-      // сосед, а наш игрок скрыт. Молча не берём: пережидание, по истечении срока — вопрос.
-      if (this.dirty) return this.coast(pred)
+      // Пока примета «грязная» (взята рядом с соседом), единственный кандидат в воротах — сомнение: это может быть
+      // сосед, а наш игрок скрыт. Молча берём только явное продолжение движения (почти на прогнозе); примету не обновляем.
+      // Иначе пережидание, по истечении срока — вопрос.
+      if (this.dirty) {
+        const lone = cands.length === 1 ? cands[0] : null
+        if (
+          lone &&
+          !lone.overlapped &&
+          !lone.merged &&
+          lone.dist <= DIRTY_CONTINUITY_DIST &&
+          lone.iou >= DIRTY_CONTINUITY_IOU
+        ) {
+          this.accept(lone, false)
+          return { kind: 'track', box: { ...lone.det.box }, coasting: false }
+        }
+        return this.coast(pred)
+      }
       // Рядом с прогнозом есть «чуть непохожая» рамка (возможно, наш игрок в тени): чистого соседа молча не берём.
       if (this.doubtful.length > 0) return this.coast(pred)
       const scored = cands
