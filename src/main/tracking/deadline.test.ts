@@ -39,3 +39,14 @@ describe('withTimeout', () => {
     await expect(p).rejects.toThrow('сбой')
   })
 })
+
+describe('withTimeout: синхронный сбой запуска', () => {
+  it('отказ сразу и таймер снят', async () => {
+    vi.useFakeTimers()
+    const p = withTimeout<number>(1000, 'долго', () => {
+      throw new Error('не отправилось')
+    })
+    await expect(p).rejects.toThrow('не отправилось')
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})

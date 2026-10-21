@@ -100,11 +100,9 @@ describe('SingleTracker', () => {
     const b = (f: number): Detection => det(100 + 2 * v * 30 - v * f, 270, RED)
     const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
     const res = run(tr, 1, 70, (f) => [a(f), b(f)])
-    // Одинокого кандидата при грязной примете молча не берём (это мог быть сосед): ждём, затем спрашиваем.
-    // Главное — ни одного кадра на чужом игроке.
     res.forEach((r, i) => {
-      if (r.kind === 'track') expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(26)
-      else expect(r.kind).toBe('ask')
+      expect(r.kind).toBe('track')
+      if (r.kind === 'track') expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(25)
     })
     const last = res[res.length - 1]
     if (last.kind === 'track') expect(last.coasting).toBe(false)
@@ -191,10 +189,15 @@ describe('SingleTracker', () => {
     const tr = new SingleTracker(dirty, FPS, { frame: FRAME, dirtyStart: true })
     const res = run(tr, 1, 90, (f) => [a(f), b(f)])
     res.forEach((r, i) => {
-      // одинокого кандидата при грязной примете молча не берём (мог быть сосед): ждём, затем вопрос
-      if (r.kind === 'track' && !r.coasting)
+      // одинокого кандидата при грязной примете молча не берём (мог быть сосед): ждём, затем вопрос.
+      // Ни одного уверенного кадра на чужом (синем) игроке: уверенные кадры только на своём.
+      expect(['track', 'ask', 'lost']).toContain(r.kind)
+      if (r.kind === 'track' && !r.coasting) {
         expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(25)
-      else expect(['track', 'ask', 'lost']).toContain(r.kind)
+        expect(Math.abs(cx(r.box) - cx(b(i + 1).box))).toBeGreaterThan(
+          Math.abs(cx(r.box) - cx(a(i + 1).box))
+        )
+      }
     })
   })
 })
@@ -407,10 +410,56 @@ describe('SingleTracker: не перепрыгивать на другого (и
     }
   })
 
-  it('грязный старт: наш игрок бежит один, соседа нет — ведётся без остановок', () => {
+  it('грязный старт: наш игрок бежит один, примета явно ближе к нашей, чем к соседской — ведётся без остановок', () => {
     const a = (f: number): Detection => det(300 + 5 * f, 270, RED)
-    const tr = new SingleTracker({ ...a(0), look: BLUE }, FPS, { frame: FRAME, dirtyStart: true })
+    const tr = new SingleTracker(a(0), FPS, {
+      frame: FRAME,
+      dirtyStart: true,
+      startNeighbours: [det(310, 270, BLUE)]
+    })
     const res = run(tr, 1, 40, (f) => [a(f)])
+    expect(res.every(confident)).toBe(true)
+  })
+
+  it('грязный старт: примета смешана с соседской (сравнивать нечем) — исключения нет, только ожидание и вопрос', () => {
+    const a = (f: number): Detection => det(300 + 5 * f, 270, RED)
+    const tr = new SingleTracker({ ...a(0), look: BLUE }, FPS, {
+      frame: FRAME,
+      dirtyStart: true,
+      startNeighbours: [det(310, 270, BLUE)]
+    })
+    const res = run(tr, 1, 40, (f) => [a(f)])
+    expect(res.some(confident)).toBe(false)
+  })
+
+  describe.each([10, 15, 20])('грязный старт, наш скрыт, одинокий сосед на +%i px', (off) => {
+    it.each([0, 3])('сосед движется %i px/кадр: ни одного уверенного кадра на соседе', (v) => {
+      const tr = new SingleTracker(det(300, 270, RED), FPS, {
+        frame: FRAME,
+        dirtyStart: true,
+        startNeighbours: [det(300 + off, 270, BLUE)]
+      })
+      const res = run(tr, 1, 40, (f) => [det(300 + off + v * f, 270, BLUE)])
+      expect(res.some(confident)).toBe(false)
+      expect(res.some((r) => r.kind === 'ask')).toBe(true)
+    })
+  })
+
+  it('наш игрок виден частично, затем одна рамка охватывает его и соседа другой формы — молча не берём', () => {
+    const tr = new SingleTracker(det(300, 270, RED, 40, 90), FPS, { frame: FRAME })
+    run(tr, 1, 10, () => [det(300, 270, RED, 40, 90)])
+    // рамка уменьшилась (частичная видимость), её принимаем
+    run(tr, 10, 14, () => [det(300, 282, RED, 40, 65)])
+    // затем рамка вдвое выше с примесью чужого: уверенного кадра на ней быть не должно
+    const merged = det(300, 252, RED, 40, 110)
+    const res = run(tr, 14, 18, () => [merged])
+    expect(res.some(confident)).toBe(false)
+  })
+
+  it('чистый свой на прогнозе и сомнительный чужой в 45 px: ведётся непрерывно, без чередования пережидания', () => {
+    const shaded = look([150, 40, 40], [180, 180, 180])
+    const tr = new SingleTracker(det(300, 270, RED), FPS, { frame: FRAME })
+    const res = run(tr, 1, 40, (f) => [det(300 + 2 * f, 270, RED), det(345 + 2 * f, 270, shaded)])
     expect(res.every(confident)).toBe(true)
   })
 

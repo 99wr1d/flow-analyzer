@@ -24,6 +24,8 @@ import {
   GATE_MAX,
   DIRTY_CONTINUITY_DIST,
   DIRTY_CONTINUITY_IOU,
+  DIRTY_LOOK_MARGIN,
+  HEIGHT_JUMP_RATIO,
   DOUBT_APPEARANCE,
   DOUBT_DIST,
   HIDDEN_BETTER_MARGIN,
@@ -104,6 +106,7 @@ export class SingleTracker {
   private h: number
   private readonly look: Float32Array
   private dirty: boolean
+  private readonly neighbourLooks: Float32Array[]
   private readonly coastFrames: number
   private readonly lostFrames: number
   private readonly frame?: { w: number; h: number }
@@ -123,6 +126,7 @@ export class SingleTracker {
     this.h = start.box.h
     this.look = Float32Array.from(start.look)
     this.dirty = opts.dirtyStart === true
+    this.neighbourLooks = (opts.startNeighbours ?? []).map((d) => Float32Array.from(d.look))
     this.frame = opts.frame
     this.coastFrames = Math.max(1, Math.round(COAST_SECONDS * fps))
     this.lostFrames = Math.max(1, Math.round(LOST_SECONDS * fps))
@@ -144,10 +148,15 @@ export class SingleTracker {
     this.lastDets = f.detections
     const cands = this.candidates(f.detections, pred)
 
+    const recoverCost = (c: Cand): number =>
+      RECOVER_APPEARANCE_WEIGHT * (this.dirty ? 0 : c.app) +
+      RECOVER_DISTANCE_WEIGHT * Math.min(c.dist, 1)
+
     if (this.miss === 0) {
       // Пока примета «грязная» (взята рядом с соседом), единственный кандидат в воротах — сомнение: это может быть
-      // сосед, а наш игрок скрыт. Молча берём только явное продолжение движения (почти на прогнозе); примету не обновляем.
-      // Иначе пережидание, по истечении срока — вопрос.
+      // сосед, а наш игрок скрыт (сосед по определению рядом с прогнозом). Молча берём только явное продолжение движения,
+      // которое по примете явно ближе к нашему игроку, чем к любому стартовому соседу; примету не обновляем.
+      // Без запомненных соседей или с примесью соседа в нашей примете исключения нет. Иначе пережидание, затем вопрос.
       if (this.dirty) {
         const lone = cands.length === 1 ? cands[0] : null
         if (
@@ -155,15 +164,14 @@ export class SingleTracker {
           !lone.overlapped &&
           !lone.merged &&
           lone.dist <= DIRTY_CONTINUITY_DIST &&
-          lone.iou >= DIRTY_CONTINUITY_IOU
+          lone.iou >= DIRTY_CONTINUITY_IOU &&
+          this.looksLikeUsNotNeighbour(lone.det.look)
         ) {
           this.accept(lone, false)
           return { kind: 'track', box: { ...lone.det.box }, coasting: false }
         }
         return this.coast(pred)
       }
-      // Рядом с прогнозом есть «чуть непохожая» рамка (возможно, наш игрок в тени): чистого соседа молча не берём.
-      if (this.doubtful.length > 0) return this.coast(pred)
       const scored = cands
         .map((c) => ({
           c,
@@ -173,6 +181,15 @@ export class SingleTracker {
         }))
         .sort((p, q) => p.cost - q.cost)
       const best = scored[0]
+      // Рядом с прогнозом есть «чуть непохожая» рамка (возможно, наш игрок в тени): лучшего чистого берём, только если он
+      // явно лучше неё (то же сравнение с запасом ASK_GAP, что при выходе из пережидания).
+      if (
+        best &&
+        this.doubtful.length > 0 &&
+        recoverCost(best.c) > Math.min(...this.doubtful.map(recoverCost)) - ASK_GAP
+      ) {
+        return this.coast(pred)
+      }
       // Два почти равных кандидата — не выбираем молча: пережидание (затем, при сомнении, вопрос).
       const gap = scored.length > 1 ? scored[1].cost - best.cost : Infinity
       if (
@@ -188,9 +205,6 @@ export class SingleTracker {
       return this.coast(pred)
     }
 
-    const recoverCost = (c: Cand): number =>
-      RECOVER_APPEARANCE_WEIGHT * (this.dirty ? 0 : c.app) +
-      RECOVER_DISTANCE_WEIGHT * Math.min(c.dist, 1)
     const ranked = cands
       .filter((c) => !c.overlapped && !c.merged)
       .map((c) => ({ c, cost: recoverCost(c) }))
@@ -286,7 +300,9 @@ export class SingleTracker {
       if (ov < GATE_IOU && dist >= radius) continue
       const app = appearanceDistance(this.look, det.look)
       const overlapped = dets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU)
-      const merged = det.box.w > this.w * MERGE_WIDTH_RATIO
+      const merged =
+        det.box.w > this.w * MERGE_WIDTH_RATIO ||
+        (this.miss < this.coastFrames && det.box.h > this.lastBox.h * HEIGHT_JUMP_RATIO)
       // Другая форма — не наш игрок, как бы близко он ни стоял (пока примета не «грязная»). У слитой/перекрытой рамки
       // примета испорчена соседом: её не отбрасываем (взять её нельзя, но она показывает, что настоящий игрок ещё тут).
       if (!this.dirty && app > APPEARANCE_REJECT && !overlapped && !merged) {
@@ -299,6 +315,17 @@ export class SingleTracker {
       out.push({ det, iou: ov, dist, app, overlapped, merged })
     }
     return out
+  }
+
+  /** Грязный старт: примета кандидата явно ближе к нашей, чем к каждой соседской, а наша не смешана с соседской. */
+  private looksLikeUsNotNeighbour(look: Float32Array): boolean {
+    if (this.neighbourLooks.length === 0) return false
+    const ours = appearanceDistance(this.look, look)
+    for (const nb of this.neighbourLooks) {
+      if (appearanceDistance(this.look, nb) < DIRTY_LOOK_MARGIN) return false
+      if (appearanceDistance(nb, look) - ours < DIRTY_LOOK_MARGIN) return false
+    }
+    return true
   }
 
   private accept(c: Cand, confident: boolean): void {

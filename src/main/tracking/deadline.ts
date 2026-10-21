@@ -10,15 +10,21 @@ export function withTimeout<T>(
       onTimeout?.()
       reject(new Error(message))
     }, ms)
-    start(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      (error) => {
-        clearTimeout(timer)
-        reject(error)
-      }
-    )
+    try {
+      start(
+        (value) => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        (error) => {
+          clearTimeout(timer)
+          reject(error)
+        }
+      )
+    } catch (error) {
+      // Синхронный сбой запуска: таймер не должен остаться висеть.
+      clearTimeout(timer)
+      reject(error instanceof Error ? error : new Error(String(error)))
+    }
   })
 }

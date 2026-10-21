@@ -12,6 +12,8 @@ import type { Detector } from './detectorWindow'
 export const FULL_DETECT_SECONDS = 1.0
 /** Насколько выбранная щелчком рамка должна совпадать с найденной на старте (IoU). */
 const PICK_MIN_IOU = 0.5
+/** Рамка, перекрывающая выбранную сильнее этого, считается стартовым соседом (её примету трекер запоминает). */
+const START_NEIGHBOUR_IOU = 0.1
 
 export interface RunTrackingOptions {
   from: number
@@ -132,7 +134,14 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         if (!start) throw new Error('Не удалось определить игрока на старте')
         tracker = new SingleTracker(start, fps, {
           frame: { w: fw, h: fh },
-          ...(dirty ? { dirtyStart: true } : {})
+          ...(dirty
+            ? {
+                dirtyStart: true,
+                startNeighbours: out.detections.filter(
+                  (d) => d !== start && iou(d.box, start.box) > START_NEIGHBOUR_IOU
+                )
+              }
+            : {})
         })
       }
 
