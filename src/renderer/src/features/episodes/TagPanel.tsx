@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { ru } from '../../i18n/ru'
+import { ChevronDownIcon, ChevronRightIcon } from '../../ui/icons'
 import { usePlayerStore } from '../../store/playerStore'
 import { useFirstKey, useKeyHint, useTagKeys } from '../commands/useKeys'
 import { useSettingsStore } from '../settings/settingsStore'
@@ -115,16 +117,57 @@ function Marks({ disabled }: { disabled: boolean }): React.JSX.Element {
   )
 }
 
-/** Раздел «Теги»: метки Начало/Конец и сетка кнопок тегов. */
+const COLLAPSED_KEY = 'flow.tagPanelCollapsed'
+
+/** Свёрнут ли раздел «Теги» (запоминается между запусками; без хранилища — развёрнут). */
+function readCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(COLLAPSED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+function writeCollapsed(collapsed: boolean): void {
+  try {
+    window.localStorage.setItem(COLLAPSED_KEY, collapsed ? '1' : '0')
+  } catch {
+    /* хранилище недоступно: состояние просто не запомнится */
+  }
+}
+
+/** Раздел «Теги»: метки Начало/Конец и сетка кнопок тегов. Сворачивается, чтобы список эпизодов получил высоту. */
 export function TagPanel(): React.JSX.Element {
   const tags = useSettingsStore((s) => s.settings.tags)
   const ready = usePlayerStore((s) => s.status === 'ready')
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+  const toggle = (): void => {
+    setCollapsed(!collapsed)
+    writeCollapsed(!collapsed)
+  }
   return (
-    <section className="tag-panel" aria-label={ru.tagPanel.label} data-testid="tag-panel">
+    <section
+      className="tag-panel"
+      aria-label={ru.tagPanel.label}
+      data-testid="tag-panel"
+      data-collapsed={collapsed ? 'true' : 'false'}
+    >
       <div className="panel-header">
-        <h2 className="panel-header__title">{ru.tagPanel.title}</h2>
+        <button
+          type="button"
+          className="tag-panel__toggle"
+          aria-expanded={!collapsed}
+          title={collapsed ? ru.tagPanel.expand : ru.tagPanel.collapse}
+          data-testid="tag-panel-toggle"
+          onClick={(e) => {
+            toggle()
+            e.currentTarget.blur()
+          }}
+        >
+          {collapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
+          <h2 className="panel-header__title">{ru.tagPanel.title}</h2>
+        </button>
       </div>
-      <div className="tag-panel__body">
+      <div className="tag-panel__body" hidden={collapsed}>
         <Marks disabled={!ready} />
         {tags.length === 0 ? (
           <p className="side-panel__empty">{ru.tagPanel.noTags}</p>

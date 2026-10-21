@@ -424,7 +424,13 @@ test.describe('рисунки под игроками', () => {
       await win.keyboard.press('Control+s')
       await expect(win.getByTestId('project-dirty')).toHaveCount(0)
       const json = saved()
-      expect(json.grassKey).toEqual({ color, similarity: 0.22, blend: 0.11, auto: false })
+      expect(json.grassKey).toEqual({
+        color,
+        similarity: 0.22,
+        blend: 0.11,
+        auto: false,
+        from: expect.any(Number)
+      })
       expect(json.annotations[0].underPlayers).toBe(true)
       await app.close()
 

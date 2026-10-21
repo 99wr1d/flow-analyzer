@@ -40,7 +40,8 @@ describe('parseMediaInfo', () => {
       fps: 25,
       tbr: null,
       audioRate: 48000,
-      audioMono: false
+      audioMono: false,
+      videoBitrate: null
     })
   })
   it('без звука и без длительности', () => {
@@ -68,6 +69,14 @@ describe('parseMediaInfo: размер, частота, звук, поворот
       audioRate: 44100,
       audioMono: true
     })
+  })
+  it('битрейт видео читается из строки потока, а не звука и не контейнера', () => {
+    expect(parseMediaInfo(real).videoBitrate).toBe(473_000)
+    expect(
+      parseMediaInfo(
+        '  Duration: 00:00:04.00, start: 0, bitrate: 900 kb/s\n  Stream #0:0: Video: vp9, yuv420p, 640x360, 25 fps'
+      ).videoBitrate
+    ).toBeNull()
   })
   it('базовая частота (tbr) читается, «30k» — это 30000', () => {
     expect(parseMediaInfo(real).tbr).toBe(29.97)

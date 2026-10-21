@@ -28,12 +28,15 @@ export interface PitchUiState {
   draft: CalibrationDraft | null
   /** Панель режима разметки слева или справа. */
   panelSide: 'left' | 'right'
+  /** Показан вопрос «Сбросить разметку?» (отмена с уже поставленными точками). */
+  confirmingCancel: boolean
 }
 
 export interface PitchUiActions {
   setOnPitch: (on: boolean) => void
   setShowGrid: (on: boolean) => void
   setPanelSide: (side: 'left' | 'right') => void
+  setConfirmingCancel: (on: boolean) => void
   openDraft: (draft: CalibrationDraft) => void
   closeDraft: () => void
   addPoint: (image: Pt) => void
@@ -60,14 +63,17 @@ export const usePitchStore = create<PitchUiState & PitchUiActions>()((set) => ({
   lastPitch: null,
   draft: null,
   panelSide: 'left',
+  confirmingCancel: false,
 
   setOnPitch: (onPitch) => set({ onPitch }),
   setShowGrid: (showGrid) => set({ showGrid }),
   setPanelSide: (panelSide) => set({ panelSide }),
-  openDraft: (draft) => set({ draft }),
+  setConfirmingCancel: (confirmingCancel) => set({ confirmingCancel }),
+  openDraft: (draft) => set({ draft, confirmingCancel: false }),
   closeDraft: () =>
     set((s) => ({
       draft: null,
+      confirmingCancel: false,
       lastTemplate: s.draft ? s.draft.template : s.lastTemplate,
       lastPitch: s.draft ? s.draft.pitch : s.lastPitch
     })),

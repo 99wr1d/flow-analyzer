@@ -31,8 +31,14 @@ export const GrassKeyValuesSchema = z.object({
 })
 export type GrassKeyValues = z.infer<typeof GrassKeyValuesSchema>
 
-/** Настройки ключа в проекте. auto — цвет определяется по кадру автоматически; false — цвет выбран пипеткой. */
-export const GrassKeySchema = GrassKeyValuesSchema.extend({ auto: z.boolean() })
+/**
+ * Настройки ключа в проекте. auto — цвет определяется по кадру автоматически; false — цвет выбран пипеткой или взят
+ * с кадра кнопкой. from — время кадра (секунды), с которого взят цвет; в старых проектах его нет.
+ */
+export const GrassKeySchema = GrassKeyValuesSchema.extend({
+  auto: z.boolean(),
+  from: z.number().min(0).max(1e6).optional()
+})
 export type GrassKey = z.infer<typeof GrassKeySchema>
 
 export const DEFAULT_GRASS_KEY: GrassKey = {

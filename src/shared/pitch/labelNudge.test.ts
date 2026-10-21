@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Ruler } from '../annotations'
 import { fitHomography, type Correspondence } from './homography'
 import { penaltyAreaRect } from './landmarks'
-import { nudgeLabels, rulerLabelShifts, type LabelBox } from './labelNudge'
+import { nudgeLabels, pitchLabelShifts, shiftLabel, type LabelBox } from './labelNudge'
 import { lookAtCamera } from './pitch.testkit'
 import { makeProjector } from './projector'
 import { paintPitch } from './shapes'
@@ -50,7 +50,7 @@ describe('nudgeLabels', () => {
   })
 })
 
-describe('rulerLabelShifts', () => {
+describe('pitchLabelShifts: линейки', () => {
   it('две линейки из одной точки с близкими серединами: подписи расходятся, одиночная не двигается', () => {
     const base = {
       space: 'pitch' as const,
@@ -77,14 +77,73 @@ describe('rulerLabelShifts', () => {
       p1: { x: 30, y: 10 },
       p2: { x: 30, y: 12 }
     }
-    const shifts = rulerLabelShifts([r1, r2, far], () => proj, SIZE, measure)
+    const shifts = pitchLabelShifts([r1, r2, far], () => proj, SIZE, measure)
     const l1 = paintPitch(r1, proj, SIZE, measure).label!
     const l2 = paintPitch(r2, proj, SIZE, measure).label!
     // До сдвига плашки пересекаются.
     expect(Math.abs(l1.y - l2.y)).toBeLessThan(l1.h)
     expect(shifts.has(r1.id)).toBe(false)
-    const dy = shifts.get(r2.id) as number
+    const dy = shifts.get(r2.id)!.label as number
     expect(Math.abs(l1.y - (l2.y + dy))).toBeGreaterThanOrEqual(l1.h)
     expect(shifts.has(far.id)).toBe(false)
+  })
+})
+
+describe('pitchLabelShifts: площадь зоны и подписи цепочки', () => {
+  const common = {
+    space: 'pitch' as const,
+    calibrationId: calId,
+    style: { color: '#ffd60a', width: 0.011, dash: 'solid' as const },
+    timing: { mode: 'frame' as const, start: 1, freezeSeconds: 3 }
+  }
+  const zone = {
+    ...common,
+    id: '00000000-0000-4000-8000-0000000000b1',
+    type: 'pzone' as const,
+    points: [
+      { x: 6, y: 10 },
+      { x: 6, y: 30 },
+      { x: 16, y: 30 },
+      { x: 16, y: 10 }
+    ],
+    opacity: 0.2,
+    showArea: true
+  }
+  // Линейка, середина которой в центре зоны: её подпись ложится на подпись площади.
+  const ruler: Ruler = {
+    ...common,
+    id: '00000000-0000-4000-8000-0000000000b2',
+    type: 'ruler',
+    p1: { x: 11, y: 19 },
+    p2: { x: 11, y: 21 }
+  }
+
+  it('подпись площади зоны и подпись линейки расходятся (в любом порядке слоёв)', () => {
+    for (const items of [
+      [zone, ruler],
+      [ruler, zone]
+    ]) {
+      const shifts = pitchLabelShifts(items, () => proj, SIZE, measure)
+      const area = paintPitch(zone, proj, SIZE, measure).labels[0]
+      const rl = paintPitch(ruler, proj, SIZE, measure).label!
+      // До сдвига плашки пересекаются.
+      expect(Math.abs(area.y - rl.y)).toBeLessThan(area.h)
+      const a = shiftLabel(area, shifts.get(zone.id)?.labels?.[0])
+      const r = shiftLabel(rl, shifts.get(ruler.id)?.label)
+      expect(Math.abs(a.y - r.y)).toBeGreaterThanOrEqual(Math.max(a.h, r.h))
+      // Двигается ровно одна из двух подписей — вторая по порядку слоёв.
+      const moved = [shifts.get(zone.id)?.labels?.[0], shifts.get(ruler.id)?.label].filter(Boolean)
+      expect(moved).toHaveLength(1)
+    }
+  })
+
+  it('зона без наложений подписей не получает сдвигов, подписи текста не участвуют', () => {
+    expect(pitchLabelShifts([zone], () => proj, SIZE, measure).size).toBe(0)
+  })
+
+  it('shiftLabel без сдвига возвращает ту же подпись', () => {
+    const l = { y: 10, x: 1 }
+    expect(shiftLabel(l, undefined)).toBe(l)
+    expect(shiftLabel(l, -5).y).toBe(5)
   })
 })

@@ -16,7 +16,7 @@ import {
   projectorFor,
   type Calibration
 } from '../../../../shared/pitch/calibration'
-import { rulerLabelShifts } from '../../../../shared/pitch/labelNudge'
+import { pitchLabelShifts } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
 import { ShapeView } from '../annotations/ShapeView'
 import { SpotlightDim } from '../annotations/SpotlightDim'
@@ -69,8 +69,8 @@ export function buildOverlaySvg(
   }
   const dim = part === 'under' ? [] : items.filter(isSpotlight)
   const shown = part === 'under' ? items.filter(isUnderPlayers) : items
-  // Подписи линеек не накладываются друг на друга: тот же расчёт, что и на экране (по всем рисункам, чтобы слои совпали).
-  const shifts = rulerLabelShifts(items, projectorOf, size, measureTextWidth)
+  // Подписи измерений на поле не накладываются друг на друга: тот же расчёт, что и на экране (по всем рисункам, чтобы слои совпали).
+  const shifts = pitchLabelShifts(items, projectorOf, size, measureTextWidth)
   const markup = renderToStaticMarkup(
     <>
       <SpotlightDim
@@ -82,7 +82,7 @@ export function buildOverlaySvg(
         }}
       />
       {shown.map((a) => {
-        const labelDy = shifts.get(a.id)
+        const labelShift = shifts.get(a.id)
         const cal = isPitchAnnotation(a) ? byId.get(a.calibrationId) : undefined
         const under = isUnderPlayers(a)
         return (
@@ -93,7 +93,7 @@ export function buildOverlaySvg(
             selected={false}
             showHandles={false}
             projector={cal ? projectorFor(cal) : null}
-            labelDy={labelDy}
+            labelShift={labelShift}
             dimmed={
               options.dimmedIds
                 ? options.dimmedIds.has(a.id)

@@ -221,3 +221,17 @@ describe('настройки ключа по умолчанию', () => {
     expect(GrassKeySchema.safeParse({ ...DEFAULT_GRASS_KEY, color: 'green' }).success).toBe(false)
   })
 })
+
+describe('GrassKeySchema: время кадра, с которого взят цвет (0.16.3)', () => {
+  const base = { color: '#2f8a3f', similarity: 0.07, blend: 0.05, auto: false }
+  it('старый проект без поля from читается как раньше', () => {
+    const r = GrassKeySchema.safeParse(base)
+    expect(r.success).toBe(true)
+    expect(r.success && 'from' in r.data).toBe(false)
+  })
+  it('поле from сохраняется; отрицательное или нечисловое отвергается', () => {
+    expect(GrassKeySchema.parse({ ...base, from: 12.4 }).from).toBe(12.4)
+    expect(GrassKeySchema.safeParse({ ...base, from: -1 }).success).toBe(false)
+    expect(GrassKeySchema.safeParse({ ...base, from: 'x' }).success).toBe(false)
+  })
+})

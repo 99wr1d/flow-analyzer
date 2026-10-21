@@ -3,6 +3,7 @@ import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { episodeDuration } from '../../../../shared/episodes'
 import { OVERLAY_LIMITS } from '../../../../shared/export'
+import { estimateMaxBytes } from '../../../../shared/exportSize'
 import { sortEpisodes, useEpisodesStore } from '../episodes/episodesStore'
 import { fmtRange } from '../episodes/tagging'
 import {
@@ -15,6 +16,7 @@ import {
 } from './exportActions'
 import { useExportStore } from './exportStore'
 import {
+  formatApproxBytes,
   formatClock,
   parsePadding,
   episodesGenitive,
@@ -98,6 +100,7 @@ export function ExportForm(): React.JSX.Element {
   const filter = useEpisodesStore((s) => s.filter)
   const ratingFilter = useEpisodesStore((s) => s.ratingFilter)
   const duration = usePlayerStore((s) => s.duration)
+  const sourceBytes = usePlayerStore((s) => s.source?.sizeBytes ?? 0)
   const set = useExportStore.setState
 
   const sorted = useMemo(() => sortEpisodes(items), [items])
@@ -122,6 +125,16 @@ export function ExportForm(): React.JSX.Element {
     drawingsOn ? plan.freezeSeconds : 0
   )
   const total = whole ? duration + (drawingsOn ? plan.freezeSeconds : 0) : summary.seconds
+  // Оценка размера: потолок битрейта (см. shared/exportSize), «Быстро» — по размеру исходника.
+  const estimatedBytes =
+    (whole || chosen.length > 0) && duration > 0 && sourceBytes > 0
+      ? estimateMaxBytes({
+          seconds: total,
+          sourceTotalBps: (sourceBytes * 8) / duration,
+          quality: state.quality,
+          fast
+        })
+      : 0
   const withFreezes = drawingsOn && plan.freezeSeconds > 0
 
   const pickSet = new Set(state.picked)
@@ -364,6 +377,13 @@ export function ExportForm(): React.JSX.Element {
               ? ru.export.summaryCompilation(episodesGenitive(summary.count), formatClock(total))
               : ru.export.summaryFiles(pluralFiles(summary.count), formatClock(total))}
         {withFreezes && ` ${ru.export.summaryFreezes}`}
+        {estimatedBytes > 0 && (
+          <div className="export__estimate" data-testid="export-size-estimate">
+            {(fast ? ru.export.summarySizeFast : ru.export.summarySize)(
+              formatApproxBytes(estimatedBytes)
+            )}
+          </div>
+        )}
       </div>
 
       <footer className="modal__foot">

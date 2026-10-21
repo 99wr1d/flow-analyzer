@@ -48,6 +48,28 @@
   flex: none;
   border-bottom: 1px solid var(--border);
 }
+.tag-panel__toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.tag-panel__toggle:hover {
+  color: var(--text);
+}
+.tag-panel__toggle:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+.tag-panel__body[hidden] {
+  display: none;
+}
 .tag-panel__body {
   display: flex;
   flex-direction: column;

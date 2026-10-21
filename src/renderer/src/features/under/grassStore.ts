@@ -21,7 +21,7 @@ export interface GrassState {
   /** Что задал пользователь (это и сохраняется в проекте); null — всё по умолчанию. */
   userKey: GrassKey | null
   /** Цвет газона, найденный по кадру текущего видео. found — на кадре нашёлся газон. */
-  estimate: { videoId: string; color: string; found: boolean } | null
+  estimate: { videoId: string; color: string; found: boolean; time?: number } | null
   /** Показывать маску ключа поверх видео (для настройки). */
   maskView: boolean
   /** Ждём щелчок по газону на картинке. */
@@ -36,7 +36,7 @@ export interface GrassActions {
   /** Меняет чувствительность и мягкость края (цвет и режим «авто» сохраняются). */
   setTuning: (patch: Partial<Pick<GrassKey, 'similarity' | 'blend'>>) => void
   /** Цвет выбран вручную (пипеткой): режим «авто» выключается. */
-  pickColor: (color: string) => void
+  pickColor: (color: string, time?: number) => void
   /** Всё по умолчанию, цвет снова определяется по кадру. */
   resetAuto: () => void
   setEstimate: (estimate: GrassState['estimate']) => void
@@ -68,14 +68,17 @@ export function effectiveKey(
 ): GrassKey {
   const u = s.userKey
   const auto = u ? u.auto : true
-  const estimated = s.estimate && s.estimate.videoId === videoId ? s.estimate.color : null
+  const found = s.estimate && s.estimate.videoId === videoId ? s.estimate : null
+  const estimated = found ? found.color : null
+  const from = auto ? found?.time : u?.from
   return {
     color: auto
       ? (estimated ?? u?.color ?? DEFAULT_GRASS_COLOR)
       : (u?.color ?? DEFAULT_GRASS_COLOR),
     similarity: u?.similarity ?? DEFAULT_GRASS_SIMILARITY,
     blend: u?.blend ?? DEFAULT_GRASS_BLEND,
-    auto
+    auto,
+    ...(from !== undefined ? { from } : {})
   }
 }
 
@@ -93,14 +96,24 @@ export const useGrassStore = create<GrassState & GrassActions>()((set, get) => (
             MIN_GRASS_SIMILARITY,
             MAX_GRASS_SIMILARITY
           ),
-          blend: clamp(patch.blend ?? base.blend, MIN_GRASS_BLEND, MAX_GRASS_BLEND)
+          blend: clamp(patch.blend ?? base.blend, MIN_GRASS_BLEND, MAX_GRASS_BLEND),
+          ...(base.from !== undefined ? { from: base.from } : {})
         }
       }
     }),
-  pickColor: (color) =>
+  pickColor: (color, time) =>
     set((s) => {
       const base = s.userKey ?? effectiveKey(s, usePlayerStore.getState().source?.id)
-      return { userKey: { ...base, color, auto: false }, eyedropper: false }
+      return {
+        userKey: {
+          color,
+          similarity: base.similarity,
+          blend: base.blend,
+          auto: false,
+          ...(time !== undefined ? { from: time } : {})
+        },
+        eyedropper: false
+      }
     }),
   resetAuto: () => {
     set({ userKey: null, estimate: null })
@@ -151,6 +164,27 @@ export function ensureGrassEstimate(): boolean {
   const frame = grabFrame(video, 320)
   if (!frame) return false
   const color = estimateGrassColor(frame.data, frame.w, frame.h)
-  state.setEstimate({ videoId, color: color ?? DEFAULT_GRASS_COLOR, found: color !== null })
+  state.setEstimate({
+    videoId,
+    color: color ?? DEFAULT_GRASS_COLOR,
+    found: color !== null,
+    time: video.currentTime
+  })
   return true
+}
+
+/**
+ * «Взять цвет газона с этого кадра»: цвет определяется заново по текущему кадру и запоминается в проекте (режим
+ * «вручную», с временем кадра). 'no-frame' — кадр ещё не готов; 'not-found' — газон на кадре не нашёлся (настройки
+ * не меняются).
+ */
+export function takeColorFromFrame(): 'ok' | 'no-frame' | 'not-found' {
+  const video = getVideoElement()
+  if (!video || video.readyState < 2 || !(video.videoWidth > 0)) return 'no-frame'
+  const frame = grabFrame(video, 320)
+  if (!frame) return 'no-frame'
+  const color = estimateGrassColor(frame.data, frame.w, frame.h)
+  if (color === null) return 'not-found'
+  useGrassStore.getState().pickColor(color, video.currentTime)
+  return 'ok'
 }

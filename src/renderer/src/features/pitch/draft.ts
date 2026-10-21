@@ -44,6 +44,14 @@ export interface CalibrationDraft {
 
 /** Допустимое положение точки на картинке (доли кадра): за краем можно (до целого кадра) — угол поля бывает за кадром. */
 export const IMAGE_BOUNDS = { min: -1, max: 2 } as const
+/** Во время разметки картинка занимает эту долю области (по каждой оси): вокруг остаётся поле для точек за кадром. Совпадает с pitch.css. */
+export const CAL_PICTURE_SCALE = 0.7
+
+/** Шаг сдвига выбранной точки клавишами: Alt+стрелки 1 px, с Shift 5 px, с Ctrl 50 px. */
+export function nudgeStep(mods: { shiftKey: boolean; ctrlKey: boolean }): number {
+  return mods.ctrlKey ? 50 : mods.shiftKey ? 5 : 1
+}
+
 export const clampImage = (p: Pt): Pt => ({
   x: Math.min(IMAGE_BOUNDS.max, Math.max(IMAGE_BOUNDS.min, p.x)),
   y: Math.min(IMAGE_BOUNDS.max, Math.max(IMAGE_BOUNDS.min, p.y))

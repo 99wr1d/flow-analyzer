@@ -30,7 +30,7 @@ test.describe('разметка поля: точки за краем карти�
       await openPitch(ctx)
       await win.getByTestId('pitch-calibrate').click()
       await expect(win.getByTestId('calibration-mode')).toBeVisible()
-      await expect(win.getByTestId('cal-offframe-hint')).toContainText('Alt+Shift+стрелки')
+      await expect(win.getByTestId('cal-offframe-hint')).toContainText('+Shift (5)')
 
       const pic = await layerBox(win)
       const surface = (await win.getByTestId('cal-surface').boundingBox())!

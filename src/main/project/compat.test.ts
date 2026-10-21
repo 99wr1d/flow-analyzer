@@ -24,7 +24,7 @@ import { readProjectFile } from './files'
 import { openProjectFile, saveToPath, videoFacts } from './session'
 
 const DIR = resolve('tests/fixtures/projects')
-const CURRENT_APP_VERSION = '0.16.2'
+const CURRENT_APP_VERSION = '0.16.3'
 
 interface Era {
   file: string

@@ -203,8 +203,9 @@ test.describe('разметка поля', () => {
       for (let i = 0; i < 3; i += 1) await win.keyboard.press('Backspace')
       for (const i of [1, 2, 3]) await click(win, p[i].image)
       await expect(win.getByTestId('cal-save')).toBeEnabled()
-      // Отмена закрывает режим и ничего не сохраняет.
+      // Отмена с поставленными точками спрашивает; «Сбросить» закрывает режим и ничего не сохраняет.
       await win.getByTestId('cal-cancel').click()
+      await win.getByTestId('cal-cancel-discard').click()
       await expect(win.getByTestId('calibration-mode')).toHaveCount(0)
       await expect(win.getByTestId('calibration-item')).toHaveCount(0)
     } finally {
@@ -381,6 +382,7 @@ test.describe('разметка поля', () => {
       await win.keyboard.press('Alt+ArrowLeft')
       // Отмена: рисунок возвращается на место.
       await win.getByTestId('cal-cancel').click()
+      await win.getByTestId('cal-cancel-discard').click()
       await expect(win.getByTestId('calibration-mode')).toHaveCount(0)
       const restored = await discBox(ring)
       expect(Math.abs(restored.x - before.x)).toBeLessThan(0.01)

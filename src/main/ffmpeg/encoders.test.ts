@@ -15,6 +15,7 @@ import {
   type ExecFn
 } from './encoders'
 import { reencodeVideo } from './args'
+import { MIN_MAXRATE_KBPS } from '../../shared/exportSize'
 
 const LIST = `Encoders:
  V..... = Video
@@ -206,5 +207,39 @@ describe('withQuality', () => {
     ).videoArgs
     expect(nv[nv.indexOf('-cq') + 1]).toBe('29')
     expect(nv[nv.indexOf('-b:v') + 1]).toBe('0')
+  })
+})
+
+describe('потолок битрейта по исходнику', () => {
+  const arg = (a: string[], flag: string): string => a[a.indexOf(flag) + 1]
+
+  it('без битрейта исходника профиль «Обычное» не меняется', () => {
+    expect(withQuality(CPU_ENCODER, 'normal', null)).toBe(CPU_ENCODER)
+    expect(withQuality(CPU_ENCODER, 'normal', 0)).toBe(CPU_ENCODER)
+  })
+
+  it('у всех кодеров и обоих качеств -maxrate около 2x (1.2x у «Меньше размер»), -bufsize вдвое больше', () => {
+    for (const p of [CPU_ENCODER, ...GPU_ENCODERS]) {
+      const normal = withQuality(p, 'normal', 2_000_000).videoArgs
+      expect(arg(normal, '-maxrate'), p.id).toBe('4000k')
+      expect(arg(normal, '-bufsize'), p.id).toBe('8000k')
+      const small = withQuality(p, 'small', 2_000_000).videoArgs
+      expect(arg(small, '-maxrate'), p.id).toBe('2400k')
+      expect(arg(small, '-bufsize'), p.id).toBe('4800k')
+      // Остальные параметры прежние (у «Меньше размер» — со сдвинутым качеством).
+      expect(normal.slice(0, p.videoArgs.length)).toEqual(p.videoArgs)
+    }
+  })
+
+  it('у лёгкого исходника потолок не ниже нижней границы', () => {
+    const a = withQuality(CPU_ENCODER, 'normal', 200_000).videoArgs
+    expect(arg(a, '-maxrate')).toBe(`${MIN_MAXRATE_KBPS}k`)
+    expect(arg(a, '-bufsize')).toBe(`${MIN_MAXRATE_KBPS * 2}k`)
+  })
+
+  it('исходный профиль не изменяется', () => {
+    const before = [...CPU_ENCODER.videoArgs]
+    withQuality(CPU_ENCODER, 'small', 5_000_000)
+    expect(CPU_ENCODER.videoArgs).toEqual(before)
   })
 })

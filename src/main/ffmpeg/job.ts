@@ -251,8 +251,10 @@ export async function runExportJob(input: JobInput): Promise<JobOutput> {
       ? { gpu: null, rejected: [] as string[] }
       : await probeEncoders(ffmpegPath, { fakeBrokenGpu: tuning.fakeBrokenGpu })
   const quality = request.quality ?? 'normal'
-  const cpuEncoder = withQuality(CPU_ENCODER, quality)
-  let encoder: EncoderProfile = withQuality(chooseEncoder(choice, probe), quality)
+  // Потолок битрейта по исходнику: файл не должен вырасти в разы (видеокарта на шумной картинке даёт втрое больше).
+  const sourceBps = facts.videoBitrate
+  const cpuEncoder = withQuality(CPU_ENCODER, quality, sourceBps)
+  let encoder: EncoderProfile = withQuality(chooseEncoder(choice, probe), quality, sourceBps)
   const cores = tuning.cores ?? availableParallelism()
   input.log?.(`Экспорт: кодер ${encoder.ffmpegName}`)
 

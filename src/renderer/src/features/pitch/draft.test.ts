@@ -5,6 +5,8 @@ import { lookAtCamera, sampleCalibration } from '../../../../shared/pitch/pitch.
 import { makeProjector } from '../../../../shared/pitch/projector'
 import { fitHomography } from '../../../../shared/pitch/homography'
 import {
+  CAL_PICTURE_SCALE,
+  IMAGE_BOUNDS,
   addPoint,
   beginExtra,
   canSaveDraft,
@@ -14,6 +16,7 @@ import {
   newDraft,
   nextRequired,
   nextToPlace,
+  nudgeStep,
   placedRequired,
   qualityOf,
   removeLast,
@@ -256,5 +259,25 @@ describe('сетка поля и попадание курсором', () => {
     ]
     expect(pointInPolygon({ x: 5, y: 5 }, sq)).toBe(true)
     expect(pointInPolygon({ x: 15, y: 5 }, sq)).toBe(false)
+  })
+})
+
+describe('nudgeStep и размер картинки в разметке', () => {
+  it('Alt+стрелки: 1 px, с Shift 5, с Ctrl 50 (Ctrl сильнее Shift)', () => {
+    expect(nudgeStep({ shiftKey: false, ctrlKey: false })).toBe(1)
+    expect(nudgeStep({ shiftKey: true, ctrlKey: false })).toBe(5)
+    expect(nudgeStep({ shiftKey: false, ctrlKey: true })).toBe(50)
+    expect(nudgeStep({ shiftKey: true, ctrlKey: true })).toBe(50)
+  })
+  it('точка до целого кадра за краем ставится и двигается, дальше ограничивается', () => {
+    let d = newDraft(1, 16 / 9)
+    d = addPoint(d, { x: -0.9, y: 1.9 })
+    expect(d.points[0].image).toEqual({ x: -0.9, y: 1.9 })
+    d = movePoint(d, 0, { x: -5, y: 7 })
+    expect(d.points[0].image).toEqual({ x: IMAGE_BOUNDS.min, y: IMAGE_BOUNDS.max })
+  })
+  it('вокруг уменьшенной картинки есть поле для точек за кадром', () => {
+    expect(CAL_PICTURE_SCALE).toBeGreaterThan(0.5)
+    expect(CAL_PICTURE_SCALE).toBeLessThanOrEqual(0.75)
   })
 })

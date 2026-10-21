@@ -74,6 +74,13 @@ export function formatClock(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
+/** «около 12 МБ», «около 1.4 ГБ» (округляем: это оценка). */
+export function formatApproxBytes(bytes: number): string {
+  const mb = bytes / (1024 * 1024)
+  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} ГБ`
+  return `${Math.max(1, Math.round(mb))} МБ`
+}
+
 /** Сколько ещё ждать, мс. null — слишком рано судить (мало сделано или прошло мало времени). */
 export function estimateRemainingMs(elapsedMs: number, fraction: number): number | null {
   if (!(fraction >= 0.03) || fraction >= 1 || elapsedMs < 1500) return null

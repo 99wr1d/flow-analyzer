@@ -37,6 +37,8 @@ export interface MediaFacts {
   /** Звук: частота дискретизации и «моно» ли он. */
   audioRate: number | null
   audioMono: boolean
+  /** Битрейт видеодорожки, бит/с; null — не указан (у webm и части mkv его нет). */
+  videoBitrate: number | null
 }
 
 /** Сведения о файле из текста, который ffmpeg печатает при `ffmpeg -i файл`. */
@@ -56,6 +58,7 @@ export function parseMediaInfo(stderr: string): MediaFacts {
   const quarter = rotation ? Math.round(Math.abs(Number(rotation[1])) / 90) % 2 === 1 : false
   const audioLine = streams.find((l) => /: Audio:/.test(l))
   const audioMatch = audioLine ? /(\d+) Hz,\s*([^,]+)/.exec(audioLine) : null
+  const vbr = videoLine ? /,\s*(\d+)\s+kb\/s/.exec(videoLine) : null
   let width = size ? Number(size[1]) : null
   let height = size ? Number(size[2]) : null
   if (quarter && width !== null && height !== null) [width, height] = [height, width]
@@ -70,7 +73,8 @@ export function parseMediaInfo(stderr: string): MediaFacts {
       ? Number(tbrMatch[1].replace(/k$/, '')) * (tbrMatch[1].endsWith('k') ? 1000 : 1)
       : null,
     audioRate: audioMatch ? Number(audioMatch[1]) : null,
-    audioMono: audioMatch ? /^(mono|1 channels)/.test(audioMatch[2].trim()) : false
+    audioMono: audioMatch ? /^(mono|1 channels)/.test(audioMatch[2].trim()) : false,
+    videoBitrate: vbr ? Number(vbr[1]) * 1000 : null
   }
 }
 

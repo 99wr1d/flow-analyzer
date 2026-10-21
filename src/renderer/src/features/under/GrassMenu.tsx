@@ -9,7 +9,9 @@ import {
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { GrassIcon } from '../../ui/icons'
-import { ensureGrassEstimate, useGrassKey, useGrassStore } from './grassStore'
+import { useFeedbackStore } from '../episodes/feedbackStore'
+import { formatTime } from '../player/format'
+import { ensureGrassEstimate, takeColorFromFrame, useGrassKey, useGrassStore } from './grassStore'
 
 function Slider({
   label,
@@ -84,7 +86,13 @@ function Popover(): React.JSX.Element {
           data-auto={key.auto ? 'true' : 'false'}
         />
         <span className="grass-popover__mode" data-testid="grass-mode">
-          {key.auto ? ru.grass.colorAuto : ru.grass.colorManual}
+          {key.auto
+            ? key.from !== undefined
+              ? ru.grass.colorAutoFrame(formatTime(key.from, { tenths: true }))
+              : ru.grass.colorAuto
+            : key.from !== undefined
+              ? ru.grass.colorFrame(formatTime(key.from, { tenths: true }))
+              : ru.grass.colorManual}
         </span>
         <button
           type="button"
@@ -100,6 +108,21 @@ function Popover(): React.JSX.Element {
           {ru.grass.eyedropper}
         </button>
       </div>
+      <button
+        type="button"
+        className="btn"
+        title={ru.grass.sampleHint}
+        data-testid="grass-sample"
+        onClick={(e) => {
+          const result = takeColorFromFrame()
+          if (result !== 'ok') {
+            useFeedbackStore.getState().show({ text: ru.grass.sampleFailed(result), kind: 'warn' })
+          }
+          e.currentTarget.blur()
+        }}
+      >
+        {ru.grass.sample}
+      </button>
       {notFound && (
         <p className="grass-popover__warn" data-testid="grass-not-found">
           {ru.grass.notFound}

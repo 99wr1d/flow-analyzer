@@ -2,6 +2,7 @@
 // Один код для рисунков на поле, новых рисунков на экране и для экспорта.
 import { useMemo } from 'react'
 import type { PitchAnnotation } from '../../../../shared/annotations'
+import { shiftLabel, type LabelShift } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
 import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared/pitch/shapes'
 import type { Size } from './geometry'
@@ -326,8 +327,8 @@ interface PitchProps {
   projector: Projector | null | undefined
   shadowClass?: string
   part?: DrawPart
-  /** Сдвиг подписи по вертикали (пиксели), чтобы подписи линеек не ложились друг на друга. */
-  labelDy?: number
+  /** Сдвиги подписей по вертикали (пиксели), чтобы подписи измерений не ложились друг на друга. */
+  labelShift?: LabelShift
 }
 
 export function PitchBody({
@@ -337,13 +338,18 @@ export function PitchBody({
   projector,
   shadowClass,
   part,
-  labelDy
+  labelShift
 }: PitchProps): React.JSX.Element | null {
   const paint = useMemo(() => {
     if (!projector) return null
     const p = paintPitch(a, projector, size, measureTextWidth)
-    return labelDy && p.label ? { ...p, label: { ...p.label, y: p.label.y + labelDy } } : p
-  }, [a, projector, size, labelDy])
+    if (!labelShift) return p
+    return {
+      ...p,
+      label: p.label ? shiftLabel(p.label, labelShift.label) : p.label,
+      labels: p.labels.map((l, i) => shiftLabel(l, labelShift.labels?.[i]))
+    }
+  }, [a, projector, size, labelShift])
   if (!paint) return null
   return (
     <PaintParts

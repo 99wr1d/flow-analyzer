@@ -1,5 +1,6 @@
 // Режим «Разметить поле»: поверх видео отмечаются точки поля, слева — схема с подсказкой, какую точку отметить.
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { CalibrationFitResult } from '../../../../shared/pitch/calibration'
 import { RECT_LIMITS, TEMPLATE_IDS, type TemplateId } from '../../../../shared/pitch/templates'
 import { PITCH_LIMITS } from '../../../../shared/pitch/landmarks'
@@ -9,9 +10,16 @@ import { usePlayerStore } from '../../store/playerStore'
 import { usePictureRect } from '../annotations/usePictureRect'
 import { formatTime } from '../player/format'
 import { seekTo } from '../player/videoElement'
-import { cancelCalibration, saveCalibration, videoSize } from './pitchActions'
 import {
+  cancelCalibration,
+  requestCancelCalibration,
+  saveCalibration,
+  videoSize
+} from './pitchActions'
+import {
+  CAL_PICTURE_SCALE,
   evaluateDraft,
+  nudgeStep,
   nextRequired,
   nextToPlace,
   placedRequired,
@@ -23,6 +31,7 @@ import { gridPath, gridPrimitives } from './gridPaths'
 import { Loupe } from './Loupe'
 import { MiniMap } from './MiniMap'
 import { usePitchStore } from './pitchStore'
+import { useFocusTrap } from '../export/useFocusTrap'
 
 const GRAB_RADIUS = 13
 
@@ -278,7 +287,7 @@ function Panel({
           type="button"
           className="btn"
           data-testid="cal-cancel"
-          onClick={() => cancelCalibration()}
+          onClick={() => requestCancelCalibration()}
         >
           {ru.pitch.mode.cancel}
         </button>
@@ -296,15 +305,73 @@ function Panel({
   )
 }
 
-/** Насколько зона щелчка выходит за поле разметки (ширина панели). */
-const PANEL_REACH = 320
+/** Вопрос при отмене с поставленными точками: случайный щелчок по «Отмена» не должен стирать разметку. */
+function CancelConfirm({ count }: { count: number }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const keep = (): void => usePitchStore.getState().setConfirmingCancel(false)
+  useFocusTrap(ref, true, keep)
+  // Окно выносится в body: режим разметки не принимает щелчки (pointer-events), а окно должно лежать поверх всего.
+  return createPortal(
+    <div className="modal-backdrop" data-testid="cal-cancel-backdrop">
+      <div
+        ref={ref}
+        className="modal modal--small"
+        tabIndex={-1}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="cal-cancel-title"
+        aria-describedby="cal-cancel-text"
+        data-testid="cal-cancel-dialog"
+      >
+        <div className="modal__body modal__body--prompt">
+          <h2 id="cal-cancel-title" className="modal__title">
+            {ru.pitch.mode.cancelTitle}
+          </h2>
+          <p id="cal-cancel-text" className="modal__text">
+            {ru.pitch.mode.cancelText(count)}
+          </p>
+        </div>
+        <footer className="modal__foot modal__foot--end">
+          <button
+            type="button"
+            className="btn"
+            data-autofocus
+            data-testid="cal-cancel-keep"
+            onClick={keep}
+          >
+            {ru.pitch.mode.cancelKeep}
+          </button>
+          <button
+            type="button"
+            className="btn btn--danger"
+            data-testid="cal-cancel-discard"
+            onClick={() => cancelCalibration()}
+          >
+            {ru.pitch.mode.cancelDiscard}
+          </button>
+        </footer>
+      </div>
+    </div>,
+    document.body
+  )
+}
 
 function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const drag = useRef<{ index: number } | null>(null)
   const videoId = usePlayerStore((s) => s.source?.id)
-  const rect = usePictureRect(hostRef, true, videoId)
+  const fullRect = usePictureRect(hostRef, true, videoId)
+  const confirming = usePitchStore((s) => s.confirmingCancel)
+  // Картинка в режиме разметки уменьшена (pitch.css) и стоит по центру области.
+  const rect = fullRect
+    ? {
+        x: fullRect.x + (fullRect.w * (1 - CAL_PICTURE_SCALE)) / 2,
+        y: fullRect.y + (fullRect.h * (1 - CAL_PICTURE_SCALE)) / 2,
+        w: fullRect.w * CAL_PICTURE_SCALE,
+        h: fullRect.h * CAL_PICTURE_SCALE
+      }
+    : null
   const fps = usePlayerStore((s) => s.fps)
   const side = usePitchStore((s) => s.panelSide)
   const currentTime = usePlayerStore((s) => s.currentTime)
@@ -338,6 +405,8 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
       : null
   const errors = projector ? reprojectionErrors(projector.H, draft.points, size) : []
 
+  const hasRect = rect !== null
+
   // Клавиши режима: перехватываются раньше общих команд.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -351,7 +420,7 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
       }
       const st = usePitchStore.getState()
       const d = st.draft
-      if (!d) return
+      if (!d || st.confirmingCancel) return
       const stop = (): void => {
         e.preventDefault()
         e.stopImmediatePropagation()
@@ -359,16 +428,16 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
       if (e.code === 'Escape') {
         stop()
         if (d.pendingExtra || d.addingExtra) st.beginExtra(null)
-        else cancelCalibration()
+        else requestCancelCalibration()
       } else if (e.code === 'Backspace' || e.code === 'Delete') {
         stop()
         st.removeLast()
       } else if (e.code === 'Enter' && !e.repeat) {
         stop()
         saveCalibration()
-      } else if (e.altKey && e.code.startsWith('Arrow') && d.selected !== null && rect) {
+      } else if (e.altKey && e.code.startsWith('Arrow') && d.selected !== null && hasRect) {
         stop()
-        const step = e.shiftKey ? 5 : 1
+        const step = nudgeStep(e)
         const dx = e.code === 'ArrowLeft' ? -step : e.code === 'ArrowRight' ? step : 0
         const dy = e.code === 'ArrowUp' ? -step : e.code === 'ArrowDown' ? step : 0
         const p = d.points[d.selected]
@@ -379,7 +448,7 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [rect])
+  }, [hasRect])
 
   const hostSize = (): { w: number; h: number } => ({
     w: hostRef.current?.clientWidth ?? 0,
@@ -460,17 +529,6 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
           onMouseDown={(e) => e.preventDefault()}
         >
           <rect x={0} y={0} width="100%" height="100%" fill="rgba(5,7,10,0.18)" />
-          {/* Зона щелчка шире окна: захватывает область под панелью, чтобы поставить точку далеко за кадром. */}
-          <rect
-            data-testid="cal-surface-extra"
-            style={{
-              x: -PANEL_REACH,
-              y: 0,
-              width: `calc(100% + ${PANEL_REACH * 2}px)`,
-              height: '100%'
-            }}
-            fill="transparent"
-          />
           {rect && preview && (
             <g transform={`translate(${rect.x} ${rect.y})`} pointerEvents="none">
               {preview.area && (
@@ -557,6 +615,7 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
         </div>
       </div>
       <Panel draft={draft} size={size} fit={fit} off={off} />
+      {confirming && <CancelConfirm count={draft.points.length} />}
     </div>
   )
 }

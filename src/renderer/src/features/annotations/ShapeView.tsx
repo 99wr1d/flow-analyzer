@@ -5,6 +5,7 @@ import {
   type Annotation,
   type ScreenAnnotation
 } from '../../../../shared/annotations'
+import type { LabelShift } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
 import {
   paintScreenTool,
@@ -48,8 +49,8 @@ interface ShapeProps {
    * а копия хранит геометрию рисунка в DOM (рамки, точки, data-part) для проверки и измерений. Ничего не рисует.
    */
   keepGround?: boolean
-  /** Сдвиг подписи линейки на поле (пиксели): см. rulerLabelShifts. */
-  labelDy?: number
+  /** Сдвиги подписей на поле (пиксели): см. pitchLabelShifts. */
+  labelShift?: LabelShift
 }
 
 /** Новые рисунки на экране (прожектор, кривая, перо, зона, лупа, связи): геометрию считает paintScreenTool. */
@@ -340,7 +341,7 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
         projector={props.projector}
         shadowClass={split ? shadow : undefined}
         part={part}
-        labelDy={props.labelDy}
+        labelShift={props.labelShift}
       />
     ) : (
       <ShapeBody

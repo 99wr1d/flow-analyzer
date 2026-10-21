@@ -43,20 +43,52 @@ export function nudgeLabels(boxes: readonly LabelBox[]): Map<string, number> {
   return shifts
 }
 
-/** Сдвиги подписей линеек на поле среди показанных рисунков (в порядке слоёв). */
-export function rulerLabelShifts(
+/** Сдвиги подписей одного рисунка: label — главная подпись (линейка), labels — дополнительные (площадь зоны, звенья). */
+export interface LabelShift {
+  label?: number
+  labels?: Array<number | undefined>
+}
+
+/**
+ * Сдвиги подписей измерений на поле (линейка, площадь зоны, звенья и «Ширина линия» цепочки) среди показанных рисунков
+ * в порядке слоёв. Подписи текста (с ножкой к точке) не двигаются. Рисунки без сдвигов в результат не попадают.
+ */
+export function pitchLabelShifts(
   items: readonly Annotation[],
   projectorOf: (calibrationId: string) => Projector | null | undefined,
   size: PaintSize,
   measure: (text: string, fontPx: number) => number
-): Map<string, number> {
+): Map<string, LabelShift> {
   const boxes: LabelBox[] = []
   for (const a of items) {
-    if (!isPitchAnnotation(a) || a.type !== 'ruler') continue
+    if (!isPitchAnnotation(a) || a.type === 'ptext') continue
     const proj = projectorOf((a as PitchAnnotation).calibrationId)
     if (!proj) continue
-    const label = paintPitch(a, proj, size, measure).label
-    if (label) boxes.push({ id: a.id, x: label.x, y: label.y, w: label.w, h: label.h })
+    const paint = paintPitch(a, proj, size, measure)
+    if (paint.label) {
+      const l = paint.label
+      boxes.push({ id: a.id, x: l.x, y: l.y, w: l.w, h: l.h })
+    }
+    paint.labels.forEach((l, i) =>
+      boxes.push({ id: `${a.id}#${i}`, x: l.x, y: l.y, w: l.w, h: l.h })
+    )
   }
-  return nudgeLabels(boxes)
+  const result = new Map<string, LabelShift>()
+  for (const [key, dy] of nudgeLabels(boxes)) {
+    const hash = key.indexOf('#')
+    const id = hash < 0 ? key : key.slice(0, hash)
+    const entry = result.get(id) ?? {}
+    if (hash < 0) entry.label = dy
+    else {
+      entry.labels ??= []
+      entry.labels[Number(key.slice(hash + 1))] = dy
+    }
+    result.set(id, entry)
+  }
+  return result
+}
+
+/** Подпись с учётом сдвига (пиксели по вертикали). */
+export function shiftLabel<T extends { y: number }>(label: T, dy: number | undefined): T {
+  return dy ? { ...label, y: label.y + dy } : label
 }

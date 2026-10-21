@@ -58,17 +58,23 @@
   pointer-events: none;
 }
 /* Во время разметки картинка сдвигается от панели: под панелью не должно быть ничего нужного. */
+/* Картинка уменьшена до 70 % свободной области (CAL_PICTURE_SCALE) и стоит по центру: вокруг остаётся поле для точек за кадром. */
+.stage__canvas--cal-left .stage__video,
+.stage__canvas--cal-left .anno-host,
+.stage__canvas--cal-right .stage__video,
+.stage__canvas--cal-right .anno-host {
+  inset: auto;
+  top: 15%;
+  width: calc((100% - var(--cal-w)) * 0.7);
+  height: 70%;
+}
 .stage__canvas--cal-left .stage__video,
 .stage__canvas--cal-left .anno-host {
-  left: var(--cal-w);
+  left: calc(var(--cal-w) + (100% - var(--cal-w)) * 0.15);
 }
 .stage__canvas--cal-right .stage__video,
 .stage__canvas--cal-right .anno-host {
-  right: var(--cal-w);
-}
-.stage__canvas--cal-left .stage__video,
-.stage__canvas--cal-right .stage__video {
-  width: calc(100% - var(--cal-w));
+  left: calc((100% - var(--cal-w)) * 0.15);
 }
 .stage__canvas {
   --cal-w: 316px;

@@ -26,7 +26,7 @@ export function EyedropperLayer({ rect }: { rect: Rect }): React.JSX.Element | n
               (e.clientY - box.top) / box.height
             )
           : null
-        if (color) useGrassStore.getState().pickColor(color)
+        if (color) useGrassStore.getState().pickColor(color, video?.currentTime)
         else useFeedbackStore.getState().show({ text: ru.grass.samplingFailed, kind: 'warn' })
       }}
     >

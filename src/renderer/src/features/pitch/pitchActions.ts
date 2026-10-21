@@ -48,6 +48,14 @@ export function cancelCalibration(): void {
   usePitchStore.getState().closeDraft()
 }
 
+/** «Отмена» / Esc: с поставленными точками сначала спрашивает, чтобы случайный щелчок не стёр работу. */
+export function requestCancelCalibration(): void {
+  const st = usePitchStore.getState()
+  if (!st.draft) return
+  if (st.draft.points.length > 0) st.setConfirmingCancel(true)
+  else cancelCalibration()
+}
+
 /** Сохраняет разметку из черновика. true — сохранено. */
 export function saveCalibration(now: Date = new Date()): boolean {
   const draft = usePitchStore.getState().draft

@@ -3,6 +3,7 @@
 // каждый найденный проверяется настоящим кодированием одной секунды (в списке кодер бывает, а драйвера или карты нет).
 // Чистые функции (разбор списка, аргументы, выбор) проверяются юнит-тестами; запуск ffmpeg можно подменить.
 import { execFile } from 'child_process'
+import { maxrateKbps } from '../../shared/exportSize'
 
 export type EncoderId = 'cpu' | 'nvenc' | 'qsv' | 'amf'
 
@@ -238,12 +239,33 @@ export type EncoderQuality = 'normal' | 'small'
 export const SMALL_QUALITY_STEP = 6
 const QUALITY_FLAGS = new Set(['-crf', '-cq', '-global_quality', '-qp_i', '-qp_p', '-qp_b'])
 
-/** Профиль кодера с нужным качеством. «Обычное» возвращает профиль без изменений. */
-export function withQuality(profile: EncoderProfile, quality: EncoderQuality): EncoderProfile {
-  if (quality === 'normal') return profile
-  const videoArgs = profile.videoArgs.map((arg, i, all) =>
-    i > 0 && QUALITY_FLAGS.has(all[i - 1]) ? String(Number(arg) + SMALL_QUALITY_STEP) : arg
-  )
+/**
+ * Параметры потолка битрейта: -maxrate и -bufsize (две секунды на потолке). Ставятся сразу после кодера и работают
+ * поверх CRF/CQ: на простой картинке ничего не меняют, а на шумной не дают файлу вырасти больше чем в 2 раза против исходника.
+ */
+export function bitrateCapArgs(sourceVideoBps: number, quality: EncoderQuality): string[] {
+  const k = maxrateKbps(sourceVideoBps, quality)
+  return ['-maxrate', `${k}k`, '-bufsize', `${k * 2}k`]
+}
+
+/**
+ * Профиль кодера с нужным качеством. «Обычное» без битрейта исходника возвращает профиль без изменений.
+ * sourceVideoBps — битрейт видео исходника (бит/с): если известен, размер файла ограничивается (bitrateCapArgs).
+ */
+export function withQuality(
+  profile: EncoderProfile,
+  quality: EncoderQuality,
+  sourceVideoBps?: number | null
+): EncoderProfile {
+  const capped = sourceVideoBps && sourceVideoBps > 0
+  if (quality === 'normal' && !capped) return profile
+  let videoArgs =
+    quality === 'normal'
+      ? profile.videoArgs
+      : profile.videoArgs.map((arg, i, all) =>
+          i > 0 && QUALITY_FLAGS.has(all[i - 1]) ? String(Number(arg) + SMALL_QUALITY_STEP) : arg
+        )
+  if (capped) videoArgs = [...videoArgs, ...bitrateCapArgs(sourceVideoBps, quality)]
   return { ...profile, videoArgs }
 }
 
