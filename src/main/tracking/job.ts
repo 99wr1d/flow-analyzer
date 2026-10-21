@@ -1,7 +1,7 @@
 // Задача слежения: кадры из ffmpeg → детектор → трекер → отсчёты TrackSample. Без Electron: кадры и детектор подаются снаружи,
 // поэтому в тестах работают заглушки. Здесь же — единственное место, где рамка трекера (пиксели кадра детектора)
 // превращается в доли кадра.
-import { pickStart, SingleTracker } from '../../shared/tracking/tracker'
+import { iou, pickStart, SingleTracker } from '../../shared/tracking/tracker'
 import type { TrackSample } from '../../shared/tracking/keys'
 import type { FractionBox, StopReason } from '../../shared/tracking/trackingIpc'
 import type { Box, Detection } from '../../shared/tracking/types'
@@ -12,6 +12,8 @@ export { estimateSeconds } from '../../shared/tracking/trackingIpc'
 
 /** Полный кадр показываем детектору раз в столько секунд; между ними — только вырез вокруг игрока. */
 export const FULL_DETECT_SECONDS = 1.0
+/** Насколько выбранная щелчком рамка должна совпадать с найденной на старте (IoU). */
+const PICK_MIN_IOU = 0.5
 
 export interface RunTrackingOptions {
   fps: number
@@ -19,6 +21,8 @@ export interface RunTrackingOptions {
   to: number
   /** Щелчок пользователя, доли кадра. */
   anchor: { x: number; y: number }
+  /** Рамка игрока, выбранная щелчком после ambiguous-start (доли кадра): ею разрешается неоднозначный старт. */
+  pick?: FractionBox
   signal: AbortSignal
   /** Кадры отрезка (decodeFrames). Итерация начинается после запуска детектора; по выходу ffmpeg останавливается. */
   frames: AsyncIterable<DecodedFrame>
@@ -91,14 +95,40 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       if (tracker === null) {
         const pick = pickStart(out.detections, { x: opts.anchor.x * fw, y: opts.anchor.y * fh })
         if (pick.kind === 'none') return { kind: 'failed', error: 'no-player' }
-        if (pick.kind === 'ambiguous') {
+        let start: Detection | null = pick.kind === 'ok' ? pick.det : null
+        let dirty = false
+        if (pick.kind === 'ambiguous' && opts.pick) {
+          // Тренер уже выбрал рамку из вариантов: берём найденную рамку, что на неё больше всего похожа.
+          const want: Box = {
+            x: opts.pick.x * fw,
+            y: opts.pick.y * fh,
+            w: opts.pick.w * fw,
+            h: opts.pick.h * fh
+          }
+          let best = 0
+          for (const d of out.detections) {
+            const v = iou(d.box, want)
+            if (v > best) {
+              best = v
+              start = d
+            }
+          }
+          // Рядом стоит другой игрок: приметы рамки «грязные», трекер их не запоминает.
+          if (best >= PICK_MIN_IOU) dirty = true
+          else start = null
+        }
+        if (!start && pick.kind === 'ambiguous') {
           return {
             kind: 'failed',
             error: 'ambiguous-start',
             candidates: pick.candidates.map((d) => toFraction(d.box, fw, fh))
           }
         }
-        tracker = new SingleTracker(pick.det, opts.fps, { frame: { w: fw, h: fh } })
+        if (!start) throw new Error('Не удалось определить игрока на старте')
+        tracker = new SingleTracker(start, opts.fps, {
+          frame: { w: fw, h: fh },
+          ...(dirty ? { dirtyStart: true } : {})
+        })
       }
 
       let step = tracker.step({

@@ -161,6 +161,35 @@ describe('runTrackingJob', () => {
     }
   })
 
+  it('старт между двумя игроками с выбором рамки (pick): слежение идёт за выбранным', async () => {
+    const det = scripted((f) => [person(300 + 3 * f, 270), person(330 + 3 * f, 270, 1)])
+    const out = await runTrackingJob(
+      options({
+        frames: frames(10),
+        createDetector: () => Promise.resolve(det),
+        anchor: { x: 315 / W, y: 270 / H },
+        // Правый игрок: центр (330, 270), рамка 40x90.
+        pick: { x: 310 / W, y: 225 / H, w: 40 / W, h: 90 / H }
+      })
+    )
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(out.samples).toHaveLength(10)
+    expect(out.samples[0].foot.x).toBeCloseTo(330 / W, 2)
+  })
+
+  it('pick не совпадает ни с одной рамкой — остаётся ambiguous-start', async () => {
+    const det = scripted(() => [person(300, 270), person(330, 270, 1)])
+    const out = await runTrackingJob(
+      options({
+        createDetector: () => Promise.resolve(det),
+        anchor: { x: 315 / W, y: 270 / H },
+        pick: { x: 0.9, y: 0.1, w: 0.05, h: 0.1 }
+      })
+    )
+    expect(out.kind === 'failed' && out.error).toBe('ambiguous-start')
+  })
+
   it('ask → resolve: слежение продолжается с выбранного, следующий кадр — целый', async () => {
     const calls: Call[] = []
     const mine = (f: number): Detection => person(100 + 3 * f, 320)

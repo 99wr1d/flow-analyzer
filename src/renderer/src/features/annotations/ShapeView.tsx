@@ -303,7 +303,7 @@ function geometryOf(a: Annotation): string {
     case 'pspot':
       return JSON.stringify({ center: a.center, radius: a.radius, dim: a.dim, beam: a.beam })
     case 'spot':
-      return JSON.stringify({ p1: a.p1, p2: a.p2, dim: a.dim })
+      return JSON.stringify({ p1: a.p1, p2: a.p2, dim: a.dim, beam: a.beam })
     case 'curve':
     case 'pcurve':
       return JSON.stringify({ p1: a.p1, p2: a.p2, c: a.c })

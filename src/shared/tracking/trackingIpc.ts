@@ -8,6 +8,7 @@ import type { DetectorBackend } from './detectorIpc'
 export const MAX_TRACK_SECONDS = 600
 
 const fraction = z.number().finite().min(0).max(1)
+const fractionBox = z.object({ x: fraction, y: fraction, w: fraction, h: fraction })
 
 export const TrackingStartSchema = z
   .object({
@@ -15,7 +16,9 @@ export const TrackingStartSchema = z
     videoId: z.string().min(1).max(100),
     from: z.number().finite().min(0),
     to: z.number().finite().min(0),
-    anchor: z.object({ x: fraction, y: fraction })
+    anchor: z.object({ x: fraction, y: fraction }),
+    /** Рамка, выбранная щелчком после ambiguous-start (доли кадра). */
+    pick: fractionBox.optional()
   })
   .refine((v) => v.to > v.from && v.to - v.from <= MAX_TRACK_SECONDS)
 

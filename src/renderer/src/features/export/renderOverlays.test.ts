@@ -226,3 +226,29 @@ describe('слои «под игроками»: что попадает на к�
     expect(svg.indexOf('data-type="arrow"')).toBeLessThan(svg.indexOf('data-type="ruler"'))
   })
 })
+
+describe('экспорт: прожектор на экране с лучом (после слежения за игроком)', () => {
+  const spot = (beam?: boolean): Annotation => ({
+    id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c77',
+    space: 'screen',
+    type: 'spot',
+    p1: { x: 0.4, y: 0.6 },
+    p2: { x: 0.5, y: 0.7 },
+    dim: 0.5,
+    ...(beam === undefined ? {} : { beam }),
+    style,
+    timing
+  })
+
+  it('с лучом в кадре есть градиентный луч, без луча — нет', () => {
+    expect(buildOverlaySvg([spot(true)], 1280, 720)).toContain('data-part="beam"')
+    expect(buildOverlaySvg([spot()], 1280, 720)).not.toContain('data-part="beam"')
+  })
+
+  it('затемнение с лучом освещает весь луч (выше эллипса)', () => {
+    const withBeam = buildOverlaySvg([spot(true)], 1000, 500)
+    const plain = buildOverlaySvg([spot()], 1000, 500)
+    expect(withBeam).not.toEqual(plain)
+    expect(withBeam).toContain('data-testid="spotlight-dim"')
+  })
+})

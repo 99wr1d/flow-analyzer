@@ -1,7 +1,16 @@
 // Новые рисунки на экране (этап 15): прожектор, изогнутая стрелка, перо, зона, лупа, связи игроков.
 // Результат — тот же PitchPaint, что и у рисунков на поле: один код рисует и нажимает ручки и на экране, и в экспорте.
 // Координаты рисунков нормализованы; здесь они переводятся в пиксели кадра.
-import type { Chain, Curve, Loupe, Pen, Spotlight, Zone } from '../annotations'
+import {
+  DEFAULT_SPOT_RADIUS,
+  type Chain,
+  type Curve,
+  type Loupe,
+  type Pen,
+  type Spotlight,
+  type Zone
+} from '../annotations'
+import { beamSilhouette } from '../pitch/pitchTools'
 import { emptyPaint, type PaintSize, type PitchPaint, type PxPt } from '../pitch/shapes'
 import { curveMid, densifyQuad, pointBackFromEnd, polylineLength, trimEnd } from './curve'
 import { catmullRom } from './simplify'
@@ -94,9 +103,13 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
     const rx = Math.max(Math.abs(p2.x - p1.x) / 2, 1)
     const ry = Math.max(Math.abs(p2.y - p1.y) / 2, 1)
     const poly = ellipsePolygon(cx, cy, rx, ry)
-    out.lit.push(poly)
     out.strokes.push({ points: poly, closed: true, widthPx: Math.max(1.5, w * 0.7), dashed: false })
-    out.hit = [poly]
+    // Луч (прожектор, перешедший с поля при слежении): тот же силуэт, что у пятна на траве. Масштаб — как у пятна
+    // стандартного радиуса: высота луча = рост человека на ширине пятна.
+    const beam = a.beam ? beamSilhouette(poly, DEFAULT_SPOT_RADIUS) : null
+    if (beam) out.beam = { poly: beam.poly, top: beam.top, bottom: beam.bottom }
+    out.lit.push(beam ? beam.poly : poly)
+    out.hit = [beam ? beam.poly : poly]
     const x0 = Math.min(p1.x, p2.x)
     const x1 = Math.max(p1.x, p2.x)
     const y0 = Math.min(p1.y, p2.y)

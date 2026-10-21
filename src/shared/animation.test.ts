@@ -373,3 +373,61 @@ describe('схема: ключи', () => {
     expect(AnnotationSchema.safeParse(bad).success).toBe(false)
   })
 })
+
+describe('ключи слежения: ручная правка снимает auto', () => {
+  const tracked = (): Annotation => {
+    const base = arrow()
+    return {
+      ...base,
+      p1: { x: 0.1, y: 0.2 },
+      keyframes: [
+        {
+          t: 1.02,
+          ease: 'linear',
+          auto: true,
+          geom: { p1: { x: 0.1, y: 0.2 }, p2: { x: 0.5, y: 0.6 } }
+        },
+        {
+          t: 1.5,
+          ease: 'linear',
+          auto: true,
+          geom: { p1: { x: 0.2, y: 0.2 }, p2: { x: 0.6, y: 0.6 } }
+        },
+        {
+          t: 2.1,
+          ease: 'linear',
+          auto: true,
+          geom: { p1: { x: 0.3, y: 0.2 }, p2: { x: 0.7, y: 0.6 } }
+        }
+      ]
+    } as Annotation
+  }
+
+  it('upsertKey в кадре авто-ключа: ключ становится ручным', () => {
+    const next = upsertKey(tracked(), 1.5, { p1: { x: 0.25, y: 0.3 }, p2: { x: 0.6, y: 0.6 } }, FPS)
+    const keys = keysOf(next)
+    expect(keys).toHaveLength(3)
+    expect(keys[1].auto).toBeUndefined()
+    expect(keys[0].auto).toBe(true)
+    expect(keys[2].auto).toBe(true)
+  })
+
+  it('applyGeomEdit по авто-ключу: ключ становится ручным', () => {
+    const stored = tracked()
+    const edited = { ...stored, p1: { x: 0.9, y: 0.9 } } as Annotation
+    const next = applyGeomEdit(stored, edited, 2.1, FPS)
+    expect(keysOf(next)[2].auto).toBeUndefined()
+  })
+
+  it('retimeKey сдвигает авто-ключ: он становится ручным', () => {
+    const next = retimeKey(tracked(), 1, 1.7, FPS)
+    expect(keysOf(next)[1].auto).toBeUndefined()
+    expect(keysOf(next)[1].t).toBeCloseTo(1.7, 6)
+  })
+
+  it('retimeKey не трогает остальные авто-ключи', () => {
+    const next = retimeKey(tracked(), 1, 1.7, FPS)
+    expect(keysOf(next)[0].auto).toBe(true)
+    expect(keysOf(next)[2].auto).toBe(true)
+  })
+})

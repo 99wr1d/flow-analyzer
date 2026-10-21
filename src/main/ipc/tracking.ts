@@ -142,6 +142,7 @@ async function startTracking(
           from: request.from,
           to: request.to,
           anchor: request.anchor,
+          ...(request.pick ? { pick: request.pick } : {}),
           signal: controller.signal,
           frames: decodeFrames({
             videoPath: entry.path,
