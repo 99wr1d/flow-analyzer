@@ -70,7 +70,12 @@ const header = `FlowAnalyzer ${appPkg.version} — сторонние компо
 
 Этот файл создаётся автоматически при сборке (scripts/gen-notices.mjs) по списку производственных зависимостей.
 Кроме перечисленного ниже, в программу входят Electron и Chromium (их лицензии лежат рядом с программой в файлах
-LICENSE.electron.txt и LICENSES.chromium.html) и FFmpeg (лицензия GNU GPL — файл ffmpeg-LICENSE.txt в этой же папке).`
+LICENSE.electron.txt и LICENSES.chromium.html) и FFmpeg (лицензия GNU GPL — файл ffmpeg-LICENSE.txt в этой же папке).
+
+Модель распознавания игроков (resources/models/dfine_s_coco.onnx): D-FINE-S, обучена на наборе COCO.
+D-FINE — Peterande/D-FINE (https://github.com/Peterande/D-FINE), лицензия Apache-2.0.
+Перевод в формат ONNX — onnx-community/dfine_s_coco-ONNX (Hugging Face, https://huggingface.co/onnx-community/dfine_s_coco-ONNX).
+Запускается библиотекой onnxruntime-web (лицензия MIT, см. список ниже).`
 
 mkdirSync(dirname(out), { recursive: true })
 writeFileSync(out, formatNotices(packages, texts, header), 'utf8')

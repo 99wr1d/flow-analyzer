@@ -27,3 +27,23 @@ describe('тестовые флаги экспорта', () => {
     expect(parseTestFlags({ ...ISOLATED }).exportChunkSeconds).toBeNull()
   })
 })
+
+describe('тестовые флаги окна-детектора', () => {
+  it('без папки данных выключены', () => {
+    const f = parseTestFlags({ FLOW_DETECTOR_BACKEND: 'wasm', FLOW_TEST_DETECTOR: '1' })
+    expect(f.detectorBackend).toBeNull()
+    expect(f.detectorProbe).toBe(false)
+  })
+  it('в тестовом запуске: только wasm и только 1', () => {
+    const f = parseTestFlags({
+      ...ISOLATED,
+      FLOW_DETECTOR_BACKEND: 'wasm',
+      FLOW_TEST_DETECTOR: '1'
+    })
+    expect(f.detectorBackend).toBe('wasm')
+    expect(f.detectorProbe).toBe(true)
+    expect(
+      parseTestFlags({ ...ISOLATED, FLOW_DETECTOR_BACKEND: 'webgpu' }).detectorBackend
+    ).toBeNull()
+  })
+})

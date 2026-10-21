@@ -18,11 +18,29 @@ const devCsp: Plugin = {
 
 export default defineConfig({
   main: {},
-  preload: {},
+  // Второе окно (детектор игроков) — свой вход и свой preload.
+  preload: {
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          detector: resolve('src/preload/detector.ts')
+        }
+      }
+    }
+  },
   renderer: {
     resolve: {
       alias: {
         '@renderer': resolve('src/renderer/src')
+      }
+    },
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve('src/renderer/index.html'),
+          detector: resolve('src/renderer/detector.html')
+        }
       }
     },
     plugins: [react(), devCsp]

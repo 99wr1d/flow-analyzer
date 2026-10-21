@@ -10,3 +10,6 @@ playwright-report
 
 # Создаётся при сборке: scripts/gen-notices.mjs
 licenses/THIRD_PARTY_NOTICES.txt
+
+# Модель детектора: scripts/fetch-models.mjs (в git не хранится)
+resources/models/*.onnx
