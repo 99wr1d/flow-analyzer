@@ -3,6 +3,7 @@
 import { BrowserWindow, ipcMain } from 'electron'
 import { IPC_CHANNELS, IPC_EVENTS, type IpcResult } from '../shared/ipc-contract'
 import { bringToFront } from './bringToFront'
+import { cancelActiveTracking } from './ipc/tracking'
 import { isTrustedSender } from './security'
 
 /** Сколько ждать ответа интерфейса «есть ли несохранённое» (мс). Диалог пользователю на это время не влияет. */
@@ -38,6 +39,8 @@ function closeNow(win: BrowserWindow, guard: Guard): void {
 export function installCloseGuard(win: BrowserWindow): void {
   const guard: Guard = { phase: 'idle', timer: null }
   guards.set(win, guard)
+  // Окно закрыто (в том числе во время слежения): расчёт, ffmpeg и окно-детектор останавливаются.
+  win.on('closed', () => void cancelActiveTracking())
 
   win.on('close', (event) => {
     if (quitting || guard.phase === 'confirmed') return

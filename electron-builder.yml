@@ -6,6 +6,10 @@ files:
   - '!**/.vscode/*'
   - '!src/*'
   - '!tests/**'
+  # Модель детектора кладётся рядом с программой (extraResources), а не в архив и не дважды.
+  - '!resources/models/**'
+  # onnxruntime-web целиком вшит в сборку окна-детектора (out/renderer): пакеты с его wasm-вариантами (~140 МБ) в архив не нужны.
+  - '!node_modules/{onnxruntime-web,onnxruntime-common,flatbuffers,guid-typescript,long,platform,protobufjs,@protobufjs}/**'
   - '!scripts/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
@@ -20,6 +24,11 @@ asarUnpack:
 extraResources:
   - from: licenses
     to: licenses
+  # Модель слежения за игроком (D-FINE-S): scripts/fetch-models.mjs → resources/models/dfine_s_coco.onnx.
+  - from: resources/models
+    to: models
+    filter:
+      - '*.onnx'
 # Файлы проектов (.flowproj) открываются двойным щелчком в FlowAnalyzer.
 fileAssociations:
   - ext: flowproj

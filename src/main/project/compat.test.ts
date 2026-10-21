@@ -11,7 +11,7 @@ import {
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isAnimated } from '../../shared/animation'
+import { isAnimated, keysOf } from '../../shared/animation'
 import {
   PROJECT_FORMAT,
   PROJECT_VERSION,
@@ -24,7 +24,7 @@ import { readProjectFile } from './files'
 import { openProjectFile, saveToPath, videoFacts } from './session'
 
 const DIR = resolve('tests/fixtures/projects')
-const CURRENT_APP_VERSION = '0.16.4'
+const CURRENT_APP_VERSION = '0.17.0'
 
 interface Era {
   file: string
@@ -241,4 +241,49 @@ describe('файлы проектов прошлых версий', () => {
       })
     })
   }
+})
+
+describe('ключи слежения (auto)', () => {
+  /** Проект 0.14.0, у которого стрелка получает заданные ключи. */
+  async function withKeys(keys: unknown[]): Promise<string> {
+    const raw = JSON.parse(await readFileP(join(DIR, 'v0.14.0.flowproj'), 'utf8')) as Project
+    raw.appVersion = '0.16.4'
+    const arrow = raw.annotations.find((a) => a.type === 'arrow') as unknown as {
+      keyframes: unknown[]
+      timing: { duration: number }
+    }
+    arrow.keyframes = keys
+    arrow.timing.duration = 60
+    return JSON.stringify(raw)
+  }
+  const key = (i: number, auto: boolean): unknown => ({
+    t: 1 + i * 0.02,
+    ease: 'linear',
+    geom: { p1: { x: 0.1, y: 0.2 }, p2: { x: 0.6, y: 0.4 } },
+    ...(auto ? { auto: true } : {})
+  })
+
+  it('проект 0.16.4 без поля auto читается, ключи остаются ручными', async () => {
+    const parsed = parseProjectText(await withKeys([key(0, false), key(1, false)]))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const arrow = parsed.project.annotations.find((a) => a.type === 'arrow')
+    expect(keysOf(arrow as object)).toHaveLength(2)
+    expect(keysOf(arrow as object).every((k) => k.auto === undefined)).toBe(true)
+  })
+
+  it('проект с 2500 ключами слежения проходит схему, auto сохраняется', async () => {
+    const keys = Array.from({ length: 2500 }, (_, i) => key(i, true))
+    const parsed = parseProjectText(await withKeys(keys))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const arrow = parsed.project.annotations.find((a) => a.type === 'arrow')
+    expect(keysOf(arrow as object)).toHaveLength(2500)
+    expect(keysOf(arrow as object).every((k) => k.auto === true)).toBe(true)
+  })
+
+  it('больше 3000 ключей не принимается', async () => {
+    const keys = Array.from({ length: 3001 }, (_, i) => key(i, true))
+    expect(parseProjectText(await withKeys(keys)).ok).toBe(false)
+  })
 })

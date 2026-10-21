@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   collectPackages,
+  fallbackLicenseText,
   formatNotices,
   normalizeLicense,
   pickLicenseFile
@@ -97,5 +98,21 @@ describe('текст уведомлений', () => {
     expect(text).toContain('MIT License text')
     expect(text).toContain('b@2.0.0\nЛицензия: ISC')
     expect(text).toContain('файл с текстом лицензии в пакете не найден')
+  })
+})
+
+describe('запасные тексты лицензий', () => {
+  it('onnxruntime-web/-common — MIT Microsoft, у web есть ссылка на ThirdPartyNotices', () => {
+    for (const name of ['onnxruntime-web', 'onnxruntime-common']) {
+      expect(fallbackLicenseText(name)).toContain('Copyright (c) Microsoft Corporation')
+      expect(fallbackLicenseText(name)).toContain('Permission is hereby granted')
+    }
+    expect(fallbackLicenseText('onnxruntime-web')).toContain(
+      'https://github.com/microsoft/onnxruntime/blob/main/ThirdPartyNotices.txt'
+    )
+  })
+  it('guid-typescript — ISC; для прочих пакетов запасного текста нет', () => {
+    expect(fallbackLicenseText('guid-typescript')).toContain('ISC License')
+    expect(fallbackLicenseText('zod')).toBeNull()
   })
 })

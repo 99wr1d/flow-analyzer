@@ -20,6 +20,12 @@ import type {
 import type { AboutInfo, LicenseTexts, LogEntry } from './log'
 import type { Settings, SettingsLoadResult } from './settings'
 import type { StatsExport, StatsExportResult } from './statsExport'
+import type {
+  TrackingAsk,
+  TrackingDone,
+  TrackingProgress,
+  TrackingStartRequest
+} from './tracking/trackingIpc'
 
 export const IPC_CHANNELS = {
   appGetInfo: 'app:get-info',
@@ -55,6 +61,9 @@ export const IPC_CHANNELS = {
   exportCancel: 'export:cancel',
   exportReveal: 'export:reveal',
   exportEncoders: 'export:encoders',
+  trackingStart: 'tracking:start',
+  trackingResolve: 'tracking:resolve',
+  trackingCancel: 'tracking:cancel',
   statsExportCsv: 'stats:export-csv',
   statsReveal: 'stats:reveal',
   windowSetTitle: 'window:set-title',
@@ -67,7 +76,10 @@ export const IPC_CHANNELS = {
 export const IPC_EVENTS = {
   closeRequested: 'app:close-requested',
   openProjectRequested: 'project:open-requested',
-  exportProgress: 'export:progress'
+  exportProgress: 'export:progress',
+  trackingProgress: 'tracking:progress',
+  trackingAsk: 'tracking:ask',
+  trackingDone: 'tracking:done'
 } as const
 
 export interface AppInfo {
@@ -180,6 +192,16 @@ export interface FlowApi {
   /** Показывает в проводнике файл, созданный последней выгрузкой статистики. */
   revealStatsFile(): Promise<void>
   onExportProgress(callback: (progress: ExportProgress) => void): () => void
+  /**
+   * Слежение за игроком (одна задача одновременно). Ход работы и итог приходят событиями; ответ на вопрос «Кто из них ваш?» —
+   * resolveTracking. Отмена и закрытие окна останавливают расчёт без события tracking:done. Ошибка (reject) — запрос отклонён.
+   */
+  startTracking(request: TrackingStartRequest): Promise<{ jobId: string }>
+  resolveTracking(jobId: string, index: number): Promise<void>
+  cancelTracking(jobId: string): Promise<void>
+  onTrackingProgress(callback: (progress: TrackingProgress) => void): () => void
+  onTrackingAsk(callback: (ask: TrackingAsk) => void): () => void
+  onTrackingDone(callback: (done: TrackingDone) => void): () => void
   /** Заголовок окна задаёт main: name = null — просто «FlowAnalyzer». */
   setWindowTitle(name: string | null, dirty: boolean): Promise<void>
   /** Окно пытаются закрыть: интерфейс отвечает respondClose, а при несохранённой работе спрашивает пользователя. */

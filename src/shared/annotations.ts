@@ -33,7 +33,9 @@ const ringFill = z.number().min(0).max(MAX_RING_FILL).optional()
 // --- Этап 16б: ключевые кадры (анимация рисунка) ---
 
 /** Максимум ключей у одного рисунка. */
-export const MAX_KEYFRAMES = 200
+// Ключи слежения за игроком идут почти на каждом кадре отрезка, поэтому предел высокий (старые версии программы
+// проект с более чем 200 ключами не откроют).
+export const MAX_KEYFRAMES = 3000
 /** Ключи ближе друг к другу, секунд, считаются одним моментом. */
 export const KEY_EPS = 1e-6
 export const EASES = ['linear', 'ease'] as const
@@ -54,6 +56,8 @@ function kf<S extends z.ZodRawShape>(shape: S) {
       z.object({
         t: z.number().min(0).max(1_000_000),
         ease: z.enum(EASES).optional(),
+        /** Ключ поставлен слежением за игроком (пересчитывается при новом слежении). Нет поля — ключ ручной. */
+        auto: z.literal(true).optional(),
         geom
       })
     )
@@ -270,6 +274,8 @@ export const SpotlightSchema = z.object({
   type: z.literal('spot'),
   ...twoPoints,
   dim,
+  /** Вертикальный «луч» (как у прожектора на траве); появляется при переводе прожектора с поля для слежения. */
+  beam: z.boolean().optional(),
   style: ShapeStyleSchema,
   keyframes: kf(twoPoints),
   timing: TimingSchema

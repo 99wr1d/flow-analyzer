@@ -3,6 +3,7 @@ import { protocol } from 'electron'
 import { createReadStream } from 'fs'
 import { stat } from 'fs/promises'
 import { Readable } from 'stream'
+import { DETECTOR_SCHEME_PRIVILEGES } from '../tracking/detectorScheme'
 import { parseRange } from './range'
 import { MEDIA_SCHEME, getMediaEntry } from './registry'
 import { mimeForPath } from './validate'
@@ -12,6 +13,7 @@ const ID_PATTERN = /^[0-9a-f-]{36}$/
 /** Вызывать ДО app.whenReady(). */
 export function registerMediaScheme(): void {
   protocol.registerSchemesAsPrivileged([
+    DETECTOR_SCHEME_PRIVILEGES,
     {
       scheme: MEDIA_SCHEME,
       // corsEnabled: видео читается и в WebGL (ключ «газон»), а для этого элемент <video crossorigin> должен получить CORS-ответ.

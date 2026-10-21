@@ -1,6 +1,7 @@
 import { canBeUnder, isUnderPlayers } from '../../../../shared/annotations'
 import { ru } from '../../i18n/ru'
 import { GrassMenu } from '../under/GrassMenu'
+import { TrackButton } from '../tracking/TrackButton'
 import { useKeyHint } from '../commands/useKeys'
 import { redoAny, undoAny, useCanRedo, useCanUndo } from '../history/unified'
 import {
@@ -282,6 +283,7 @@ export function StyleBar(): React.JSX.Element {
         <UnderToggle />
         <GrassMenu />
       </div>
+      <TrackButton />
       <span className="style-bar__spacer" />
       <button
         type="button"

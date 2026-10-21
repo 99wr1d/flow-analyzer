@@ -10,6 +10,8 @@ import { registerIpcHandlers } from './ipc/register'
 import { registerMediaProtocol, registerMediaScheme } from './media/protocol'
 import { pickProjectArg, setLaunchPath } from './project/launch'
 import { trustPath } from './project/session'
+import { createDetector } from './tracking/detectorWindow'
+import { testFlags } from './testFlags'
 import { applySessionSecurity, createMainWindow } from './window'
 
 // Для автотестов: отдельная папка данных (настройки и т. п.), чтобы не трогать настоящие. Только абсолютный путь.
@@ -73,6 +75,10 @@ if (gotLock) {
     })
 
     applySessionSecurity()
+    // Автотест окна-детектора (только с FLOW_USER_DATA и FLOW_TEST_DETECTOR=1).
+    if (testFlags().detectorProbe) {
+      ;(globalThis as Record<string, unknown>)['__flowCreateDetector'] = createDetector
+    }
     registerMediaProtocol()
     registerIpcHandlers()
 

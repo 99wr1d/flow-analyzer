@@ -28,6 +28,8 @@ export type Geom = Record<string, unknown>
 export interface Keyframe {
   t: number
   ease?: Ease
+  /** Ключ поставлен слежением за игроком; нет поля — ручной. */
+  auto?: true
   geom: Geom
 }
 
@@ -190,7 +192,7 @@ export function extendRange(timing: Timing, keys: readonly Keyframe[]): Timing {
 }
 
 /** Записывает ключи: геометрия рисунка = геометрия первого ключа, отрезок охватывает ключи. */
-function withKeys<T extends Annotation>(a: T, keys: Keyframe[]): T {
+export function withKeys<T extends Annotation>(a: T, keys: Keyframe[]): T {
   if (keys.length === 0) {
     const { keyframes: _removed, ...rest } = a as T & { keyframes?: unknown }
     void _removed
@@ -226,7 +228,10 @@ export function upsertKey<T extends Annotation>(a: T, t: number, geom: Geom, fps
   const keys = [...keysOf(a)]
   const at = keyIndexAt(a, t, fps)
   if (at >= 0) {
-    keys[at] = { ...keys[at], geom }
+    // Ключ, который поправил тренер, больше не «слежение»: пересчёт его не заменит.
+    const { auto: _auto, ...manual } = keys[at]
+    void _auto
+    keys[at] = { ...manual, geom }
     return withKeys(a, keys)
   }
   if (keys.length >= MAX_KEYFRAMES) return a
@@ -269,7 +274,13 @@ export function retimeKey<T extends Annotation>(a: T, index: number, t: number, 
   // Не вышли за соседей из-за округления до кадра.
   if (kt < lo - 1e-9 || kt > hi + 1e-9) return a
   if (Math.abs(kt - keys[index].t) < 1e-9) return a
-  const next = keys.map((k, i) => (i === index ? { ...k, t: kt } : k))
+  // Сдвинутый руками ключ теряет auto (см. upsertKey).
+  const next = keys.map((k, i) => {
+    if (i !== index) return k
+    const { auto: _auto, ...manual } = k
+    void _auto
+    return { ...manual, t: kt }
+  })
   return withKeys(a, next)
 }
 

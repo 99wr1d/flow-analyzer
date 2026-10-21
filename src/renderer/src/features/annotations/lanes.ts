@@ -31,3 +31,15 @@ export function assignLanes(list: readonly Annotation[], fps: number): LaneItem[
     return { id: a.id, lane, start, end }
   })
 }
+
+/** Подряд идущие авто-ключи (слежение): первый и последний номер каждой серии. */
+export function autoRuns(keys: ReadonlyArray<{ auto?: true }>): Array<[number, number]> {
+  const runs: Array<[number, number]> = []
+  keys.forEach((k, i) => {
+    if (!k.auto) return
+    const last = runs[runs.length - 1]
+    if (last && last[1] === i - 1) last[1] = i
+    else runs.push([i, i])
+  })
+  return runs
+}

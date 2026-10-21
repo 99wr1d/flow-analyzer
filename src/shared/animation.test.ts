@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { AnnotationSchema, type Annotation, type Ring, type Zone } from './annotations'
+import {
+  AnnotationSchema,
+  MAX_KEYFRAMES,
+  type Annotation,
+  type Ring,
+  type Zone
+} from './annotations'
 import {
   addKeyHere,
   applyGeomEdit,
@@ -115,12 +121,12 @@ describe('startAnimation и ключи', () => {
     expect(px(keysOf(b)[1].geom, 'p1')).toBeCloseTo(0.3, 6)
     expect(addKeyHere(b, 1.53, FPS)).toBe(b)
   })
-  it('не больше 200 ключей', () => {
+  it('не больше MAX_KEYFRAMES ключей', () => {
     let a = startAnimation(arrow(), 0, FPS, 60)
-    for (let i = 1; i < 260; i += 1) {
+    for (let i = 1; i < MAX_KEYFRAMES + 60; i += 1) {
       a = upsertKey(a, (i + 0.5) / FPS, { p1: { x: 0.2, y: 0.2 }, p2: { x: 0.3, y: 0.3 } }, FPS)
     }
-    expect(keysOf(a)).toHaveLength(200)
+    expect(keysOf(a)).toHaveLength(MAX_KEYFRAMES)
   })
 })
 
@@ -326,9 +332,12 @@ describe('схема: ключи', () => {
     const same = { ...a, keyframes: [a.keyframes[0], { ...a.keyframes[0] }] }
     expect(AnnotationSchema.safeParse(same).success).toBe(false)
   })
-  it('не больше 200 ключей, не пустой список', () => {
+  it('не больше MAX_KEYFRAMES ключей, не пустой список', () => {
     const a = twoKeys() as unknown as { keyframes: Array<{ t: number; geom: unknown }> }
-    const many = Array.from({ length: 201 }, (_, i) => ({ t: i + 1, geom: a.keyframes[0].geom }))
+    const many = Array.from({ length: MAX_KEYFRAMES + 1 }, (_, i) => ({
+      t: i + 1,
+      geom: a.keyframes[0].geom
+    }))
     expect(AnnotationSchema.safeParse({ ...a, keyframes: many }).success).toBe(false)
     expect(AnnotationSchema.safeParse({ ...a, keyframes: [] }).success).toBe(false)
   })
@@ -362,5 +371,63 @@ describe('схема: ключи', () => {
     const a = twoKeys() as unknown as { keyframes: Array<Record<string, unknown>> }
     const bad = { ...a, keyframes: [{ ...a.keyframes[0], ease: 'bounce' }, a.keyframes[1]] }
     expect(AnnotationSchema.safeParse(bad).success).toBe(false)
+  })
+})
+
+describe('ключи слежения: ручная правка снимает auto', () => {
+  const tracked = (): Annotation => {
+    const base = arrow()
+    return {
+      ...base,
+      p1: { x: 0.1, y: 0.2 },
+      keyframes: [
+        {
+          t: 1.02,
+          ease: 'linear',
+          auto: true,
+          geom: { p1: { x: 0.1, y: 0.2 }, p2: { x: 0.5, y: 0.6 } }
+        },
+        {
+          t: 1.5,
+          ease: 'linear',
+          auto: true,
+          geom: { p1: { x: 0.2, y: 0.2 }, p2: { x: 0.6, y: 0.6 } }
+        },
+        {
+          t: 2.1,
+          ease: 'linear',
+          auto: true,
+          geom: { p1: { x: 0.3, y: 0.2 }, p2: { x: 0.7, y: 0.6 } }
+        }
+      ]
+    } as Annotation
+  }
+
+  it('upsertKey в кадре авто-ключа: ключ становится ручным', () => {
+    const next = upsertKey(tracked(), 1.5, { p1: { x: 0.25, y: 0.3 }, p2: { x: 0.6, y: 0.6 } }, FPS)
+    const keys = keysOf(next)
+    expect(keys).toHaveLength(3)
+    expect(keys[1].auto).toBeUndefined()
+    expect(keys[0].auto).toBe(true)
+    expect(keys[2].auto).toBe(true)
+  })
+
+  it('applyGeomEdit по авто-ключу: ключ становится ручным', () => {
+    const stored = tracked()
+    const edited = { ...stored, p1: { x: 0.9, y: 0.9 } } as Annotation
+    const next = applyGeomEdit(stored, edited, 2.1, FPS)
+    expect(keysOf(next)[2].auto).toBeUndefined()
+  })
+
+  it('retimeKey сдвигает авто-ключ: он становится ручным', () => {
+    const next = retimeKey(tracked(), 1, 1.7, FPS)
+    expect(keysOf(next)[1].auto).toBeUndefined()
+    expect(keysOf(next)[1].t).toBeCloseTo(1.7, 6)
+  })
+
+  it('retimeKey не трогает остальные авто-ключи', () => {
+    const next = retimeKey(tracked(), 1, 1.7, FPS)
+    expect(keysOf(next)[0].auto).toBe(true)
+    expect(keysOf(next)[2].auto).toBe(true)
   })
 })

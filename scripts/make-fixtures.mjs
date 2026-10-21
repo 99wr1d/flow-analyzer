@@ -6,6 +6,8 @@
 //   node scripts/make-fixtures.mjs chrome   # только sample.webm, sample.mp4, broken.mp4 (нужен Google Chrome)
 //   node scripts/make-fixtures.mjs pitch    # только pitch.mp4 и pitch.json (нужны Google Chrome и ffmpeg-static)
 //   node scripts/make-fixtures.mjs players  # только players.mp4 (нужен лишь ffmpeg-static)
+//   node scripts/make-fixtures.mjs runner   # только runner.mp4 (нужен лишь ffmpeg-static)
+//   node scripts/make-fixtures.mjs cross    # только cross.mp4 (нужен лишь ffmpeg-static)
 //
 // 1) cfr25.mp4 (H.264, 25 к/с) и cfr30.webm (VP8, 30 к/с): ровная частота кадров, на каждом кадре крупно
 //    нарисован его номер (drawtext). Делает ffmpeg из пакета ffmpeg-static (devDependency).
@@ -16,6 +18,10 @@
 // 4) players.mp4: газон с шумом и полосами, белая линия и три крупных «игрока» (красный, синий, жёлтый) — для
 //    проверки рисунков «под игроками» (ключ по газону). 640×360, 25 к/с, 3 секунды. Координаты игроков описаны
 //    в PLAYERS ниже: по ним тесты знают, где игрок, а где трава.
+// 5) runner.mp4: «бегущая фигурка» для слежения за игроком. Газон, красный бегун (голова, туловище, ноги) бежит вправо,
+//    синий стоит на его пути (бегун проходит мимо него), жёлтый стоит дальше. С 2,4 с — смена плана (серый кадр).
+//    Положение бегуна — точная функция времени середины кадра (см. RUNNER): по ней e2e проверяют, что ключи слежения
+//    попадают на тот же кадр, который показывает плеер. 640×360, 25 к/с, 3 секунды.
 // 2) sample.*: в странице рисуется 6-секундная анимация на canvas, canvas.captureStream() пишется через
 //    MediaRecorder в Chrome (Playwright, channel: 'chrome'). Частота кадров там НЕ постоянная — это нужно,
 //    чтобы проверять поведение на «неидеальных» файлах. WebM из MediaRecorder не содержит длительности,
@@ -582,13 +588,125 @@ function makePlayers() {
   console.log(`players.mp4: ${(statSync(join(OUT, 'players.mp4')).size / 1024).toFixed(0)} КБ`)
 }
 
+// ---------- Бегущая фигурка (слежение за игроком) ----------
+export const RUNNER = {
+  frame: { w: 640, h: 360 },
+  fps: 25,
+  seconds: 3,
+  grass: '#2a7d3e',
+  /** Смена плана: с этого момента кадр серый и игроков нет. */
+  cutAt: 2.4,
+  // Рамки фигур в долях кадра; бегун: x(t) = x0 + speed · t, t — середина кадра.
+  runner: { x0: 0.05, y: 0.4, w: 0.06, h: 0.34, speed: 0.25, color: '#d62839' },
+  blue: { x: 0.42, y: 0.36, w: 0.06, h: 0.34, color: '#1d4ed8' },
+  yellow: { x: 0.8, y: 0.45, w: 0.06, h: 0.34, color: '#f2c200' },
+  skin: '#e8b896',
+  cutColor: '#4a4f5a'
+}
+
+/** Слой с фигурой человека (голова, туловище, две ноги) на прозрачном фоне: w × h пикселей. */
+function figureLayer(w, h, color, skin, seconds, fps) {
+  const hex = (c) => '0x' + c.slice(1)
+  const head = Math.round(h * 0.22)
+  const torsoTop = Math.round(h * 0.25)
+  const legsTop = Math.round(h * 0.68)
+  const leg = Math.round(w * 0.4)
+  const headW = Math.round(w * 0.5)
+  const box = (x, y, bw, bh, c) => `drawbox=x=${x}:y=${y}:w=${bw}:h=${bh}:color=${hex(c)}:t=fill`
+  return [
+    `color=c=0xFF00FF:s=${w}x${h}:r=${fps}:d=${seconds}`,
+    box(Math.round((w - headW) / 2), 0, headW, head, skin),
+    box(0, torsoTop, w, legsTop - torsoTop, color),
+    box(0, legsTop, leg, h - legsTop, color),
+    box(w - leg, legsTop, leg, h - legsTop, color),
+    // Фон фигуры (пурпурный) — прозрачный.
+    'format=rgba',
+    'colorkey=0xFF00FF:0.01:0'
+  ].join(',')
+}
+
+function makeRunner() {
+  const ffmpeg = createRequire(import.meta.url)('ffmpeg-static')
+  if (!ffmpeg) throw new Error('ffmpeg-static не нашёл ffmpeg для этой системы')
+  const { frame, fps, seconds, grass, cutAt, runner, blue, yellow, skin, cutColor } = RUNNER
+  const px = (v, total) => Math.round(v * total)
+  const size = (f) => [px(f.w, frame.w), px(f.h, frame.h)]
+  const [rw, rh] = size(runner)
+  const [bw, bh] = size(blue)
+  const [yw, yh] = size(yellow)
+  // Бегун: левый край = ширина кадра · (x0 + скорость · время середины кадра); t в overlay — начало кадра, середина = t + 0,5/fps.
+  const runnerX = `${frame.w}*(${runner.x0}+${runner.speed}*(t+${0.5 / fps}))`
+  const graph = [
+    `[0:v][1:v]overlay=x='${runnerX}':y=${px(runner.y, frame.h)}:eval=frame[a]`,
+    `[a][2:v]overlay=x=${px(blue.x, frame.w)}:y=${px(blue.y, frame.h)}[b]`,
+    `[b][3:v]overlay=x=${px(yellow.x, frame.w)}:y=${px(yellow.y, frame.h)}[c]`,
+    `[c]drawbox=x=0:y=0:w=${frame.w}:h=${frame.h}:color=${'0x' + cutColor.slice(1)}:t=fill:enable='gte(t,${cutAt})',format=yuv420p[v]`
+  ].join(';')
+  execFileSync(
+    ffmpeg,
+    [
+      ...['-y', '-hide_banner', '-loglevel', 'error'],
+      ...['-f', 'lavfi', '-i', `color=c=${grass}:s=${frame.w}x${frame.h}:r=${fps}:d=${seconds}`],
+      ...['-f', 'lavfi', '-i', figureLayer(rw, rh, runner.color, skin, seconds, fps)],
+      ...['-f', 'lavfi', '-i', figureLayer(bw, bh, blue.color, skin, seconds, fps)],
+      ...['-f', 'lavfi', '-i', figureLayer(yw, yh, yellow.color, skin, seconds, fps)],
+      ...['-filter_complex', graph, '-map', '[v]'],
+      ...['-c:v', 'libx264', '-profile:v', 'main', '-preset', 'slow', '-crf', '16', '-g', '25'],
+      ...['-r', String(fps), '-an', '-movflags', '+faststart', join(OUT, 'runner.mp4')]
+    ],
+    { stdio: 'inherit' }
+  )
+  writeFileSync(join(OUT, 'runner.json'), JSON.stringify(RUNNER, null, 2) + '\n', 'utf8')
+  console.log(`runner.mp4: ${(statSync(join(OUT, 'runner.mp4')).size / 1024).toFixed(0)} КБ`)
+}
+
+// ---------- Два одинаковых игрока (вопрос «Кто из них ваш?») ----------
+// Совпадает со сценарием заглушки tests/fixtures/stub-cross.json: до 1,2 с виден один красный игрок (рамка x 0.30, y 0.35..0.65),
+// потом два одинаковых красных (y 0.47..0.77 и 0.23..0.53); все идут вправо на 0,05 кадра/с (x = 0.30 + 0.05 · t, t — середина кадра).
+export const CROSS = { frame: { w: 640, h: 360 }, fps: 25, seconds: 3, splitAt: 1.2 }
+
+function makeCross() {
+  const ffmpeg = createRequire(import.meta.url)('ffmpeg-static')
+  if (!ffmpeg) throw new Error('ffmpeg-static не нашёл ffmpeg для этой системы')
+  const { frame, fps, seconds, splitAt } = CROSS
+  const { grass, skin, runner } = RUNNER
+  const w = Math.round(0.06 * frame.w)
+  const h = Math.round(0.3 * frame.h)
+  const x = `${frame.w}*(0.3+0.05*(t+${0.5 / fps}))`
+  const y = (top) => Math.round(top * frame.h)
+  const layer = figureLayer(w, h, runner.color, skin, seconds, fps)
+  const graph = [
+    '[1:v]split=3[a][b][c]',
+    `[0:v][a]overlay=x='${x}':y=${y(0.35)}:eval=frame:enable='lt(t,${splitAt})'[o1]`,
+    `[o1][b]overlay=x='${x}':y=${y(0.47)}:eval=frame:enable='gte(t,${splitAt})'[o2]`,
+    `[o2][c]overlay=x='${x}':y=${y(0.23)}:eval=frame:enable='gte(t,${splitAt})',format=yuv420p[v]`
+  ].join(';')
+  execFileSync(
+    ffmpeg,
+    [
+      ...['-y', '-hide_banner', '-loglevel', 'error'],
+      ...['-f', 'lavfi', '-i', `color=c=${grass}:s=${frame.w}x${frame.h}:r=${fps}:d=${seconds}`],
+      ...['-f', 'lavfi', '-i', layer],
+      ...['-filter_complex', graph, '-map', '[v]'],
+      ...['-c:v', 'libx264', '-profile:v', 'main', '-preset', 'slow', '-crf', '16', '-g', '25'],
+      ...['-r', String(fps), '-an', '-movflags', '+faststart', join(OUT, 'cross.mp4')]
+    ],
+    { stdio: 'inherit' }
+  )
+  console.log(`cross.mp4: ${(statSync(join(OUT, 'cross.mp4')).size / 1024).toFixed(0)} КБ`)
+}
+
 async function main() {
   mkdirSync(OUT, { recursive: true })
   const mode = process.argv[2] ?? 'all'
   if (mode === 'pitch') return makePitch()
   if (mode === 'players') return makePlayers()
+  if (mode === 'runner') return makeRunner()
+  if (mode === 'cross') return makeCross()
   if (mode === 'all' || mode === 'cfr') makeCfr()
   if (mode === 'all') makePlayers()
+  if (mode === 'all') makeRunner()
+  if (mode === 'all') makeCross()
   if (mode === 'cfr') return
   const browser = await chromium.launch({ channel: 'chrome', headless: true })
   try {

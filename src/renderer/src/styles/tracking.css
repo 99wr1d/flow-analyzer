@@ -1,0 +1,100 @@
+/* ---------- Слежение за игроком ---------- */
+.track-btn {
+  gap: 5px;
+  padding: 0 9px;
+  white-space: nowrap;
+}
+@media (max-width: 1180px) {
+  .track-btn__text {
+    display: none;
+  }
+}
+
+/* Слой над видео: панель внизу и (при вопросе «Кто из них ваш?») рамки игроков по картинке. */
+.track-host {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.track-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100% - var(--u) * 4);
+  padding: 8px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: rgba(21, 24, 30, 0.95);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+.track-panel__text {
+  min-width: 0;
+}
+.track-panel__bar {
+  flex: none;
+  width: 180px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--panel-3);
+}
+.track-panel__bar > i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.1s linear;
+}
+
+/* Щит над картинкой: пока ждём щелчка по игроку, рисунки под ним не реагируют на мышь. */
+.pick-shield {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.22);
+  cursor: default;
+}
+.pick-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  padding: 7px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(21, 24, 30, 0.95);
+  font-weight: 600;
+  transform: translateX(-50%);
+}
+.pick-box {
+  position: absolute;
+  padding: 0;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: rgba(43, 214, 123, 0.14);
+  cursor: pointer;
+}
+.pick-box:hover,
+.pick-box:focus-visible {
+  background: rgba(43, 214, 123, 0.32);
+  outline: none;
+}
+
+/* Дорожка «Рисунки»: сплошная полоса там, где ключи поставило слежение. */
+.anno-track__band {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  border-radius: 2px;
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.55) 0 3px,
+    rgba(255, 255, 255, 0.18) 3px 6px
+  );
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}

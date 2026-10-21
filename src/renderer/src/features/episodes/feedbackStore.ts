@@ -6,6 +6,8 @@ export interface Toast {
   color?: string
   /** Эпизод, который можно оценить прямо из подсказки (кнопки «хорошо», «плохо», «разобрать»). */
   episodeId?: string
+  /** Сколько показывать, мс (нет — по умолчанию). */
+  ms?: number
   nonce: number
 }
 
