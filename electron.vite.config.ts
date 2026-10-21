@@ -8,7 +8,9 @@ import react from '@vitejs/plugin-react'
 const devCsp: Plugin = {
   name: 'flow-dev-csp',
   apply: 'serve',
-  transformIndexHtml(html) {
+  transformIndexHtml(html, ctx) {
+    // У окна-детектора своя CSP (wasm, воркеры): её dev-сервер не трогает.
+    if (ctx.filename.endsWith('detector.html')) return html
     return html.replace(
       /<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?\/>/,
       `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: flow-media:; font-src 'self'; connect-src 'self' ws://localhost:* http://localhost:*" />`

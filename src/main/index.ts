@@ -14,10 +14,6 @@ import { createDetector } from './tracking/detectorWindow'
 import { testFlags } from './testFlags'
 import { applySessionSecurity, createMainWindow } from './window'
 
-// Окно-детектор слежения считает на процессоре в нескольких потоках (WASM), а для этого нужен SharedArrayBuffer.
-// Окна приложения без cross-origin isolation его по умолчанию не получают.
-app.commandLine.appendSwitch('enable-features', 'SharedArrayBuffer')
-
 // Для автотестов: отдельная папка данных (настройки и т. п.), чтобы не трогать настоящие. Только абсолютный путь.
 const customUserData = process.env['FLOW_USER_DATA']
 if (customUserData && isAbsolute(customUserData)) app.setPath('userData', customUserData)

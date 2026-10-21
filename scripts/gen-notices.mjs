@@ -7,7 +7,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { collectPackages, formatNotices, pickLicenseFile } from './notices-lib.mjs'
+import {
+  collectPackages,
+  fallbackLicenseText,
+  formatNotices,
+  pickLicenseFile
+} from './notices-lib.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const out = resolve(process.argv[2] ?? join(root, 'licenses', 'THIRD_PARTY_NOTICES.txt'))
@@ -61,7 +66,7 @@ function readLicenseText(pkg) {
 const packages = collectPackages(npmTree())
 const texts = new Map()
 for (const p of packages) {
-  const text = readLicenseText(p)
+  const text = readLicenseText(p) ?? fallbackLicenseText(p.name)
   if (text) texts.set(`${p.name}@${p.version}`, text)
 }
 

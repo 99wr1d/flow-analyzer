@@ -13,10 +13,19 @@ import {
 import { readySchema, resultSchema } from '../../shared/tracking/detectorSchemas'
 import type { Box, Detection } from '../../shared/tracking/types'
 import { logError, logInfo, logWarn } from '../log/logger'
+import {
+  DETECTOR_PARTITION,
+  DETECTOR_URL,
+  detectorRoot,
+  isolateDevServer,
+  serveDetectorScheme
+} from './detectorScheme'
 import { testFlags } from '../testFlags'
 
 export const MODEL_FILE = 'dfine_s_coco.onnx'
 /** Создание сессии (чтение модели, компиляция шейдеров WebGPU) — не дольше этого. */
+/** Меньшие кадры сети не подаются (нет смысла, и вход должен быть не пуст). */
+const MIN_FRAME_SIDE = 32
 const READY_TIMEOUT_MS = 120_000
 
 export interface DetectorFrame {
@@ -74,13 +83,17 @@ export async function createDetector(): Promise<Detector> {
       sandbox: true,
       webSecurity: true,
       // Своя временная сессия: настройки безопасности окна не задевают основное.
-      partition: 'flow-detector',
+      partition: DETECTOR_PARTITION,
       // Скрытое окно иначе притормаживается: расчёт должен идти на полной скорости.
       backgroundThrottling: false
     }
   })
   win.removeMenu()
   const wc = win.webContents
+  const devUrl = process.env['ELECTRON_RENDERER_URL']
+  const devServer = is.dev && devUrl
+  if (devServer) isolateDevServer(wc.session)
+  else serveDetectorScheme(wc.session, detectorRoot(__dirname))
   wc.setWindowOpenHandler(() => ({ action: 'deny' }))
   wc.on('will-navigate', (event) => event.preventDefault())
   // Окно сети не использует (CSP: connect-src 'self'), разрешений у него нет.
@@ -156,8 +169,7 @@ export async function createDetector(): Promise<Detector> {
   wc.on('console-message', (event) => {
     if (event.level === 'warning' || event.level === 'error') {
       logWarn('detector', `${event.level}: ${event.message}`)
-      if (process.env['FLOW_DETECTOR_DEBUG'] === '1')
-        console.error('[detector page]', event.message)
+      if (testFlags().detectorDebug) console.error('[detector page]', event.message)
     }
   })
   wc.on('render-process-gone', (_event, details) => {
@@ -173,9 +185,7 @@ export async function createDetector(): Promise<Detector> {
     fail(new Error('Детектор закрыт'))
   })
 
-  const devUrl = process.env['ELECTRON_RENDERER_URL']
-  if (is.dev && devUrl) void win.loadURL(`${devUrl}/detector.html`)
-  else void win.loadFile(join(__dirname, '../renderer/detector.html'))
+  void win.loadURL(devServer ? `${devUrl}/detector.html` : DETECTOR_URL)
 
   const timer = setTimeout(
     () => fail(new Error('Детектор не запустился за отведённое время')),
@@ -196,6 +206,19 @@ export async function createDetector(): Promise<Detector> {
     backend,
     detect(frame, roi) {
       if (closed || failure) return Promise.reject(failure ?? new Error('Детектор закрыт'))
+      if (
+        !Number.isInteger(frame.width) ||
+        !Number.isInteger(frame.height) ||
+        frame.width < MIN_FRAME_SIDE ||
+        frame.height < MIN_FRAME_SIDE ||
+        frame.rgba.byteLength !== frame.width * frame.height * 4
+      ) {
+        return Promise.reject(
+          new Error(
+            `Кадр для детектора задан неверно: ${frame.width}×${frame.height}, байт ${frame.rgba.byteLength} (нужно ширина×высота×4, сторона не меньше ${MIN_FRAME_SIDE})`
+          )
+        )
+      }
       const id = nextId++
       const request: DetectRequest = {
         id,

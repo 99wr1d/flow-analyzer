@@ -14,6 +14,8 @@ interface Probe {
   msFull: number
   msRoi: number
   afterCloseRejected: boolean
+  badFrameRejected: boolean
+  detectorIsolated: boolean
 }
 
 /** Всё выполняется в главном процессе: кадр 960×540 с тремя «фигурками», полный кадр и вырез вокруг одной из них. */
@@ -92,6 +94,13 @@ async function probe(app: ElectronApplication): Promise<Probe> {
     let part!: Out
     for (let i = 0; i < N; i += 1) part = await det.detect(frame, roi)
     const msRoi = (performance.now() - t0) / N
+    const badFrameRejected = await det.detect({ rgba: new Uint8Array(10), width, height }).then(
+      () => false,
+      (e: Error) => /Кадр для детектора/.test(e.message)
+    )
+    const detectorIsolated = BrowserWindow.getAllWindows().some((w) =>
+      w.webContents.getURL().startsWith('flow-detector://')
+    )
     det.close()
     const afterCloseRejected = await det.detect(frame).then(
       () => false,
@@ -110,12 +119,22 @@ async function probe(app: ElectronApplication): Promise<Probe> {
       },
       roi: {
         count: part.detections.length,
-        bad: check(part, { x: 160, y: 0, w: 640, h: 384 }),
+        bad: check(
+          part,
+          {
+            x: 160,
+            y: 98,
+            w: 640,
+            h: 384
+          } /* roiCrop: центр на игроке (y 200..380), вырез сдвинут вверх на 98 */
+        ),
         histSum: histSum(part)
       },
       msFull,
       msRoi,
-      afterCloseRejected
+      afterCloseRejected,
+      badFrameRejected,
+      detectorIsolated
     }
   })
 }
@@ -124,7 +143,7 @@ for (const wanted of ['webgpu', 'wasm'] as const) {
   test(`окно-детектор: настоящая модель отвечает на бэкенде ${wanted}`, async () => {
     const testInfo = test.info()
     test.setTimeout(240_000)
-    const { app } = await launch({
+    const { app, win } = await launch({
       env: {
         FLOW_TEST_DETECTOR: '1',
         ...(wanted === 'wasm' ? { FLOW_DETECTOR_BACKEND: 'wasm' } : {})
@@ -132,6 +151,13 @@ for (const wanted of ['webgpu', 'wasm'] as const) {
     })
     try {
       const r = await probe(app)
+      // SharedArrayBuffer есть только у окна-детектора (изоляция по схеме flow-detector), у основного окна его нет.
+      const mainIsolation = await win.evaluate(() => ({
+        isolated: crossOriginIsolated,
+        sab: typeof SharedArrayBuffer
+      }))
+      expect(mainIsolation).toEqual({ isolated: false, sab: 'undefined' })
+      expect(r.detectorIsolated).toBe(true)
       console.log(`[detector ${wanted}] ${JSON.stringify(r)}`)
       testInfo.annotations.push({
         type: 'detector',
@@ -151,6 +177,7 @@ for (const wanted of ['webgpu', 'wasm'] as const) {
       expect(r.roi.histSum).toBeCloseTo(3, 3)
       expect(r.windowsAfter).toBe(r.windowsBefore)
       expect(r.afterCloseRejected).toBe(true)
+      expect(r.badFrameRejected).toBe(true)
     } finally {
       await app.close()
     }
