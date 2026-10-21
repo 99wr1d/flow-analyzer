@@ -143,13 +143,16 @@ export class SingleTracker {
     const cands = this.candidates(f.detections, pred)
 
     if (this.miss === 0) {
-      // Пока примета «грязная», верим только единственному кандидату в воротах.
-      if (this.dirty && cands.length !== 1) return this.coast(pred)
+      // Пока примета «грязная» (взята рядом с соседом), даже единственный кандидат в воротах — сомнение: это может быть
+      // сосед, а наш игрок скрыт. Молча не берём: пережидание, по истечении срока — вопрос.
+      if (this.dirty) return this.coast(pred)
+      // Рядом с прогнозом есть «чуть непохожая» рамка (возможно, наш игрок в тени): чистого соседа молча не берём.
+      if (this.doubtful.length > 0) return this.coast(pred)
       const scored = cands
         .map((c) => ({
           c,
           cost:
-            (this.dirty ? 0 : ASSOC_APPEARANCE_WEIGHT * c.app) +
+            ASSOC_APPEARANCE_WEIGHT * c.app +
             (1 - ASSOC_APPEARANCE_WEIGHT) * (0.5 * (1 - c.iou) + 0.5 * Math.min(c.dist, 1))
         }))
         .sort((p, q) => p.cost - q.cost)
@@ -180,10 +183,12 @@ export class SingleTracker {
     const hidden = [...cands.filter((c) => c.overlapped || c.merged), ...this.doubtful].map(
       recoverCost
     )
+    // Сомнительная рамка (наш игрок, но примета ушла) не хуже чистой с запасом ASK_GAP: чистую молча не берём.
+    const doubtCosts = this.doubtful.map(recoverCost)
     if (
       ranked.length > 0 &&
-      hidden.length > 0 &&
-      Math.min(...hidden) + HIDDEN_BETTER_MARGIN < ranked[0].cost
+      ((hidden.length > 0 && Math.min(...hidden) + HIDDEN_BETTER_MARGIN < ranked[0].cost) ||
+        (doubtCosts.length > 0 && ranked[0].cost > Math.min(...doubtCosts) - ASK_GAP))
     ) {
       if (this.miss + 1 >= this.coastFrames && this.doubtful.length > 0) {
         return {
@@ -198,7 +203,8 @@ export class SingleTracker {
     }
     if (ranked.length > 0) {
       // С «грязной» приметой различать кандидатов нечем: больше одного — только вопрос.
-      const gap = ranked.length > 1 ? (this.dirty ? 0 : ranked[1].cost - ranked[0].cost) : Infinity
+      // Единственный кандидат при «грязной» примете — тоже сомнение (отрыв 0): молча не берём, по истечении срока спросим.
+      const gap = this.dirty ? 0 : ranked.length > 1 ? ranked[1].cost - ranked[0].cost : Infinity
       // Далеко от прогноза: похожий игрок мог оказаться и чужим — молча не берём, по истечении срока спросим.
       const far = ranked[0].c.dist > RECOVER_FAR_DIST
       if (gap >= ASK_GAP && !far && ranked[0].cost <= RECOVER_MAX_COST) {
@@ -242,8 +248,11 @@ export class SingleTracker {
     this.h = det.box.h
     this.lastBox = { ...det.box }
     this.miss = 0
-    if (clean) this.look.set(det.look)
-    this.dirty = false
+    // Рамка с примесью соседа примету не обновляет и «грязность» не снимает.
+    if (clean) {
+      this.look.set(det.look)
+      this.dirty = false
+    }
   }
 
   private candidates(dets: Detection[], pred: Box): Cand[] {
@@ -286,12 +295,7 @@ export class SingleTracker {
     this.lastBox = { ...b }
     this.miss = 0
     if (confident && !c.overlapped && !c.merged) {
-      if (this.dirty) {
-        this.look.set(c.det.look)
-        this.dirty = false
-      } else {
-        blendLook(this.look, c.det.look, APPEARANCE_BLEND)
-      }
+      blendLook(this.look, c.det.look, APPEARANCE_BLEND)
     }
   }
 
