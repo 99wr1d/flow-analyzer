@@ -24,6 +24,7 @@ import {
   GATE_MAX,
   DIRTY_CONTINUITY_DIST,
   DIRTY_CONTINUITY_IOU,
+  DIRTY_APPEARANCE_CAP,
   DIRTY_LOOK_MARGIN,
   HEIGHT_JUMP_RATIO,
   DOUBT_APPEARANCE,
@@ -167,6 +168,7 @@ export class SingleTracker {
           !lone.merged &&
           lone.dist <= DIRTY_CONTINUITY_DIST &&
           lone.iou >= DIRTY_CONTINUITY_IOU &&
+          lone.app <= DIRTY_APPEARANCE_CAP &&
           this.looksLikeUsNotNeighbour(lone.det.look)
         ) {
           this.accept(lone, false)
@@ -290,14 +292,12 @@ export class SingleTracker {
     // Прогноз по старой траектории больше не годится: заново с выбранной рамки.
     this.kx = new Kalman1D(c.x, KALMAN_Q, KALMAN_R)
     this.ky = new Kalman1D(c.y, KALMAN_Q, KALMAN_R)
-    // Размер слитой рамки не берём: он включает соседа.
-    if (!tall) {
-      this.w = det.box.w
-      this.h = det.box.h
-    }
+    // Размер берём всегда: пользователь подтвердил эту рамку (иначе после долгого «присела» своя рамка вечно «высокая»).
+    this.w = det.box.w
+    this.h = det.box.h
     this.lastBox = { ...det.box }
     this.miss = 0
-    // Рамка с примесью соседа примету не обновляет и «грязность» не снимает.
+    // Слитая (высокая) рамка и рамка с примесью соседа примету не обновляют и «грязность» не снимают.
     if (clean) {
       this.look.set(det.look)
       this.dirty = false

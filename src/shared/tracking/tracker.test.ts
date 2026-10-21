@@ -488,6 +488,44 @@ describe('SingleTracker: не перепрыгивать на другого (и
     })
   })
 
+  describe('раунд 5', () => {
+    it.each([6, 8])(
+      '(в) %i кадров по 62 px, затем 100 px, пользователь отвечает: слежение идёт уверенно',
+      (low) => {
+        const tr = new SingleTracker(det(300, 300, RED, 40, 100), FPS, { frame: FRAME })
+        let f = 1
+        for (; f <= 10; f += 1) tr.step(frame(f, [det(300, 300, RED, 40, 100)]))
+        for (let g = 0; g < low; g += 1, f += 1) tr.step(frame(f, [det(300, 320, RED, 40, 62)]))
+        let asks = 0
+        const out: StepResult[] = []
+        for (let g = 0; g < 150; g += 1, f += 1) {
+          const r = tr.step(frame(f, [det(300, 300, RED, 40, 100)]))
+          out.push(r)
+          if (r.kind === 'ask') {
+            asks += 1
+            tr.resolve(r.candidates[0])
+          }
+        }
+        expect(asks).toBeLessThanOrEqual(1)
+        expect(out.filter(confident).length).toBeGreaterThan(120)
+      }
+    )
+
+    it.each([
+      ['красный/жёлтый', look([220, 30, 30], [230, 220, 40])],
+      ['белый/белый', look([255, 255, 255], [255, 255, 255])]
+    ])('грязный старт: третий игрок другой формы (%s) на прогнозе не берётся молча', (_n, X) => {
+      const tr = new SingleTracker(det(300, 300, RED), FPS, {
+        frame: FRAME,
+        dirtyStart: true,
+        startNeighbours: [det(330, 300, BLUE)]
+      })
+      run(tr, 1, 10, (f) => [det(300 + 2 * f, 300, RED)])
+      const res = run(tr, 10, 30, (f) => [det(300 + 2 * f, 300, X)])
+      expect(res.some(confident)).toBe(false)
+    })
+  })
+
   describe('рамка резко выше: не вечная блокировка', () => {
     const OURS = (): Detection => det(300, 300, RED, 40, 100)
     const never = (res: StepResult[]): boolean => res.every((r) => r.kind !== 'lost') // без вопроса не теряем
