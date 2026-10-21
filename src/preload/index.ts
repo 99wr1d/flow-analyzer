@@ -28,6 +28,21 @@ import type {
 } from '../shared/project'
 import type { Settings, SettingsLoadResult } from '../shared/settings'
 import type { StatsExport, StatsExportResult } from '../shared/statsExport'
+import type {
+  TrackingAsk,
+  TrackingDone,
+  TrackingProgress,
+  TrackingStartRequest
+} from '../shared/tracking/trackingIpc'
+
+/** Подписка на событие main; приходят только объекты (остальное отбрасывается). */
+function onEvent<T>(channel: string, callback: (payload: T) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, payload: unknown): void => {
+    if (payload && typeof payload === 'object') callback(payload as T)
+  }
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
 
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const result: IpcResult<T> = await ipcRenderer.invoke(channel, ...args)
@@ -87,6 +102,17 @@ const api: FlowApi = {
     ipcRenderer.on(IPC_EVENTS.exportProgress, listener)
     return () => ipcRenderer.removeListener(IPC_EVENTS.exportProgress, listener)
   },
+  startTracking: (request: TrackingStartRequest) =>
+    invoke<{ jobId: string }>(IPC_CHANNELS.trackingStart, request),
+  resolveTracking: (jobId: string, index: number) =>
+    invoke<void>(IPC_CHANNELS.trackingResolve, { jobId, index }),
+  cancelTracking: (jobId: string) => invoke<void>(IPC_CHANNELS.trackingCancel, { jobId }),
+  onTrackingProgress: (callback: (progress: TrackingProgress) => void) =>
+    onEvent(IPC_EVENTS.trackingProgress, callback),
+  onTrackingAsk: (callback: (ask: TrackingAsk) => void) =>
+    onEvent(IPC_EVENTS.trackingAsk, callback),
+  onTrackingDone: (callback: (done: TrackingDone) => void) =>
+    onEvent(IPC_EVENTS.trackingDone, callback),
   setWindowTitle: (name: string | null, dirty: boolean) =>
     invoke<void>(IPC_CHANNELS.windowSetTitle, name, dirty),
   onCloseRequested(callback: () => void): () => void {

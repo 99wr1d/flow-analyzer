@@ -33,6 +33,9 @@ export interface DetectorFrame {
   rgba: Uint8Array
   width: number
   height: number
+  /** Номер и время кадра в видео: окно-детектор их не использует, заглушка тестов — да. */
+  index?: number
+  t?: number
 }
 
 export interface DetectOutput {
