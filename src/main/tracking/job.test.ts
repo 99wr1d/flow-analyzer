@@ -1,6 +1,7 @@
 // Задача слежения на синтетических рамках: детектор — заглушка, кадры — пустые, настоящих моделей и ffmpeg нет.
 import { describe, expect, it } from 'vitest'
 import type { Box, Detection } from '../../shared/tracking/types'
+import { estimateSeconds } from '../../shared/tracking/trackingIpc'
 import { boxToSample, runTrackingJob, type RunTrackingOptions } from './job'
 import type { DecodedFrame } from './frames'
 import type { DetectOutput, Detector, DetectorFrame } from './detectorWindow'
@@ -11,18 +12,22 @@ import {
   stubLook,
   type StubPattern
 } from './stubDetector'
-import { estimateSeconds } from './job'
+
 
 const FPS = 25
 const W = 960
 const H = 540
 
-function frames(count: number, onReturn?: () => void): AsyncGenerator<DecodedFrame> {
+function frames(
+  count: number,
+  onReturn?: () => void,
+  fps: number = FPS
+): AsyncGenerator<DecodedFrame> {
   return (async function* () {
     try {
       for (let i = 0; i < count; i += 1) {
         await Promise.resolve()
-        yield { index: i, t: (i + 0.5) / FPS, rgba: new Uint8Array(0), width: W, height: H }
+        yield { index: i, t: (i + 0.5) / fps, fps, rgba: new Uint8Array(0), width: W, height: H }
       }
     } finally {
       onReturn?.()
@@ -67,7 +72,6 @@ const person = (cx: number, cy: number, id = 0, w = 40, h = 90): Detection => ({
 
 function options(over: Partial<RunTrackingOptions>): RunTrackingOptions {
   return {
-    fps: FPS,
     from: 0,
     to: 4,
     anchor: { x: 0.2, y: 0.5 },
@@ -239,9 +243,31 @@ describe('runTrackingJob', () => {
     expect(out.kind).toBe('done')
     if (out.kind !== 'done') return
     expect(out.stop?.reason).toBe('occluded')
-    expect(out.samples.length).toBeGreaterThan(20)
-    expect(out.samples.length).toBeLessThan(100)
+    // последний уверенный кадр — 19-й: отсчёты «пережидания» после него и время остановки отбрасываются
+    expect(out.samples).toHaveLength(20)
+    expect(out.stop?.t).toBeCloseTo((19 + 0.5) / FPS, 9)
+    expect(out.samples.at(-1)?.t).toBeCloseTo((19 + 0.5) / FPS, 9)
     expect(det.closed).toBe(true)
+  })
+
+  it('частота кадров берётся с кадров декодера: ход работы и расписание считаются по ней', async () => {
+    const calls: Call[] = []
+    const det = scripted((f) => [person(200 + f, 270)], calls)
+    const progress: Array<[number, number]> = []
+    await runTrackingJob(
+      options({
+        frames: frames(120, undefined, 50),
+        createDetector: () => Promise.resolve(det),
+        anchor: { x: 200 / W, y: 270 / H },
+        onProgress: (d, t) => progress.push([d, t])
+      })
+    )
+    // 4 секунды по 50 к/с, а не по запасным 25
+    expect(progress.at(-1)).toEqual([120, 200])
+    // целый кадр раз в секунду = каждые 50 кадров
+    expect(calls.map((c, i) => (c.roi === undefined ? i : -1)).filter((i) => i >= 0)).toEqual([
+      0, 50, 100
+    ])
   })
 
   it('отмена посреди расчёта: cancelled, кадры остановлены, детектор закрыт', async () => {

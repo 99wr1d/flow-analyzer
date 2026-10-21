@@ -15,6 +15,7 @@ let offset: string
 let late30: string
 let late2997: string
 let shifted: string
+let mkv30: string
 
 const NUMBER = `geq=lum='255*bitand(floor(N/pow(2,floor(X/20))),1)':cb=128:cr=128`
 
@@ -74,6 +75,17 @@ beforeAll(() => {
   if (r.status !== 0) throw new Error(r.stderr)
 }, 60_000)
 
+beforeAll(() => {
+  // Не MP4/MOV: probeVideo для такого файла частоту не знает, а слежение должно взять ту, что видит ffmpeg.
+  mkv30 = join(work, 'clip30.mkv')
+  const r = ff([
+    ...['-f', 'lavfi', '-i', 'color=c=black:size=160x90:rate=30:duration=4'],
+    ...['-c:v', 'libx264', '-preset', 'ultrafast', '-bf', '0', '-pix_fmt', 'yuv420p'],
+    ...['-fps_mode', 'passthrough', '-y', mkv30]
+  ])
+  if (r.status !== 0) throw new Error(r.stderr)
+}, 60_000)
+
 afterAll(() => {
   rmSync(work, { recursive: true, force: true })
 })
@@ -106,6 +118,14 @@ async function collect(
 }
 
 describe('decodeFrames', () => {
+  it('кадры несут частоту, которую видит ffmpeg (mkv 30 к/с), и индексы по ней', async () => {
+    const frames = await collect({ videoPath: mkv30 })
+    expect(frames).toHaveLength(30)
+    expect(frames.every((f) => f.fps === 30)).toBe(true)
+    expect(frames[0].index).toBe(60)
+    expect(frames[0].t).toBeCloseTo(60.5 / 30, 6)
+  }, 60_000)
+
   it('кадры с 2.0 по 3.0 с при 25 к/с: ровно 25, номер в пикселях совпадает с index', async () => {
     const frames = await collect({ videoPath: plain })
     expect(frames).toHaveLength(25)

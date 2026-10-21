@@ -70,14 +70,14 @@ export type TrackingDone =
 /** Секунд расчёта на кадр: замер spike/Task 4 (видеокарта и процессор). */
 export const SECONDS_PER_FRAME_WEBGPU = 0.05
 export const SECONDS_PER_FRAME_WASM = 0.25
-/** Частота кадров, если неизвестна. */
-const DEFAULT_ESTIMATE_FPS = 25
+/** Частота кадров, если неизвестна: единая для слежения (декодер, оценка времени, применение). */
+export const FALLBACK_FPS = 25
 
 /** Сколько секунд займёт слежение на отрезке длиной durationSec (для предупреждения перед запуском). */
 export function estimateSeconds(
   durationSec: number,
   backend: DetectorBackend,
-  fps: number = DEFAULT_ESTIMATE_FPS
+  fps: number = FALLBACK_FPS
 ): number {
   const perFrame = backend === 'webgpu' ? SECONDS_PER_FRAME_WEBGPU : SECONDS_PER_FRAME_WASM
   return Math.max(0, durationSec) * fps * perFrame

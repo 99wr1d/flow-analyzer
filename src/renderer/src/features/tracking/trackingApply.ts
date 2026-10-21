@@ -24,7 +24,7 @@ import {
   type TrackSample
 } from '../../../../shared/tracking/keys'
 import type { DetectorBackend } from '../../../../shared/tracking/detectorIpc'
-import { estimateSeconds, type StopReason } from '../../../../shared/tracking/trackingIpc'
+import { estimateSeconds, FALLBACK_FPS, type StopReason } from '../../../../shared/tracking/trackingIpc'
 import { ru } from '../../i18n/ru'
 import { formatTime } from '../player/format'
 
@@ -98,12 +98,12 @@ export function continueFrom(a: Annotation, fps: number, now?: number): number |
   const keys = keysOf(a)
   if (!keys.some((k) => k.auto)) return null
   if (now !== undefined) {
-    const here = keyIndexAt(a, now, fps > 0 ? fps : 25)
+    const here = keyIndexAt(a, now, fps > 0 ? fps : FALLBACK_FPS)
     if (here >= 0 && !keys[here].auto) return null
   }
   const last = keys[keys.length - 1]
   const end = a.timing.start + a.timing.duration
-  return end - last.t > MIN_FRAMES / (fps > 0 ? fps : 25) ? last.t : null
+  return end - last.t > MIN_FRAMES / (fps > 0 ? fps : FALLBACK_FPS) ? last.t : null
 }
 
 export function planTracking(
@@ -111,7 +111,7 @@ export function planTracking(
   ctx: PlanContext
 ): TrackPlan | { ok: false; reason: PlanFailure } {
   if (!canTrack(a) || a.timing.mode !== 'range') return { ok: false, reason: 'not-trackable' }
-  const fps = ctx.fps > 0 ? ctx.fps : 25
+  const fps = ctx.fps > 0 ? ctx.fps : FALLBACK_FPS
   const end = a.timing.start + a.timing.duration
   const frame = 1 / fps
 

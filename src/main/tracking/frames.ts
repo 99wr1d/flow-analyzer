@@ -1,12 +1,12 @@
 // Кадры отрезка видео для слежения: ffmpeg декодирует точно по времени кадров и отдаёт RGBA заданной ширины.
 // Время t — середина кадра в шкале плеера (так же, как frameCenter у рисунков и ключей), с учётом start_time видео.
 import { spawn } from 'child_process'
+import { FALLBACK_FPS } from '../../shared/tracking/trackingIpc'
 import { getFfmpegPath } from '../ffmpeg/path'
 import { parseMediaInfo } from '../ffmpeg/progress'
 import { killTree, runFfmpeg, trackChild } from '../ffmpeg/runner'
 
 export const DEFAULT_TRACK_WIDTH = 960
-const FALLBACK_FPS = 25
 /** Допуск в долях кадра (около 2 мс): округление меток до микросекунд и до тиков timescale не должно сдвигать кадр в соседний слот. */
 const SNAP = 0.05
 /** Запас на входе сверх отрезка: точные границы потом режет select по времени кадра. */
@@ -18,6 +18,8 @@ export interface DecodedFrame {
   /** Середина кадра в шкале плеера (frameCenter). */
   t: number
   rgba: Uint8Array
+  /** Частота кадров, по которой посчитаны index и t (единый источник для всего слежения). */
+  fps: number
   width: number
   height: number
 }
@@ -158,6 +160,7 @@ export async function* decodeFrames(opts: DecodeOptions): AsyncGenerator<Decoded
             index,
             t: (index + 0.5) / fps,
             rgba: new Uint8Array(buf.buffer, buf.byteOffset, frameBytes),
+            fps,
             width,
             height
           }

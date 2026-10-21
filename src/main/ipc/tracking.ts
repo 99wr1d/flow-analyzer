@@ -15,12 +15,11 @@ import { getFfmpegPath } from '../ffmpeg/path'
 import { killAllFfmpeg } from '../ffmpeg/runner'
 import { logError, logInfo } from '../log/logger'
 import { getMediaEntry } from '../media/registry'
-import { probeVideo } from '../media/probe'
 import { MEDIA_ERRORS, checkMediaId } from '../media/validate'
 import { isTrustedSender } from '../security'
 import { testFlags } from '../testFlags'
 import { createDetector } from '../tracking/detectorWindow'
-import { decodeFrames, exactFps } from '../tracking/frames'
+import { decodeFrames } from '../tracking/frames'
 import { runTrackingJob } from '../tracking/job'
 import {
   DEFAULT_STUB_PATTERN,
@@ -41,7 +40,6 @@ export const TRACKING_IPC_ERRORS = {
 const PROGRESS_INTERVAL_MS = 100
 /** Сколько ждём остановки задачи после отмены, прежде чем ответить интерфейсу. */
 const CANCEL_WAIT_MS = 5000
-const FALLBACK_FPS = 25
 
 interface ActiveJob {
   id: string
@@ -107,10 +105,8 @@ async function startTracking(
     active = job
     const flags = testFlags()
     let pattern: StubPattern | null
-    let fps: number
     try {
       pattern = flags.detectorStub ? await stubPattern() : null
-      fps = exactFps((await probeVideo(entry.path)).fps ?? FALLBACK_FPS)
     } catch (error) {
       active = null
       throw error
@@ -138,7 +134,6 @@ async function startTracking(
       let final: TrackingDone | null = null
       try {
         const outcome = await runTrackingJob({
-          fps,
           from: request.from,
           to: request.to,
           anchor: request.anchor,

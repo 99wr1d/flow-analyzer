@@ -19,9 +19,6 @@ vi.mock('../security', () => ({ isTrustedSender: () => true }))
 vi.mock('../ffmpeg/path', () => ({ getFfmpegPath: () => ({ ok: true, path: 'ffmpeg' }) }))
 vi.mock('../ffmpeg/runner', () => ({ killAllFfmpeg: () => killAll() }))
 vi.mock('../log/logger', () => ({ logInfo: vi.fn(), logError: vi.fn(), logWarn: vi.fn() }))
-vi.mock('../media/probe', () => ({
-  probeVideo: () => Promise.resolve({ fps: 25, variable: false })
-}))
 vi.mock('../media/registry', () => ({
   getMediaEntry: () => ({ path: resolve('tests/fixtures/players.mp4') })
 }))
@@ -30,7 +27,6 @@ vi.mock('../testFlags', () => ({
 }))
 vi.mock('../tracking/detectorWindow', () => ({ createDetector: vi.fn() }))
 vi.mock('../tracking/frames', () => ({
-  exactFps: (f: number) => f,
   decodeFrames: () =>
     (async function* () {
       yield* []

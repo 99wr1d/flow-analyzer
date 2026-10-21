@@ -8,15 +8,12 @@ import type { Box, Detection } from '../../shared/tracking/types'
 import type { DecodedFrame } from './frames'
 import type { Detector } from './detectorWindow'
 
-export { estimateSeconds } from '../../shared/tracking/trackingIpc'
-
 /** Полный кадр показываем детектору раз в столько секунд; между ними — только вырез вокруг игрока. */
 export const FULL_DETECT_SECONDS = 1.0
 /** Насколько выбранная щелчком рамка должна совпадать с найденной на старте (IoU). */
 const PICK_MIN_IOU = 0.5
 
 export interface RunTrackingOptions {
-  fps: number
   from: number
   to: number
   /** Щелчок пользователя, доли кадра. */
@@ -24,7 +21,7 @@ export interface RunTrackingOptions {
   /** Рамка игрока, выбранная щелчком после ambiguous-start (доли кадра): ею разрешается неоднозначный старт. */
   pick?: FractionBox
   signal: AbortSignal
-  /** Кадры отрезка (decodeFrames). Итерация начинается после запуска детектора; по выходу ffmpeg останавливается. */
+  /** Кадры отрезка (decodeFrames); частота кадров — та, что использовал декодер (frame.fps). Итерация начинается после запуска детектора; по выходу ffmpeg останавливается. */
   frames: AsyncIterable<DecodedFrame>
   /** Создание прерывается сигналом: при отмене окно-детектор уничтожается, обещание отклоняется. */
   createDetector: (signal: AbortSignal) => Promise<Detector>
@@ -58,8 +55,9 @@ export function boxToSample(box: Box, t: number, w: number, h: number): TrackSam
 export async function runTrackingJob(opts: RunTrackingOptions): Promise<TrackingOutcome> {
   const { signal } = opts
   if (signal.aborted) return { kind: 'cancelled' }
-  const total = Math.max(1, Math.round((opts.to - opts.from) * opts.fps))
-  const fullEvery = Math.max(1, Math.round(FULL_DETECT_SECONDS * opts.fps))
+  // Частота кадров приходит с кадрами (её определил ffmpeg): один источник для трекера, расписания и хода работы.
+  let total = 1
+  let fullEvery = 1
   let detector: Detector | null = null
   let iterator: AsyncIterator<DecodedFrame> | null = null
   try {
@@ -72,6 +70,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     let coasting = false
     let forceFull = false
     let ordinal = 0
+    // Последний уверенный (не «пережидаемый») отсчёт: при потере всё после него — догадки по прогнозу.
+    let lastGood: { len: number; t: number } | null = null
 
     for (;;) {
       const next = await iterator.next()
@@ -80,6 +80,11 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       const frame = next.value
       const fw = frame.width
       const fh = frame.height
+      const fps = frame.fps
+      if (tracker === null) {
+        total = Math.max(1, Math.round((opts.to - opts.from) * fps))
+        fullEvery = Math.max(1, Math.round(FULL_DETECT_SECONDS * fps))
+      }
 
       // Целый кадр: старт, после вопроса, пока игрок «пережидается» (иначе вернувшегося вне выреза не найти; не дольше
       // COAST/LOST_SECONDS подряд) и раз в секунду. Иначе — вырез вокруг прогноза трекера на этот кадр.
@@ -125,7 +130,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           }
         }
         if (!start) throw new Error('Не удалось определить игрока на старте')
-        tracker = new SingleTracker(start, opts.fps, {
+        tracker = new SingleTracker(start, fps, {
           frame: { w: fw, h: fh },
           ...(dirty ? { dirtyStart: true } : {})
         })
@@ -153,15 +158,18 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         step = { kind: 'track', box: { ...chosen.box }, coasting: false }
       }
       if (step.kind === 'lost') {
+        // Стоп — на последнем уверенном кадре (спека, п. 8): отсчёты «пережидания» после него отбрасываем.
+        samples.length = lastGood?.len ?? 0
         return {
           kind: 'done',
           samples,
-          stop: { t: frame.t, reason: step.reason },
+          stop: { t: lastGood?.t ?? frame.t, reason: step.reason },
           backend: detector.backend
         }
       }
       coasting = step.coasting
       samples.push(boxToSample(step.box, frame.t, fw, fh))
+      if (!step.coasting) lastGood = { len: samples.length, t: frame.t }
       ordinal += 1
       opts.onProgress?.(Math.min(ordinal, total), total)
     }
