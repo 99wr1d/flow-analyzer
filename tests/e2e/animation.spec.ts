@@ -63,6 +63,8 @@ async function centerPx(win: Page): Promise<[number, number]> {
 /** Круг у нижнего края кадра (там нет цифр на картинке): рисуется перетаскиванием, виден 3 с от текущего момента. */
 async function drawCircle(win: Page, from: [number, number], to: [number, number]): Promise<void> {
   await win.getByTestId('tool-circle').click()
+  // С 0.16.4 новый круг лежит под игроками; на этом видео нет газона, поэтому рисунок кладём поверх.
+  await win.getByTestId('under-toggle').click()
   await win.getByTestId('color-ffffff').click()
   await win.getByTestId('width-2').click()
   await dragOnPicture(win, from, to)

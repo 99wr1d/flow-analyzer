@@ -7,7 +7,10 @@ import {
   MIN_FREEZE,
   LOUPE_ZOOMS,
   MAX_DIM,
+  MAX_RING_FILL,
   MAX_ZONE_OPACITY,
+  LEGACY_CIRCLE_FILL,
+  LEGACY_RING_FILL,
   MIN_DIM,
   MIN_ZONE_OPACITY,
   canBeUnder,
@@ -279,6 +282,17 @@ function ToolProps({ annotation: a }: { annotation: Annotation }): React.JSX.Ele
           ))}
         </div>
       </div>
+    )
+  } else if (a.type === 'circle' || a.type === 'ring') {
+    body = (
+      <PercentSlider
+        label={ru.annotations.fillOpacity}
+        testId="prop-fill-opacity"
+        value={a.fillOpacity ?? (a.type === 'ring' ? LEGACY_RING_FILL : LEGACY_CIRCLE_FILL)}
+        min={0}
+        max={MAX_RING_FILL}
+        onChange={(fillOpacity) => setProps(a.id, { fillOpacity })}
+      />
     )
   } else if (a.type === 'zone' || a.type === 'pzone') {
     body = (

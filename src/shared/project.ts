@@ -42,7 +42,11 @@ const VideoRefSchema = z.object({
   duration: z.number().gt(0).max(1e7).optional()
 })
 
-const UiSchema = z.object({ lastTime: z.number().min(0).max(1e7) })
+const UiSchema = z.object({
+  lastTime: z.number().min(0).max(1e7),
+  /** Кадр-обложка проекта (секунды): из него делается эскиз на стартовом экране. Нет поля — обложка выбирается сама. */
+  coverTime: z.number().min(0).max(1e7).optional()
+})
 
 export const PROJECT_TYPES = ['match', 'training', 'scouting', 'other'] as const
 export type ProjectType = (typeof PROJECT_TYPES)[number]
@@ -136,6 +140,7 @@ export const ProjectSaveRequestSchema = z.object({
   episodes: EpisodeListSchema.max(MAX_EPISODES),
   tags: z.array(TagDefSchema).max(MAX_PROJECT_TAGS),
   lastTime: z.number().min(0).max(1e7),
+  coverTime: z.number().min(0).max(1e7).optional(),
   fps: z.number().gt(0).max(1000).optional(),
   fpsSource: z.enum(FPS_SOURCES).optional(),
   duration: z.number().gt(0).max(1e7).optional(),
@@ -161,6 +166,8 @@ export interface LoadedProject {
   episodes: Project['episodes']
   tags: Project['tags']
   lastTime: number
+  /** Кадр-обложка (секунды); null — не выбран. */
+  coverTime: number | null
   fps?: number
   fpsSource?: (typeof FPS_SOURCES)[number]
   /** Описание проекта; null — в файле его нет (имя берётся из имени файла). */

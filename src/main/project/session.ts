@@ -94,7 +94,10 @@ export function buildProject(
     calibrations: request.calibrations,
     episodes: request.episodes,
     tags: request.tags,
-    ui: { lastTime: request.lastTime },
+    ui: {
+      lastTime: request.lastTime,
+      ...(request.coverTime !== undefined ? { coverTime: request.coverTime } : {})
+    },
     ...(request.meta ? { meta: request.meta } : {}),
     ...(request.grassKey ? { grassKey: request.grassKey } : {})
   }
@@ -142,7 +145,10 @@ async function doSave(
   trustPath(target)
   await rememberProject(userData, target, now)
   await rememberInLibrary(userData, target, now)
-  scheduleThumb(userData, target, video.path, request.lastTime, request.duration)
+  scheduleThumb(userData, target, video.path, request.lastTime, request.duration, {
+    ...(request.coverTime !== undefined ? { cover: request.coverTime } : {}),
+    episodes: request.episodes
+  })
   await Promise.all(
     [request.currentPath, target, null].map((p) => deleteRecovery(userData, keyForPath(p)))
   )
@@ -230,6 +236,7 @@ async function finishLoad(
     episodes: project.episodes,
     tags: project.tags,
     lastTime: project.ui?.lastTime ?? 0,
+    coverTime: project.ui?.coverTime ?? null,
     ...(project.video.fps !== undefined ? { fps: project.video.fps } : {}),
     ...(project.video.fpsSource !== undefined ? { fpsSource: project.video.fpsSource } : {}),
     // Новый путь к видео ещё нигде не записан — предложим сохранить.

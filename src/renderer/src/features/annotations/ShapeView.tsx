@@ -1,5 +1,6 @@
 import { memo, useMemo } from 'react'
 import {
+  LEGACY_CIRCLE_FILL,
   isPitchAnnotation,
   isUnderPlayers,
   type Annotation,
@@ -176,7 +177,7 @@ function ShapeBody({
           rx={rx}
           ry={ry}
           fill={color}
-          fillOpacity={0.16}
+          fillOpacity={a.fillOpacity ?? LEGACY_CIRCLE_FILL}
           stroke={color}
           strokeWidth={w}
           strokeDasharray={dash}

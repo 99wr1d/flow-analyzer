@@ -283,7 +283,7 @@ test.describe('разметка поля', () => {
 
       // --- Подпись над точкой земли ---
       await win.getByTestId('tool-text').click()
-      await win.getByTestId('width-0').click()
+      await win.getByTestId('text-size-2').click()
       await click(win, project(22, 56))
       await win.keyboard.type('Прессинг')
       await win.keyboard.press('Enter')
@@ -303,8 +303,10 @@ test.describe('разметка поля', () => {
       expect(text).toMatch(/^40\.[2-4] м$/)
       const value = Number(text.replace(' м', ''))
       expect(Math.abs(value - 40.32)).toBeLessThan(0.25)
-      // Ещё одна: ширина штрафной площади (16.5 м).
+      // Ещё одна: ширина штрафной площади (16.5 м). Начало на конце выбранной линейки: с Alt нажатие рисует новую.
+      await win.keyboard.down('Alt')
       await drag(win, pa[0].image, pa[1].image)
+      await win.keyboard.up('Alt')
       const second = win.locator('[data-testid="annotation"][data-type="ruler"]').nth(1)
       const text2 = (await second.getByTestId('ruler-label').textContent()) ?? ''
       console.log('Линейка 16.5 м показала:', text2)

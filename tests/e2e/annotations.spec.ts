@@ -455,7 +455,7 @@ test.describe('рисунки поверх видео', () => {
       await dragOnPicture(win, [0.5, 0.1], [0.9, 0.1])
       // Подпись.
       await win.keyboard.press('t')
-      await win.getByTestId('width-1').click()
+      await win.getByTestId('text-size-3').click()
       await win.getByTestId('color-ffd60a').click()
       await clickPicture(win, [0.05, 0.08])
       await win.keyboard.type('Прессинг 4-4-2')

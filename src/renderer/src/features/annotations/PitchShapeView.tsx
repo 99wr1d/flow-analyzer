@@ -192,7 +192,12 @@ export function PaintParts({
     <>
       {top && selected && (part === 'top' ? <g opacity={0.5}>{halo}</g> : halo)}
       {ground && paint.disc.length > 0 && (
-        <path data-part="disc" d={pathOf(paint.disc)} fill={color} fillOpacity={0.18} />
+        <path
+          data-part="disc"
+          d={pathOf(paint.disc)}
+          fill={color}
+          fillOpacity={paint.discOpacity ?? 0.18}
+        />
       )}
       {ground && paint.body.length > 0 && (
         <path

@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import {
   DEFAULT_DIM,
   canBeUnder,
-  defaultUnderPlayers,
+  DEFAULT_RING_FILL,
+  newUnderDefault,
   DEFAULT_LOUPE_ZOOM,
   DEFAULT_ZONE_OPACITY,
   type Annotation,
@@ -30,7 +31,7 @@ import {
   undo,
   type HistoryState
 } from './history'
-import { DEFAULT_STYLE, LEVELS, type CurrentStyle } from './styles'
+import { DEFAULT_STYLE, LEVELS, TEXT_SIZES, type CurrentStyle } from './styles'
 
 export type Tool =
   | 'select'
@@ -76,6 +77,8 @@ export interface ToolOptions {
   arrow: boolean
   fill: boolean
   labels: boolean
+  /** Заливка нового круга и кольца. */
+  fillOpacity: number
 }
 export const DEFAULT_OPTIONS: ToolOptions = {
   dim: DEFAULT_DIM,
@@ -85,7 +88,8 @@ export const DEFAULT_OPTIONS: ToolOptions = {
   beam: true,
   arrow: false,
   fill: false,
-  labels: true
+  labels: true,
+  fillOpacity: DEFAULT_RING_FILL
 }
 /** Свойство рисунка → поле в ToolOptions. */
 const PROP_TO_OPTION: Record<string, keyof ToolOptions> = {
@@ -96,7 +100,8 @@ const PROP_TO_OPTION: Record<string, keyof ToolOptions> = {
   beam: 'beam',
   arrow: 'arrow',
   fill: 'fill',
-  labels: 'labels'
+  labels: 'labels',
+  fillOpacity: 'fillOpacity'
 }
 /** Свойства рисунка, которые можно менять в панели «Рисунок». */
 export type PropPatch = Partial<{
@@ -108,8 +113,19 @@ export type PropPatch = Partial<{
   arrow: boolean
   fill: boolean
   labels: boolean
+  fillOpacity: number
   underPlayers: boolean
 }>
+
+export interface UnderNew {
+  pitch: boolean | null
+  screen: boolean | null
+}
+
+/** «Под игроками» для нового рисунка вида type в месте space: запомненный выбор или умолчание по виду. */
+export function underForNew(type: string, space: 'pitch' | 'screen', underNew: UnderNew): boolean {
+  return underNew[space] ?? newUnderDefault(type, space)
+}
 
 export interface AnnotationsState extends HistoryState {
   selectedId: string | null
@@ -120,8 +136,11 @@ export interface AnnotationsState extends HistoryState {
   options: ToolOptions
   /** Выбранная вершина зоны или связи игроков (Delete удаляет её). */
   selectedNode: number | null
-  /** «Под игроками» для новых рисунков: последний выбор отдельно для рисунков на поле и на экране. */
-  underNew: { pitch: boolean; screen: boolean }
+  /**
+   * «Под игроками» для новых рисунков: последний выбор отдельно для рисунков на поле и на экране.
+   * null — пользователь ещё не выбирал: действует умолчание по виду рисунка (newUnderDefault).
+   */
+  underNew: UnderNew
   /** Выбранный ключ выбранного рисунка (ромбик на дорожке): Delete убирает его. */
   selectedKey: number | null
 }
@@ -170,7 +189,7 @@ export function withUnder(a: Annotation, underNew: AnnotationsState['underNew'])
   if (!canBeUnder(a.type) || (a as { underPlayers?: boolean }).underPlayers !== undefined) return a
   return {
     ...a,
-    underPlayers: a.space === 'pitch' ? underNew.pitch : underNew.screen
+    underPlayers: underForNew(a.type, a.space === 'pitch' ? 'pitch' : 'screen', underNew)
   } as Annotation
 }
 
@@ -188,7 +207,7 @@ function restyle(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
       ...a,
       style: {
         color: patch.color ?? a.style.color,
-        size: patch.level !== undefined ? LEVELS[patch.level].text : a.style.size,
+        size: patch.textLevel !== undefined ? TEXT_SIZES[patch.textLevel].size : a.style.size,
         background: patch.textBackground ?? a.style.background
       }
     } as Annotation
@@ -211,7 +230,7 @@ const initial = (): AnnotationsState => ({
   options: DEFAULT_OPTIONS,
   selectedNode: null,
   selectedKey: null,
-  underNew: { pitch: defaultUnderPlayers('ring'), screen: defaultUnderPlayers('arrow') }
+  underNew: { pitch: null, screen: null }
 })
 
 export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>()((set) => ({

@@ -77,7 +77,10 @@ test.describe('линейки на поле: подписи не наклады�
       await drag(win, pa[0].image, pa[1].image)
       // Вторая — на метр глубже: середины рядом, подписи легли бы друг на друга.
       const second = project(pa[1].world.x, pa[1].world.y + 1)
+      // Вторая линейка начинается на конце первой (она выбрана): с Alt нажатие рисует новую, а не двигает ручку.
+      await win.keyboard.down('Alt')
       await drag(win, pa[0].image, second)
+      await win.keyboard.up('Alt')
       const labels = win.getByTestId('ruler-label')
       await expect(labels).toHaveCount(2)
       const a = (await labels.nth(0).boundingBox())!

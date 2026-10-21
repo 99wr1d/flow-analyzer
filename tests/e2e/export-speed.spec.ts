@@ -65,6 +65,8 @@ async function drawArrow(win: Page, from: number, seconds: number): Promise<void
 async function drawFrameCircle(win: Page, at: number, freeze: string): Promise<void> {
   await seekVideo(win, at)
   await win.getByTestId('tool-circle').click()
+  // С 0.16.4 новый круг лежит под игроками; на этом видео нет газона, поэтому рисунок кладём поверх.
+  await win.getByTestId('under-toggle').click()
   await win.getByTestId('color-111827').click()
   await win.getByTestId('width-2').click()
   await dragOnPicture(win, [0.55, 0.55], [0.85, 0.9])

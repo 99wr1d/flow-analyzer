@@ -306,6 +306,18 @@ describe.skipIf(!ffmpeg.ok)('эскизы (настоящий ffmpeg)', () => {
     expect(thumbTime(500, 100)).toBeCloseTo(99.8)
   })
 
+  it('обложка проекта важнее всего; без неё — середина самого раннего эпизода', () => {
+    const episodes = [
+      { start: 50, end: 60 },
+      { start: 10, end: 20 }
+    ]
+    expect(thumbTime(12, 100, { cover: 30, episodes })).toBe(30)
+    expect(thumbTime(0, 100, { cover: 0, episodes })).toBe(0)
+    expect(thumbTime(12, 100, { cover: 500 })).toBeCloseTo(99.8)
+    expect(thumbTime(77, 100, { episodes })).toBe(15)
+    expect(thumbTime(77, 100, { episodes: [] })).toBe(77)
+  })
+
   it('JPEG создаётся, меньше 60 КБ и начинается с сигнатуры JPEG', async () => {
     const out = join(dir('thumbs1'), 'a.jpg')
     const ok = await generateThumb({

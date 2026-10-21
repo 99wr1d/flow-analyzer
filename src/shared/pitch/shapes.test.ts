@@ -341,3 +341,12 @@ describe('шаблоны и размеры по правилам ФИФА', () =
     expect(segs.length).toBe(5)
   })
 })
+describe('заливка кольца (0.16.4)', () => {
+  it('диск рисуется с заданной прозрачностью; без поля — прежние 0.18', () => {
+    const paint = (extra: Partial<Ring>): number | undefined =>
+      paintPitch({ ...baseRing, ...extra }, proj, SIZE, measure).discOpacity
+    expect(paint({})).toBe(0.18)
+    expect(paint({ fillOpacity: 0.05 })).toBe(0.05)
+    expect(paint({ fillOpacity: 0 })).toBe(0)
+  })
+})

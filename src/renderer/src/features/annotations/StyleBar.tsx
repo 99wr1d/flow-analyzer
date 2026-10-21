@@ -16,8 +16,17 @@ import { CALIBRATION_VALIDITY } from '../../../../shared/pitch/calibration'
 import { startCalibration } from '../pitch/pitchActions'
 import { usePitchStore } from '../pitch/pitchStore'
 import { useActiveCalibration } from '../pitch/usePitch'
-import { selectedAnnotation, useAnnotationsStore } from './annotationsStore'
-import { LEVELS, PALETTE, levelOf, type CurrentStyle, type Level } from './styles'
+import { selectedAnnotation, underForNew, useAnnotationsStore } from './annotationsStore'
+import {
+  LEVELS,
+  PALETTE,
+  TEXT_SIZES,
+  levelOf,
+  textLevelOf,
+  type CurrentStyle,
+  type Level,
+  type TextLevel
+} from './styles'
 
 /** Стиль, который сейчас «в руках»: у выбранного рисунка — его, иначе — для новых. */
 function useShownStyle(): CurrentStyle {
@@ -28,6 +37,7 @@ function useShownStyle(): CurrentStyle {
   return {
     color: selected.style.color,
     level: levelOf(selected),
+    textLevel: textLevelOf(selected),
     dash: isText ? style.dash : selected.style.dash,
     textBackground: isText ? selected.style.background : style.textBackground
   }
@@ -130,7 +140,7 @@ function UnderToggle(): React.JSX.Element {
       ? 'pitch'
       : 'screen'
   const enabled = type !== 'select' && canBeUnder(type)
-  const value = selected ? isUnderPlayers(selected) : underNew[space]
+  const value = selected ? isUnderPlayers(selected) : underForNew(type, space, underNew)
   return (
     <button
       type="button"
@@ -188,25 +198,47 @@ export function StyleBar(): React.JSX.Element {
         ))}
       </div>
       <span className="style-bar__sep" />
-      <div className="style-bar__group" role="group" aria-label={ru.annotations.width}>
-        {LEVELS.map((l, i) => (
-          <button
-            key={l.label}
-            type="button"
-            className={shown.level === i ? 'seg-btn seg-btn--active' : 'seg-btn'}
-            title={`${ru.annotations.width}: ${l.label.toLowerCase()}`}
-            aria-label={`${ru.annotations.width}: ${l.label.toLowerCase()}`}
-            aria-pressed={shown.level === i}
-            data-testid={`width-${i}`}
-            onClick={(e) => {
-              setStyle({ level: i as Level })
-              e.currentTarget.blur()
-            }}
-          >
-            <span className="seg-btn__bar" style={{ height: 2 + i * 2 }} />
-          </button>
-        ))}
-      </div>
+      {context === 'text' ? (
+        <div className="style-bar__group" role="group" aria-label={ru.annotations.textSize}>
+          {TEXT_SIZES.map((l, i) => (
+            <button
+              key={l.label}
+              type="button"
+              className={shown.textLevel === i ? 'seg-btn seg-btn--active' : 'seg-btn'}
+              title={`${ru.annotations.textSize}: ${l.label.toLowerCase()}`}
+              aria-label={`${ru.annotations.textSize}: ${l.label.toLowerCase()}`}
+              aria-pressed={shown.textLevel === i}
+              data-testid={`text-size-${i}`}
+              onClick={(e) => {
+                setStyle({ textLevel: i as TextLevel })
+                e.currentTarget.blur()
+              }}
+            >
+              <span className="seg-btn__bar" style={{ height: 2 + i * 2 }} />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="style-bar__group" role="group" aria-label={ru.annotations.width}>
+          {LEVELS.map((l, i) => (
+            <button
+              key={l.label}
+              type="button"
+              className={shown.level === i ? 'seg-btn seg-btn--active' : 'seg-btn'}
+              title={`${ru.annotations.width}: ${l.label.toLowerCase()}`}
+              aria-label={`${ru.annotations.width}: ${l.label.toLowerCase()}`}
+              aria-pressed={shown.level === i}
+              data-testid={`width-${i}`}
+              onClick={(e) => {
+                setStyle({ level: i as Level })
+                e.currentTarget.blur()
+              }}
+            >
+              <span className="seg-btn__bar" style={{ height: 2 + i * 2 }} />
+            </button>
+          ))}
+        </div>
+      )}
       <span className="style-bar__gap" />
       <div className="style-bar__group" role="group" aria-label={ru.annotations.dash}>
         {(['solid', 'dashed'] as const).map((d) => (

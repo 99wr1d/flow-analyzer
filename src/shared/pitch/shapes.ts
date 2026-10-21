@@ -1,7 +1,7 @@
 // Рисунки на поле → то, что нужно нарисовать на картинке (в пикселях). Один код для экрана, попадания курсором и экспорта.
 // Фигуры строятся на плоскости поля в метрах (постоянная ширина в метрах), обрезаются по горизонту и только потом
 // проецируются — поэтому вдали они сужаются, а кольцо превращается в эллипс.
-import type { PitchAnnotation } from '../annotations'
+import { LEGACY_RING_FILL, type PitchAnnotation } from '../annotations'
 import { isToolAnnotation, paintPitchTool } from './pitchTools'
 import type { Pt } from './linalg'
 import type { Projector } from './projector'
@@ -70,6 +70,8 @@ export interface PitchPaint {
   body: PxPt[][]
   /** Мягкая заливка внутри кольца. */
   disc: PxPt[][]
+  /** Прозрачность заливки диска (нет — 0.18, как у прожектора и старых колец). */
+  discOpacity?: number
   /** Метка на земле под подписью. */
   dot: { x: number; y: number } | null
   label: LabelPaint | null
@@ -295,6 +297,7 @@ export function paintPitch(
     const outer = ccw(circle(r + hw))
     const discProj = proj.projectPolygon(ccw(circle(r)))
     if (discProj.length >= 3) out.disc.push(px(discProj))
+    out.discOpacity = a.fillOpacity ?? LEGACY_RING_FILL
     if (a.style.dash === 'dashed') {
       // Штрихи по окружности: секторы кольца.
       const circ = 2 * Math.PI * r

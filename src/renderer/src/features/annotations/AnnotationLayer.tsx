@@ -363,9 +363,10 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
   }
 
   /** Верхний рисунок (экранный или на поле) под курсором. */
-  const topHitAny = (px: PxPoint): Annotation | null => {
+  const topHitAny = (px: PxPoint, only?: string): Annotation | null => {
     const clock = clockTime()
     for (let i = visible.length - 1; i >= 0; i -= 1) {
+      if (only !== undefined && visible[i].id !== only) continue
       const a = resolveAt(visible[i], clock)
       if (isPitchAnnotation(a)) {
         const paint = paintOf(a, lookup, size, measureTextWidth)
@@ -439,6 +440,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       type: g.tool,
       p1: g.origin,
       p2: end,
+      ...(g.tool === 'circle' ? { fillOpacity: options.fillOpacity } : {}),
       style: shapeStyleOf(style)
     }
   }
@@ -471,7 +473,14 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         radius = Math.max(MIN_RING_RADIUS, worldDistance(g.origin, to))
         if (shift) radius = Math.max(0.5, Math.round(radius * 2) / 2)
       }
-      return { ...base, type: 'ring', center: g.origin, radius, style }
+      return {
+        ...base,
+        type: 'ring',
+        center: g.origin,
+        radius,
+        fillOpacity: options.fillOpacity,
+        style
+      }
     }
     if (g.tool === 'spot') {
       let radius = DEFAULT_SPOT_RADIUS
@@ -601,6 +610,123 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
   const stage = (g: { stored: Annotation; t: number }, moved: Annotation): Annotation =>
     applyGeomEdit(g.stored, moved, g.t, usePlayerStore.getState().fps)
 
+  /**
+   * Правка уже нарисованного: ручка выбранного рисунка или тело рисунка под курсором (двигаем, выбираем).
+   * «Выбор» ловит любой рисунок; инструмент рисования — только выбранный (только что нарисованный): нажатие на него
+   * правит его, а не рисует новый.
+   * false — под курсором ничего нет.
+   */
+  const beginEdit = (
+    e: React.PointerEvent<SVGSVGElement>,
+    norm: Point,
+    px: PxPoint,
+    /** Чьё тело ловит нажатие: любого рисунка, только выбранного или ничьё (одни ручки выбранного). */
+    bodies: 'all' | 'selected' | 'none' = 'all'
+  ): boolean => {
+    const store = useAnnotationsStore.getState()
+    const storedCurrent = store.items.find((a) => a.id === store.selectedId)
+    const current = storedCurrent && resolveAt(storedCurrent, clockTime())
+    if (storedCurrent && current && visible.some((a) => a.id === current.id)) {
+      store.selectKey(null)
+      // Движущийся рисунок правится на конкретном кадре: видео ставим на паузу.
+      const frameNow = (): number => {
+        if (isAnimated(storedCurrent)) pauseVideo()
+        return gestureTime()
+      }
+      // Alt+щелчок по линии выбранной зоны или связи добавляет вершину.
+      if (e.altKey && hasVertices(current)) {
+        const inserted = insertVertex(current, storedCurrent, px, store.items, frameNow())
+        if (inserted) {
+          gesture.current = inserted.gesture
+          store.preview(store.items.map((a) => (a.id === current.id ? inserted.stored : a)))
+          store.selectNode(inserted.index)
+          svgRef.current?.setPointerCapture(e.pointerId)
+          return true
+        }
+      }
+      if (isPitchAnnotation(current)) {
+        const proj = lookup(current.calibrationId)
+        const paint = proj ? paintOf(current, lookup, size, measureTextWidth) : null
+        const handle = paint ? pitchHandleAt(paint, px) : null
+        if (proj && handle) {
+          const node = vertexIndex(handle)
+          if (node !== null) store.selectNode(node)
+          gesture.current = {
+            kind: 'phandle',
+            id: current.id,
+            before: store.items,
+            stored: storedCurrent,
+            t: frameNow(),
+            handle,
+            item: current,
+            projector: proj
+          }
+          svgRef.current?.setPointerCapture(e.pointerId)
+          return true
+        }
+      } else {
+        const handle = handleAt(current, px, size)
+        if (handle) {
+          const node = vertexIndex(handle)
+          if (node !== null) store.selectNode(node)
+          gesture.current = {
+            kind: 'handle',
+            id: current.id,
+            before: store.items,
+            stored: storedCurrent,
+            t: frameNow(),
+            handle,
+            item: current
+          }
+          svgRef.current?.setPointerCapture(e.pointerId)
+          return true
+        }
+      }
+    }
+    if (bodies === 'none') return false
+    const hit = topHitAny(px, bodies === 'selected' ? (store.selectedId ?? '') : undefined)
+    if (hit) {
+      store.select(hit.id)
+      store.selectNode(null)
+      store.selectKey(null)
+      const storedHit = store.items.find((a) => a.id === hit.id) ?? hit
+      if (isAnimated(storedHit)) pauseVideo()
+      const hitT = gestureTime()
+      if (isPitchAnnotation(hit)) {
+        const proj = lookup(hit.calibrationId)
+        const world = proj?.toWorld(norm)
+        if (proj && world) {
+          gesture.current = {
+            kind: 'pmove',
+            id: hit.id,
+            before: store.items,
+            stored: storedHit,
+            t: hitT,
+            origin: world,
+            item: hit,
+            projector: proj
+          }
+          svgRef.current?.setPointerCapture(e.pointerId)
+        }
+      } else {
+        gesture.current = {
+          kind: 'move',
+          id: hit.id,
+          before: store.items,
+          stored: storedHit,
+          t: hitT,
+          origin: norm,
+          item: hit,
+          box: bboxFor(hit, size)
+        }
+        svgRef.current?.setPointerCapture(e.pointerId)
+      }
+    } else {
+      return false
+    }
+    return true
+  }
+
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>): void => {
     if (e.button !== 0) return
     // Поле ввода текста (если открыто) закрываем, снимая с него фокус.
@@ -612,105 +738,19 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     const now = video?.currentTime ?? player.currentTime
 
     if (store.tool === 'select') {
-      const storedCurrent = store.items.find((a) => a.id === store.selectedId)
-      const current = storedCurrent && resolveAt(storedCurrent, clockTime())
-      if (storedCurrent && current && visible.some((a) => a.id === current.id)) {
-        store.selectKey(null)
-        // Движущийся рисунок правится на конкретном кадре: видео ставим на паузу.
-        const frameNow = (): number => {
-          if (isAnimated(storedCurrent)) pauseVideo()
-          return gestureTime()
-        }
-        // Alt+щелчок по линии выбранной зоны или связи добавляет вершину.
-        if (e.altKey && hasVertices(current)) {
-          const inserted = insertVertex(current, storedCurrent, px, store.items, frameNow())
-          if (inserted) {
-            gesture.current = inserted.gesture
-            store.preview(store.items.map((a) => (a.id === current.id ? inserted.stored : a)))
-            store.selectNode(inserted.index)
-            svgRef.current?.setPointerCapture(e.pointerId)
-            return
-          }
-        }
-        if (isPitchAnnotation(current)) {
-          const proj = lookup(current.calibrationId)
-          const paint = proj ? paintOf(current, lookup, size, measureTextWidth) : null
-          const handle = paint ? pitchHandleAt(paint, px) : null
-          if (proj && handle) {
-            const node = vertexIndex(handle)
-            if (node !== null) store.selectNode(node)
-            gesture.current = {
-              kind: 'phandle',
-              id: current.id,
-              before: store.items,
-              stored: storedCurrent,
-              t: frameNow(),
-              handle,
-              item: current,
-              projector: proj
-            }
-            svgRef.current?.setPointerCapture(e.pointerId)
-            return
-          }
-        } else {
-          const handle = handleAt(current, px, size)
-          if (handle) {
-            const node = vertexIndex(handle)
-            if (node !== null) store.selectNode(node)
-            gesture.current = {
-              kind: 'handle',
-              id: current.id,
-              before: store.items,
-              stored: storedCurrent,
-              t: frameNow(),
-              handle,
-              item: current
-            }
-            svgRef.current?.setPointerCapture(e.pointerId)
-            return
-          }
-        }
-      }
-      const hit = topHitAny(px)
-      if (hit) {
-        store.select(hit.id)
-        store.selectNode(null)
-        store.selectKey(null)
-        const storedHit = store.items.find((a) => a.id === hit.id) ?? hit
-        if (isAnimated(storedHit)) pauseVideo()
-        const hitT = gestureTime()
-        if (isPitchAnnotation(hit)) {
-          const proj = lookup(hit.calibrationId)
-          const world = proj?.toWorld(norm)
-          if (proj && world) {
-            gesture.current = {
-              kind: 'pmove',
-              id: hit.id,
-              before: store.items,
-              stored: storedHit,
-              t: hitT,
-              origin: world,
-              item: hit,
-              projector: proj
-            }
-            svgRef.current?.setPointerCapture(e.pointerId)
-          }
-        } else {
-          gesture.current = {
-            kind: 'move',
-            id: hit.id,
-            before: store.items,
-            stored: storedHit,
-            t: hitT,
-            origin: norm,
-            item: hit,
-            box: bboxFor(hit, size)
-          }
-          svgRef.current?.setPointerCapture(e.pointerId)
-        }
-      } else {
-        store.select(null)
-      }
+      if (!beginEdit(e, norm, px)) store.select(null)
+      return
+    }
+
+    // Инструмент рисования: нажатие на уже нарисованное правит его (Alt — всё равно рисовать новое).
+    if (
+      store.tool !== 'text' &&
+      !e.altKey &&
+      !usePolyDraft.getState().draft &&
+      // Инструмент правит только выбранный рисунок (ручки и тело); остальные рисунки не мешают рисовать новое поверх них.
+      // Зона и связи ставятся щелчками: тело не перехватывается, правятся только вершины выбранного.
+      beginEdit(e, norm, px, store.tool === 'zone' || store.tool === 'chain' ? 'none' : 'selected')
+    ) {
       return
     }
 
@@ -870,7 +910,12 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
           usePolyDraft.getState().setHover(clampPoint(norm))
         }
       }
-      if (store.tool !== 'select') {
+      const drawing = store.tool !== 'select'
+      // Текст и незаконченная зона/связи: по рисункам не «ходим», только ставим новое.
+      if (
+        drawing &&
+        (store.tool === 'text' || store.tool === 'zone' || store.tool === 'chain' || pd || e.altKey)
+      ) {
         svg.style.cursor = store.tool === 'text' ? 'text' : 'crosshair'
         return
       }
@@ -886,7 +931,9 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         }
       }
       if (overHandle) svg.style.cursor = 'grab'
-      else svg.style.cursor = topHitAny(px) ? 'move' : 'default'
+      else if (topHitAny(px, drawing ? (store.selectedId ?? '') : undefined))
+        svg.style.cursor = 'move'
+      else svg.style.cursor = drawing ? 'crosshair' : 'default'
       return
     }
     if (g.kind === 'draw') {
@@ -1201,7 +1248,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               annotation={a}
               size={size}
               selected={a.id === selectedId}
-              showHandles={tool === 'select'}
+              showHandles
               projector={isPitchAnnotation(a) ? projectors.get(a.calibrationId) : undefined}
               dimmed={staleIds.has(a.id)}
               part={underOn && isUnderPlayers(a) ? 'top' : 'all'}
@@ -1234,7 +1281,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
             )}
           </g>
         )}
-        {selected && tool === 'select' && !editor && (
+        {selected && !editor && !poly && (
           <LiveHandles
             annotation={selected}
             size={size}
@@ -1280,10 +1327,12 @@ export function AnnotationLayer(): React.JSX.Element {
   const ready = usePlayerStore((s) => s.status === 'ready')
   const videoId = usePlayerStore((s) => s.source?.id)
   const rect = usePictureRect(hostRef, ready, videoId)
+  // Пока размечается поле, рисунки скрыты (visibility): они закрывают точки и линии разметки; после — возвращаются.
+  const calibrating = usePitchStore((s) => s.draft !== null)
   useSelectionGuard()
   useAnimClockDriver()
   return (
-    <div ref={hostRef} className="anno-host">
+    <div ref={hostRef} className={calibrating ? 'anno-host anno-host--hidden' : 'anno-host'}>
       {ready && rect && <Surface rect={rect} />}
     </div>
   )

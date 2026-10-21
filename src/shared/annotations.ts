@@ -20,6 +20,15 @@ const ControlPointSchema = z.object({ x: z.number().min(-1).max(2), y: z.number(
 const id = z.uuid()
 /** Рисунок лежит «под игроками» (ключ по газону). Нет поля — значение по умолчанию для вида рисунка (isUnderPlayers). */
 const underPlayers = z.boolean().optional()
+/**
+ * Заливка круга и кольца, доля прозрачности. Нет поля — как было до 0.16.4 (круг 0.16, кольцо 0.18);
+ * новые рисунки получают лёгкую заливку (DEFAULT_RING_FILL), чтобы игрок под кольцом оставался виден.
+ */
+export const MAX_RING_FILL = 0.4
+export const DEFAULT_RING_FILL = 0.06
+export const LEGACY_CIRCLE_FILL = 0.16
+export const LEGACY_RING_FILL = 0.18
+const ringFill = z.number().min(0).max(MAX_RING_FILL).optional()
 
 // --- Этап 16б: ключевые кадры (анимация рисунка) ---
 
@@ -132,6 +141,7 @@ export const CircleSchema = z.object({
   type: z.literal('circle'),
   ...twoPoints,
   style: ShapeStyleSchema,
+  fillOpacity: ringFill,
   underPlayers,
   keyframes: kf(twoPoints),
   timing: TimingSchema
@@ -170,6 +180,7 @@ export const RingSchema = z.object({
   center: WorldPointSchema,
   radius: z.number().min(MIN_RING_RADIUS).max(MAX_RING_RADIUS),
   style: ShapeStyleSchema,
+  fillOpacity: ringFill,
   underPlayers,
   keyframes: kf({ center: WorldPointSchema, radius: ringRadius }),
   timing: TimingSchema
@@ -476,6 +487,14 @@ const NEVER_UNDER: ReadonlySet<string> = new Set(['text', 'ptext', 'loupe', 'spo
 
 /** Значение «под игроками» по умолчанию для вида рисунка. Старые проекты поля не имеют — берётся оно. */
 export const defaultUnderPlayers = (type: string): boolean => UNDER_BY_DEFAULT.has(type)
+/** Подсветки на экране, которые с 0.16.4 новыми кладутся под игроков (старые рисунки хранят своё значение). */
+const UNDER_WHEN_NEW_ON_SCREEN: ReadonlySet<string> = new Set(['circle', 'zone'])
+/**
+ * «Под игроками» для НОВОГО рисунка, пока пользователь не выбрал сам: всё на поле, а на экране
+ * круг/эллипс и зона (подсветка выделяет игрока, а не закрывает его). Стрелки и линии на экране — поверх.
+ */
+export const newUnderDefault = (type: string, space: 'pitch' | 'screen'): boolean =>
+  canBeUnder(type) && (space === 'pitch' || UNDER_WHEN_NEW_ON_SCREEN.has(type))
 /** Можно ли положить рисунок под игроков (подписи и лупа всегда поверх). */
 export const canBeUnder = (type: string): boolean => !NEVER_UNDER.has(type)
 /** Лежит ли рисунок под игроками: явное значение или умолчание по виду. Подписи — никогда. */

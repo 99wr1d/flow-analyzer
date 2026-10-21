@@ -5,7 +5,14 @@ import { usePlayerStore } from '../../store/playerStore'
 import { ChevronDownIcon, ChevronRightIcon } from '../../ui/icons'
 import { useFirstKey } from '../commands/useKeys'
 import { useDialogsStore } from '../library/dialogsStore'
-import { goHome, newProject, openProject, saveProject, saveProjectAs } from './actions'
+import {
+  goHome,
+  newProject,
+  openProject,
+  saveProject,
+  saveProjectAs,
+  setCoverHere
+} from './actions'
 
 function Item({
   label,
@@ -244,6 +251,12 @@ export function ProjectMenu(): React.JSX.Element {
             onClick={() =>
               run(() => useDialogsStore.setState({ properties: { kind: 'workspace' } }))
             }
+          />
+          <Item
+            label={ru.project.setCover}
+            testId="menu-cover"
+            disabled={!hasVideo}
+            onClick={() => run(setCoverHere)}
           />
           <div className="menu__sep" role="separator" />
           <Item

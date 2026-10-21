@@ -20,9 +20,31 @@ export function thumbKey(projectPath: string): string {
 export const thumbFile = (userData: string, projectPath: string): string =>
   join(userData, THUMBS_DIR, `${thumbKey(projectPath)}.jpg`)
 
-/** Время кадра для эскиза: сохранённое место просмотра, иначе 10% видео, иначе первая секунда. */
-export function thumbTime(lastTime: number, duration: number | undefined): number {
+/** Что известно о проекте для выбора кадра эскиза. */
+export interface ThumbHint {
+  /** Обложка, выбранная пользователем («Сделать этот кадр обложкой»), секунды. */
+  cover?: number
+  /** Эпизоды проекта: без обложки берётся середина самого раннего. */
+  episodes?: ReadonlyArray<{ start: number; end: number }>
+}
+
+/**
+ * Время кадра для эскиза: обложка проекта; иначе середина первого эпизода; иначе сохранённое место просмотра,
+ * иначе 10% видео, иначе первая секунда. Кадр не ближе 0.2 с к концу видео.
+ */
+export function thumbTime(
+  lastTime: number,
+  duration: number | undefined,
+  hint: ThumbHint = {}
+): number {
   const known = duration !== undefined && duration > 0
+  const clampEnd = (t: number): number => (known ? Math.min(t, Math.max(0, duration - 0.2)) : t)
+  if (hint.cover !== undefined && hint.cover >= 0) return clampEnd(hint.cover)
+  const first = hint.episodes?.reduce<{ start: number; end: number } | null>(
+    (best, e) => (best === null || e.start < best.start ? e : best),
+    null
+  )
+  if (first) return clampEnd((first.start + first.end) / 2)
   if (lastTime > 0) return known ? Math.min(lastTime, Math.max(0, duration - 0.2)) : lastTime
   return known ? duration * 0.1 : 1
 }
@@ -100,7 +122,8 @@ export function scheduleThumb(
   projectPath: string,
   videoPath: string,
   lastTime: number,
-  duration: number | undefined
+  duration: number | undefined,
+  hint: ThumbHint = {}
 ): void {
   const located = getFfmpegPath()
   if (!located.ok) return
@@ -111,7 +134,7 @@ export function scheduleThumb(
       generateThumb({
         ffmpegPath: located.path,
         videoPath,
-        time: thumbTime(lastTime, duration),
+        time: thumbTime(lastTime, duration, hint),
         out: thumbFile(userData, projectPath)
       })
     )

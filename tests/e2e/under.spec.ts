@@ -407,9 +407,8 @@ test.describe('рисунки под игроками', () => {
       const color = (await win.getByTestId('grass-swatch').getAttribute('data-color')) ?? ''
       await win.getByTestId('grass-button').click()
       await expect(win.getByTestId('project-dirty')).toBeVisible()
-      // Зона на экране, положена под игроков.
+      // Зона на экране: с 0.16.4 по умолчанию уже под игроками.
       await win.getByTestId('tool-zone').click()
-      await win.getByTestId('under-toggle').click()
       await expect(win.getByTestId('under-toggle')).toHaveAttribute('aria-pressed', 'true')
       for (const f of [
         [0.08, 0.55],
@@ -507,8 +506,10 @@ test.describe('рисунки под игроками', () => {
       await expect(toggle).toHaveAttribute('aria-pressed', 'true')
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-      // Рисунок на экране: по умолчанию поверх игроков; включаем «Под игроками».
+      // Рисунок на экране: круг с 0.16.4 по умолчанию под игроками; выключаем и снова включаем — выбор запоминается.
       await win.getByTestId('pitch-on').click()
+      await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+      await toggle.click()
       await expect(toggle).toHaveAttribute('aria-pressed', 'false')
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-pressed', 'true')

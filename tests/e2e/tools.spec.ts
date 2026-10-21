@@ -1158,6 +1158,8 @@ test.describe('экспорт с новыми рисунками', () => {
       for (const p of chain) await clickAt(win, p)
       await win.keyboard.press('Enter')
       await win.keyboard.press('z')
+      // С 0.16.4 новая зона лежит под игроками; на этом видео нет газона, поэтому кладём её поверх.
+      await win.getByTestId('under-toggle').click()
       await win.getByTestId('color-111827').click()
       const zone: Frac[] = [
         [0.6, 0.55],

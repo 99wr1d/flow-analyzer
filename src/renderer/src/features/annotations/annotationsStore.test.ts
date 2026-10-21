@@ -247,3 +247,77 @@ describe('анимация в хранилище', () => {
     expect(AnnotationSchema.safeParse(s().items[0]).success).toBe(true)
   })
 })
+
+describe('0.16.4: подсветки по умолчанию под игроками', () => {
+  const base = {
+    style: { color: '#ffffff', width: 0.011, dash: 'solid' },
+    timing: { mode: 'range', start: 1, duration: 3 }
+  }
+  const at = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+  const circle = (n: number): Annotation =>
+    ({
+      id: at(n),
+      space: 'screen',
+      type: 'circle',
+      p1: { x: 0.1, y: 0.1 },
+      p2: { x: 0.2, y: 0.3 },
+      ...base
+    }) as unknown as Annotation
+  const zone = (n: number): Annotation =>
+    ({
+      id: at(n),
+      space: 'screen',
+      type: 'zone',
+      points: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.4, y: 0.1 },
+        { x: 0.4, y: 0.4 }
+      ],
+      opacity: 0.3,
+      ...base
+    }) as unknown as Annotation
+  const ring = (n: number): Annotation =>
+    ({
+      id: at(n),
+      space: 'pitch',
+      calibrationId: at(900),
+      type: 'ring',
+      center: { x: 5, y: 5 },
+      radius: 1,
+      ...base
+    }) as unknown as Annotation
+  const flag = (i: number): boolean | undefined =>
+    (s().items[i] as Annotation & { underPlayers?: boolean }).underPlayers
+
+  beforeEach(() => {
+    s().reset()
+    useAnnotationsStore.setState({ underNew: { pitch: null, screen: null } })
+  })
+
+  it('кольцо, круг и зона кладутся под игроков, стрелка на экране — поверх', () => {
+    s().add(ring(1))
+    s().add(circle(2))
+    s().add(zone(3))
+    s().add(arrow(4))
+    expect([flag(0), flag(1), flag(2), flag(3)]).toEqual([true, true, true, false])
+  })
+
+  it('выбор пользователя сильнее умолчания: выключил для круга — следующая зона тоже поверх', () => {
+    s().add(circle(1))
+    s().setProps(at(1), { underPlayers: false })
+    s().add(zone(2))
+    expect(flag(1)).toBe(false)
+  })
+
+  it('рисунок со своим флагом не перезаписывается', () => {
+    s().add({ ...circle(1), underPlayers: false } as Annotation)
+    expect(flag(0)).toBe(false)
+  })
+
+  it('заливка нового круга и кольца запоминается как свойство', () => {
+    s().add(circle(1))
+    s().setProps(at(1), { fillOpacity: 0.3 })
+    expect(s().options.fillOpacity).toBe(0.3)
+    expect((s().items[0] as { fillOpacity?: number }).fillOpacity).toBe(0.3)
+  })
+})

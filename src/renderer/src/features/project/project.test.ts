@@ -95,7 +95,13 @@ describe('признак «есть несохранённое»', () => {
   })
 
   it('загруженный проект: имя, путь и признак из загрузки', () => {
-    project().setLoaded({ path: '/p/x.flowproj', name: 'x', dirty: true, meta: null })
+    project().setLoaded({
+      path: '/p/x.flowproj',
+      name: 'x',
+      dirty: true,
+      meta: null,
+      coverTime: null
+    })
     expect(project()).toMatchObject({ path: '/p/x.flowproj', name: 'x', dirty: true })
     project().reset()
     expect(project()).toMatchObject({ path: null, name: 'Новый проект', dirty: false })

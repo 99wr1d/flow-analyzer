@@ -23,6 +23,8 @@ export interface ProjectState {
   name: string
   /** Описание проекта (название, тип, дата, заметки). null — не задано: имя берётся из имени файла. */
   meta: ProjectMeta | null
+  /** Кадр-обложка проекта, секунды; null — не выбран (эскиз выбирается сам). */
+  coverTime: number | null
   dirty: boolean
   /** Растёт при каждом изменении работы: по нему видно, изменилось ли что-то за время сохранения. */
   version: number
@@ -44,7 +46,10 @@ export interface ProjectActions {
     name: string
     dirty: boolean
     meta: ProjectMeta | null
+    coverTime: number | null
   }) => void
+  /** «Сделать этот кадр обложкой»: проект становится «грязным». */
+  setCover: (time: number) => void
   /** Правка описания в окне «Свойства проекта»: имя проекта следует за названием, проект становится «грязным». */
   setMeta: (meta: ProjectMeta) => void
   /** Чистый безымянный проект (новое видео или «Новый проект»). */
@@ -60,6 +65,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()((set) => 
   path: null,
   name: UNTITLED_PROJECT,
   meta: null,
+  coverTime: null,
   dirty: false,
   version: 0,
   lastSavedAt: null,
@@ -73,11 +79,13 @@ export const useProjectStore = create<ProjectState & ProjectActions>()((set) => 
   markSaved: (path, name, savedAt, versionAtSave) =>
     set((s) => ({ path, name, lastSavedAt: savedAt, dirty: s.version !== versionAtSave })),
   setMeta: (meta) => set((s) => ({ meta, name: meta.title, dirty: true, version: s.version + 1 })),
-  setLoaded: ({ path, name, dirty, meta }) =>
+  setCover: (coverTime) => set((s) => ({ coverTime, dirty: true, version: s.version + 1 })),
+  setLoaded: ({ path, name, dirty, meta, coverTime }) =>
     set((s) => ({
       path,
       name,
       meta,
+      coverTime,
       dirty,
       version: s.version + 1,
       lastSavedAt: null,
@@ -89,6 +97,7 @@ export const useProjectStore = create<ProjectState & ProjectActions>()((set) => 
       path: null,
       name: UNTITLED_PROJECT,
       meta: null,
+      coverTime: null,
       dirty: false,
       version: s.version + 1,
       lastSavedAt: null,

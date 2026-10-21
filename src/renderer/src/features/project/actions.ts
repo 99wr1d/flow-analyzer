@@ -9,7 +9,7 @@ import { loadWork, resetWork } from '../history/unified'
 import { refreshLibrary } from '../library/libraryActions'
 import { useDialogsStore } from '../library/dialogsStore'
 import { probeFps } from '../player/probeFps'
-import { seekTo } from '../player/videoElement'
+import { getCurrentTime, seekTo } from '../player/videoElement'
 import { withoutDirty } from './dirty'
 import { useProjectStore } from './projectStore'
 import { buildSaveRequest } from './snapshot'
@@ -54,6 +54,13 @@ export async function saveProject(saveAs = false): Promise<boolean> {
   } finally {
     useProjectStore.getState().setSaving(false)
   }
+}
+
+/** «Сделать этот кадр обложкой»: запоминает время текущего кадра; эскиз обновится при сохранении. */
+export function setCoverHere(): void {
+  if (!canSave()) return
+  useProjectStore.getState().setCover(Math.max(0, getCurrentTime()))
+  useFeedbackStore.getState().show({ text: ru.project.coverToast, kind: 'info' })
 }
 
 export const saveProjectAs = (): Promise<boolean> => saveProject(true)
@@ -159,7 +166,13 @@ function applyLoaded(loaded: LoadedProject): void {
     usePlayerStore.getState().setFps(loaded.fps, loaded.fpsSource)
   }
   const store = useProjectStore.getState()
-  store.setLoaded({ path: loaded.path, name: loaded.name, dirty: loaded.dirty, meta: loaded.meta })
+  store.setLoaded({
+    path: loaded.path,
+    name: loaded.name,
+    dirty: loaded.dirty,
+    meta: loaded.meta,
+    coverTime: loaded.coverTime
+  })
   useViewStore.getState().setView('workspace')
   store.setWarning(loaded.warning)
   void probeFps(loaded.source)

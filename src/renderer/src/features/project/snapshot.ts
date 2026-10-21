@@ -41,7 +41,7 @@ export function buildSaveRequest(currentPath: string | null): ProjectSaveRequest
   if (!player.source) return null
   const episodes = useEpisodesStore.getState().items
   const knownFps = player.fpsSource !== 'default'
-  const meta = useProjectStore.getState().meta
+  const { meta, coverTime } = useProjectStore.getState()
   const calibrations = useCalibrationsStore.getState().items
   const known = new Set(calibrations.map((c) => c.id))
   const grassKey = savedGrassKey()
@@ -58,6 +58,7 @@ export function buildSaveRequest(currentPath: string | null): ProjectSaveRequest
     ...(knownFps ? { fps: player.fps, fpsSource: player.fpsSource } : {}),
     ...(player.status === 'ready' && player.duration > 0 ? { duration: player.duration } : {}),
     ...(meta ? { meta } : {}),
+    ...(coverTime !== null ? { coverTime } : {}),
     ...(grassKey ? { grassKey } : {}),
     currentPath
   }

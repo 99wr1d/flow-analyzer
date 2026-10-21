@@ -179,6 +179,10 @@
   pointer-events: none;
   z-index: 1;
 }
+/* Идёт разметка поля: рисунки не видны и не ловят мышь, но остаются на месте (размеры и состояние сохраняются). */
+.anno-host--hidden {
+  visibility: hidden;
+}
 .anno-svg {
   position: absolute;
   pointer-events: auto;
