@@ -8,15 +8,19 @@ export const COAST_SECONDS = 1.0
 /** Через сколько секунд без находки слежение считается потерянным (occluded). */
 export const LOST_SECONDS = 1.0
 
+/** Жёсткое вето: кандидат с таким расстоянием приметы и больше (другая форма) не берётся никогда, даже единственный. */
+export const APPEARANCE_REJECT = 0.3
+/** Сколько кандидатов показывать в вопросе «Кто из них ваш?». */
+export const ASK_MAX_CANDIDATES = 3
 /** Вес приметы в сопоставлении при обычном ведении (остальное — IoU и расстояние до прогноза). */
 export const ASSOC_APPEARANCE_WEIGHT = 0.4
 /** Выход из пережидания: 0.6·примета + 0.4·расстояние. */
 export const RECOVER_APPEARANCE_WEIGHT = 0.6
 export const RECOVER_DISTANCE_WEIGHT = 0.4
 /** Выше этой цены (0..1) кандидат при обычном ведении не принимается — пережидание. */
-export const TRACK_MAX_COST = 0.7
+export const TRACK_MAX_COST = 0.6
 /** Выше этой цены (0..1) единственный кандидат при выходе из пережидания не принимается. */
-export const RECOVER_MAX_COST = 0.7
+export const RECOVER_MAX_COST = 0.55
 /** Если отрыв лучшего кандидата от второго меньше — спрашиваем «Кто из них ваш?». */
 export const ASK_GAP = 0.15
 
@@ -44,8 +48,6 @@ export const SIZE_BLEND = 0.3
 /** Шум фильтра Калмана (пиксели, кадры). */
 export const KALMAN_Q = 0.5
 export const KALMAN_R = 4
-/** После скольки кадров пережидания скорость гасится (доля в кадр). */
-export const COAST_DAMPING = 0.95
 
 /** «Ушёл за край»: рамка ближе к краю кадра, чем эта доля ширины. */
 export const EDGE_MARGIN = 0.05

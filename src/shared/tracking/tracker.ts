@@ -14,7 +14,8 @@ import {
   APPEARANCE_BLEND,
   ASK_GAP,
   ASSOC_APPEARANCE_WEIGHT,
-  COAST_DAMPING,
+  APPEARANCE_REJECT,
+  ASK_MAX_CANDIDATES,
   COAST_SECONDS,
   EDGE_MARGIN,
   GATE_BASE,
@@ -91,8 +92,8 @@ interface Cand {
 }
 
 export class SingleTracker {
-  private readonly kx: Kalman1D
-  private readonly ky: Kalman1D
+  private kx: Kalman1D
+  private ky: Kalman1D
   private w: number
   private h: number
   private readonly look: Float32Array
@@ -102,6 +103,7 @@ export class SingleTracker {
   private readonly frame?: { w: number; h: number }
   private miss = 0
   private lastBox: Box
+  private lastDets: Detection[] = []
   private lastIndex: number | null = null
   private prevHist: Float32Array | null = null
   private dead: StepResult | null = null
@@ -130,29 +132,34 @@ export class SingleTracker {
     for (let i = 0; i < dt; i += 1) {
       this.kx.predict(1)
       this.ky.predict(1)
-      if (this.miss >= this.coastFrames) {
-        this.kx.v *= COAST_DAMPING
-        this.ky.v *= COAST_DAMPING
-      }
     }
     const pred: Box = { x: this.kx.p - this.w / 2, y: this.ky.p - this.h / 2, w: this.w, h: this.h }
+    this.lastDets = f.detections
     const cands = this.candidates(f.detections, pred)
 
     if (this.miss === 0) {
-      let best: Cand | null = null
-      let bestCost = Infinity
-      for (const c of cands) {
-        const appTerm = this.dirty ? 0 : ASSOC_APPEARANCE_WEIGHT * c.app
-        const cost =
-          appTerm + (1 - ASSOC_APPEARANCE_WEIGHT) * (0.5 * (1 - c.iou) + 0.5 * Math.min(c.dist, 1))
-        if (cost < bestCost) {
-          best = c
-          bestCost = cost
-        }
-      }
-      if (best && bestCost <= TRACK_MAX_COST && !best.overlapped && !best.merged) {
-        this.accept(best, true)
-        return { kind: 'track', box: { ...best.det.box }, coasting: false }
+      // Пока примета «грязная», верим только единственному кандидату в воротах.
+      if (this.dirty && cands.length !== 1) return this.coast(pred)
+      const scored = cands
+        .map((c) => ({
+          c,
+          cost:
+            (this.dirty ? 0 : ASSOC_APPEARANCE_WEIGHT * c.app) +
+            (1 - ASSOC_APPEARANCE_WEIGHT) * (0.5 * (1 - c.iou) + 0.5 * Math.min(c.dist, 1))
+        }))
+        .sort((p, q) => p.cost - q.cost)
+      const best = scored[0]
+      // Два почти равных кандидата — не выбираем молча: пережидание (затем, при сомнении, вопрос).
+      const gap = scored.length > 1 ? scored[1].cost - best.cost : Infinity
+      if (
+        best &&
+        best.cost <= TRACK_MAX_COST &&
+        !best.c.overlapped &&
+        !best.c.merged &&
+        gap >= ASK_GAP
+      ) {
+        this.accept(best.c, true)
+        return { kind: 'track', box: { ...best.c.det.box }, coasting: false }
       }
       return this.coast(pred)
     }
@@ -165,15 +172,19 @@ export class SingleTracker {
           RECOVER_APPEARANCE_WEIGHT * (this.dirty ? 0 : c.app) +
           RECOVER_DISTANCE_WEIGHT * Math.min(c.dist, 1)
       }))
-      .sort((a, b) => a.cost - b.cost)
+      .sort((p, q) => p.cost - q.cost)
     if (ranked.length > 0) {
-      const gap = ranked.length > 1 ? ranked[1].cost - ranked[0].cost : Infinity
+      // С «грязной» приметой различать кандидатов нечем: больше одного — только вопрос.
+      const gap = ranked.length > 1 ? (this.dirty ? 0 : ranked[1].cost - ranked[0].cost) : Infinity
       if (gap >= ASK_GAP && ranked[0].cost <= RECOVER_MAX_COST) {
         this.accept(ranked[0].c, false)
         return { kind: 'track', box: { ...ranked[0].c.det.box }, coasting: false }
       }
-      if (gap < ASK_GAP && this.miss + 1 >= this.lostFrames) {
-        return { kind: 'ask', candidates: ranked.map((r) => r.c.det) }
+      if (gap < ASK_GAP && this.miss + 1 >= this.coastFrames) {
+        return {
+          kind: 'ask',
+          candidates: ranked.slice(0, ASK_MAX_CANDIDATES).map((r) => r.c.det)
+        }
       }
     }
     return this.coast(pred)
@@ -181,13 +192,19 @@ export class SingleTracker {
 
   /** Ответ на «Кто из них ваш?»: слежение продолжается с выбранной рамки. */
   resolve(det: Detection): void {
+    const clean =
+      det.box.w <= this.w * MERGE_WIDTH_RATIO &&
+      !this.lastDets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU)
     const c = centerOf(det.box)
-    this.kx.update(c.x)
-    this.ky.update(c.y)
+    // Прогноз по старой траектории больше не годится: заново с выбранной рамки.
+    this.kx = new Kalman1D(c.x, KALMAN_Q, KALMAN_R)
+    this.ky = new Kalman1D(c.y, KALMAN_Q, KALMAN_R)
     this.w = det.box.w
     this.h = det.box.h
     this.lastBox = { ...det.box }
     this.miss = 0
+    if (clean) this.look.set(det.look)
+    this.dirty = false
   }
 
   private candidates(dets: Detection[], pred: Box): Cand[] {
@@ -202,11 +219,14 @@ export class SingleTracker {
       const dist = Math.hypot(c.x - pc.x, c.y - pc.y) / norm
       const ov = iou(pred, det.box)
       if (ov < GATE_IOU && dist >= radius) continue
+      const app = appearanceDistance(this.look, det.look)
+      // Другая форма — не наш игрок, как бы близко он ни стоял (пока примета не «грязная»).
+      if (!this.dirty && app > APPEARANCE_REJECT) continue
       out.push({
         det,
         iou: ov,
         dist,
-        app: appearanceDistance(this.look, det.look),
+        app,
         overlapped: dets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU),
         merged: det.box.w > this.w * MERGE_WIDTH_RATIO
       })

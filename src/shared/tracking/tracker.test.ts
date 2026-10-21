@@ -226,3 +226,95 @@ describe('pickStart', () => {
     expect(pickStart([], { x: 1, y: 1 })).toEqual({ kind: 'none' })
   })
 })
+
+describe('SingleTracker: защита от молчаливого перескока', () => {
+  const lookOfTone = (c: [number, number, number]): Float32Array => look(c, [255, 255, 255])
+
+  it('наш игрок пропал, рядом стоит игрок другой формы (обычная ветка): ждём и lost(occluded), на чужого не уходим', () => {
+    const a = (f: number): Detection => det(200 + f * 2, 270, RED)
+    const other = (f: number): Detection => det(200 + f * 2, 320, BLUE)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(tr, 1, 70, (f) => (f < 20 ? [a(f), other(f)] : [other(f)]))
+    res.slice(0, 19).forEach((r) => expect(r.kind === 'track' && !r.coasting).toBe(true))
+    const lostIdx = res.findIndex((r) => r.kind === 'lost')
+    expect(res[lostIdx]).toEqual({ kind: 'lost', reason: 'occluded' })
+    res.slice(19, lostIdx).forEach((r) => expect(r.kind === 'track' && r.coasting).toBe(true))
+  })
+
+  it('наш игрок пропал, потом появляется один игрок другой формы (выход из пережидания): не берём', () => {
+    const a = (f: number): Detection => det(200 + f * 2, 270, RED)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(tr, 1, 70, (f) => {
+      if (f < 20) return [a(f)]
+      return f >= 25 ? [det(200 + f * 2, 320, BLUE)] : []
+    })
+    res.forEach((r, i) => {
+      if (r.kind === 'track' && i >= 19) expect(r.coasting).toBe(true)
+    })
+    expect(res.some((r) => r.kind === 'lost' && r.reason === 'occluded')).toBe(true)
+  })
+
+  it('два почти равных кандидата одной формы при обычном ведении: не выбираем молча', () => {
+    const a = (f: number): Detection => det(200 + f * 2, 270, RED)
+    // два одинаковых игрока симметрично по 50 пикселей выше и ниже прогноза: цены равны
+    const up = (f: number): Detection => det(200 + f * 2, 270 - 50, RED)
+    const down = (f: number): Detection => det(200 + f * 2, 270 + 50, RED)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    run(tr, 1, 20, (f) => [a(f)])
+    const res = run(tr, 20, 24, (f) => [up(f), down(f)])
+    expect(res.every((r) => r.kind === 'track' && r.coasting)).toBe(true)
+  })
+
+  it('грязный старт, сосед остаётся рядом: ask, а не молчаливый захват', () => {
+    const a = (f: number): Detection => det(300 + 2 * f, 270, RED)
+    const b = (f: number): Detection => det(300 + 2 * f + 30, 270, RED)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME, dirtyStart: true })
+    const res = run(tr, 1, 40, (f) => [a(f), b(f)])
+    // пока оба рядом, ни один кадр не принят как уверенный
+    expect(res.every((r) => !(r.kind === 'track' && !r.coasting))).toBe(true)
+    const ask = res.find((r) => r.kind === 'ask')
+    expect(ask).toBeDefined()
+  })
+
+  it('resolve: выбранный игрок идёт не туда, куда вёл прогноз, — трекер остаётся с ним', () => {
+    const a0 = (f: number): Detection => det(100 + 3 * f, 270, RED)
+    const mine = (f: number): Detection => det(100 + 3 * f, 320, RED)
+    const other = (f: number): Detection => det(100 + 3 * f, 220, RED)
+    const tr = new SingleTracker(a0(0), FPS, { frame: FRAME })
+    const gen = (f: number): Detection[] => {
+      if (f < 30) return [a0(f)]
+      if (f < 42) return [a0(f), a0(f)]
+      return [mine(f), other(f)]
+    }
+    const res = run(tr, 1, 100, gen)
+    const idx = res.findIndex((r) => r.kind === 'ask')
+    expect(idx).toBeGreaterThan(0)
+    let f = idx + 1
+    // игрок выбран и резко разворачивается назад и вниз
+    let x = mine(f).box.x + BW / 2
+    let y = 320
+    tr.resolve(det(x, y, RED))
+    for (let k = 0; k < 15; k += 1) {
+      f += 1
+      x -= 3
+      y += 2
+      const r = tr.step(frame(f, [det(x, y, RED), det(x + 200, 220, RED)]))
+      expect(r.kind).toBe('track')
+      if (r.kind === 'track') {
+        expect(r.coasting).toBe(false)
+        expect(Math.abs(cx(r.box) - x)).toBeLessThan(2)
+      }
+    }
+  })
+
+  it('ask показывает не больше трёх кандидатов', () => {
+    const a0 = (f: number): Detection => det(100 + 3 * f, 270, RED)
+    const tr = new SingleTracker(a0(0), FPS, { frame: FRAME })
+    const around = (f: number): Detection[] =>
+      [-60, 0, 60, 120].map((dy) => det(100 + 3 * f, 270 + dy + (dy === 0 ? 55 : 0), RED))
+    const res = run(tr, 1, 100, (f) => (f < 30 ? [a0(f)] : f < 40 ? [a0(f), a0(f)] : around(f)))
+    const ask = res.find((r) => r.kind === 'ask')
+    if (ask && ask.kind === 'ask') expect(ask.candidates.length).toBeLessThanOrEqual(3)
+    expect(lookOfTone([1, 2, 3])).toHaveLength(96)
+  })
+})
