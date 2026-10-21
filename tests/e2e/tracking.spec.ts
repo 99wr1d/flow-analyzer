@@ -345,6 +345,77 @@ test.describe('слежение за игроком (заглушка детек
   })
 })
 
+test.describe('слежение и смена видео или правка рисунка', () => {
+  test('открыли другое видео во время расчёта: расчёт отменён, рамок и ключей на новом видео нет', async () => {
+    const { app, win } = await open(PATTERN, { FLOW_DETECTOR_STUB_DELAY_MS: '60' })
+    try {
+      await drawRing(win, { duration: 2.9 })
+      await win.getByTestId('track-button').click()
+      await expect(win.getByTestId('tracking-progress')).not.toHaveAttribute('data-done', '0', {
+        timeout: 15_000
+      })
+      await stubDialog(app, CROSS_VIDEO)
+      await win.getByTestId('open-video').click()
+      await win.getByTestId('unsaved-discard').click()
+      await expect(win.getByTestId('tracking-state')).toHaveAttribute('data-phase', 'idle', {
+        timeout: 15_000
+      })
+      await expect(win.getByTestId('tracking-host')).toHaveCount(0)
+      await expect(win.getByTestId('pick-box')).toHaveCount(0)
+      // Новое видео чистое: ничего не применено, рисунков нет, сообщений нет.
+      await win.waitForTimeout(800)
+      await expect(win.getByTestId('toast')).toHaveCount(0)
+      await expect(circle(win)).toHaveCount(0)
+      await expect(win.getByTestId('tracking-host')).toHaveCount(0)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('открыли другое видео, пока ждёт «Кто из них ваш?»: окна выбора нет, кадр не уводится', async () => {
+    const { app, win } = await open(CROSS, {}, CROSS_VIDEO)
+    try {
+      await drawRing(win, { from: [0.3, 0.62], to: [0.36, 0.68], duration: 2.9 })
+      await win.getByTestId('track-button').click()
+      await expect(win.getByTestId('pick-overlay')).toBeVisible({ timeout: 60_000 })
+      await stubDialog(app, VIDEO)
+      await win.getByTestId('open-video').click()
+      await win.getByTestId('unsaved-discard').click()
+      await expect(win.getByTestId('tracking-state')).toHaveAttribute('data-phase', 'idle', {
+        timeout: 15_000
+      })
+      await expect(win.getByTestId('pick-box')).toHaveCount(0)
+      await expect(win.getByTestId('pick-overlay')).toHaveCount(0)
+      await win.waitForTimeout(500)
+      await expect(circle(win)).toHaveCount(0)
+      await expect(win.getByTestId('toast')).toHaveCount(0)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('рисунок удалили во время расчёта: расчёт остановлен с сообщением, ничего не записано', async () => {
+    const { app, win } = await open(PATTERN, { FLOW_DETECTOR_STUB_DELAY_MS: '60' })
+    try {
+      await drawRing(win, { duration: 2.9 })
+      await win.getByTestId('track-button').click()
+      await expect(win.getByTestId('tracking-progress')).not.toHaveAttribute('data-done', '0', {
+        timeout: 15_000
+      })
+      // Фокус остаётся в поле длительности: Delete там ничего не удаляет.
+      await win.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+      await win.keyboard.press('Delete')
+      await expect(win.getByTestId('tracking-state')).toHaveAttribute('data-phase', 'idle', {
+        timeout: 15_000
+      })
+      await expect(win.getByTestId('toast')).toContainText('рисунок изменили или удалили')
+      await expect(circle(win)).toHaveCount(0)
+    } finally {
+      await app.close()
+    }
+  })
+})
+
 /** Какая фигура кадра под каждой рамкой выбора: по цвету пикселей самого видео внутри рамки. */
 async function boxKinds(win: Page): Promise<string[]> {
   return win.evaluate(() => {

@@ -13,7 +13,6 @@ import {
   type StubPattern
 } from './stubDetector'
 
-
 const FPS = 25
 const W = 960
 const H = 540

@@ -24,7 +24,11 @@ import {
   type TrackSample
 } from '../../../../shared/tracking/keys'
 import type { DetectorBackend } from '../../../../shared/tracking/detectorIpc'
-import { estimateSeconds, FALLBACK_FPS, type StopReason } from '../../../../shared/tracking/trackingIpc'
+import {
+  estimateSeconds,
+  FALLBACK_FPS,
+  type StopReason
+} from '../../../../shared/tracking/trackingIpc'
 import { ru } from '../../i18n/ru'
 import { formatTime } from '../player/format'
 

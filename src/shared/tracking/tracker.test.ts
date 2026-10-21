@@ -192,7 +192,8 @@ describe('SingleTracker', () => {
     const res = run(tr, 1, 90, (f) => [a(f), b(f)])
     res.forEach((r, i) => {
       // одинокого кандидата при грязной примете молча не берём (мог быть сосед): ждём, затем вопрос
-      if (r.kind === 'track' && !r.coasting) expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(25)
+      if (r.kind === 'track' && !r.coasting)
+        expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(25)
       else expect(['track', 'ask', 'lost']).toContain(r.kind)
     })
   })
@@ -391,7 +392,8 @@ describe('SingleTracker: не перепрыгивать на другого (и
     // пока ждём, рамка стоит на прогнозе нашего игрока, а не на соседе
     const coasting = res.filter((r) => r.kind === 'track')
     expect(coasting.length).toBeGreaterThan(10)
-    for (const r of coasting) if (r.kind === 'track') expect(Math.abs(cx(r.box) - 300)).toBeLessThan(5)
+    for (const r of coasting)
+      if (r.kind === 'track') expect(Math.abs(cx(r.box) - 300)).toBeLessThan(5)
     // по истечении срока — вопрос, а не молчаливый захват
     expect(res.some((r) => r.kind === 'ask')).toBe(true)
   })

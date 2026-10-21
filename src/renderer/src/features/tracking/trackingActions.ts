@@ -87,9 +87,6 @@ interface Running {
 
 let running: Running | null = null
 
-/** Идёт ли сейчас расчёт или вопрос (для Esc и кнопок). */
-export const isTrackingActive = (): boolean => useTrackingStore.getState().phase !== 'idle'
-
 /** Отмена слежения на любой стадии: ничего не меняет в рисунке. */
 export async function cancelTrackingNow(): Promise<void> {
   const state = useTrackingStore.getState()
@@ -279,6 +276,21 @@ export async function startTracking(annotationId: string): Promise<void> {
   }
   const store = useTrackingStore.getState()
   store.enter(annotationId)
+  // Расчёт привязан к этому видео и этому рисунку: смена видео или проекта отменяет его молча (вопрос «Кто из них ваш?»
+  // и кадры относятся к прежнему видео), правка или удаление рисунка — с сообщением. Ничего не применяется и не рисуется.
+  let edited = false
+  const sourceId = source.id
+  const sameSource = (): boolean => usePlayerStore.getState().source?.id === sourceId
+  const unwatch = [
+    usePlayerStore.subscribe((s) => {
+      if (s.source?.id !== sourceId) void cancelTrackingNow()
+    }),
+    useAnnotationsStore.subscribe((s) => {
+      if (edited || s.items.find((a) => a.id === annotationId) === annotation) return
+      edited = true
+      void cancelTrackingNow()
+    })
+  ]
   try {
     getVideoElement()?.pause()
     const seconds = planSeconds(plan, player.fps)
@@ -298,7 +310,14 @@ export async function startTracking(annotationId: string): Promise<void> {
         return
       }
     }
-    if (end.kind === 'cancelled') return
+    if (end.kind === 'cancelled') {
+      if (edited && sameSource()) warn(ru.tracking.edited, LONG_TOAST_MS)
+      return
+    }
+    if (!sameSource() || edited) {
+      if (edited && sameSource()) warn(ru.tracking.edited, LONG_TOAST_MS)
+      return
+    }
     if (end.kind === 'error') {
       warn(ru.tracking.failed(end.message), LONG_TOAST_MS)
       return
@@ -313,10 +332,11 @@ export async function startTracking(annotationId: string): Promise<void> {
     rememberBackend(done.backend)
     applySuccess(annotationId, plan, done)
   } finally {
+    unwatch.forEach((off) => off())
     running = null
     confirmResolver = null
     useTrackingStore.getState().leave()
-    // Вопрос «Кто из них ваш?» мог увести кадр: возвращаемся к месту, откуда начинали.
-    seekTo(plan.at)
+    // Вопрос «Кто из них ваш?» мог увести кадр: возвращаемся к месту, откуда начинали (но не на другом видео).
+    if (sameSource()) seekTo(plan.at)
   }
 }
