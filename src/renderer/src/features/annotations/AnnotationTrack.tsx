@@ -6,7 +6,7 @@ import { usePlayerStore } from '../../store/playerStore'
 import { formatTime } from '../player/format'
 import { seekTo } from '../player/videoElement'
 import { useAnnotationsStore } from './annotationsStore'
-import { MAX_LANES, assignLanes } from './lanes'
+import { MAX_LANES, assignLanes, autoRuns } from './lanes'
 
 const LANE_H = 12
 const LANE_GAP = 3
@@ -117,6 +117,7 @@ export function AnnotationTrack(): React.JSX.Element {
           const label = `${ru.annotations.types[a.type]}, ${formatTime(a.timing.start, { tenths: true })}`
           const laneTop = LABEL_H + PAD + l.lane * (LANE_H + LANE_GAP)
           const keys = isAnimated(a) ? keysOf(a) : []
+          const bands = autoRuns(keys)
           return (
             <span key={l.id} style={{ display: 'contents' }}>
               <button
@@ -140,37 +141,67 @@ export function AnnotationTrack(): React.JSX.Element {
                 data-id={l.id}
                 data-mode={a.timing.mode}
                 data-keys={keys.length}
+                data-auto-keys={keys.filter((k) => k.auto).length}
                 onClick={(e) => {
                   select(l.id)
                   seekTo(a.timing.start)
                   e.currentTarget.blur()
                 }}
               />
-              {keys.map((k, index) => (
-                <button
-                  key={index}
-                  type="button"
-                  className={[
-                    'anno-track__key',
-                    l.id === selectedId && index === selectedKey ? 'anno-track__key--selected' : ''
-                  ].join(' ')}
-                  style={{
-                    left: `${Math.max(0, Math.min(100, (k.t / duration) * 100))}%`,
-                    top: laneTop + LANE_H / 2 - 5
-                  }}
-                  title={`${ru.annotations.trackKey(index + 1, formatTime(k.t, { tenths: true }))}. ${ru.annotations.trackKeyHint}`}
-                  aria-label={ru.annotations.trackKey(index + 1, formatTime(k.t, { tenths: true }))}
-                  aria-pressed={l.id === selectedId && index === selectedKey}
-                  data-testid="track-key"
-                  data-id={l.id}
-                  data-index={index}
-                  data-time={k.t}
-                  onPointerDown={(e) => onKeyDown(e, a, index)}
-                  onPointerMove={onKeyMove}
-                  onPointerUp={(e) => onKeyUp(e, a)}
-                  onPointerCancel={(e) => onKeyUp(e, a)}
-                />
-              ))}
+              {bands.map(([i0, i1]) => {
+                const x0 = Math.max(0, Math.min(100, (keys[i0].t / duration) * 100))
+                const x1 = Math.max(0, Math.min(100, (keys[i1].t / duration) * 100))
+                return (
+                  <span
+                    key={`band-${i0}`}
+                    className="anno-track__band"
+                    style={{
+                      left: `${x0}%`,
+                      width: `max(${x1 - x0}%, 3px)`,
+                      top: laneTop + 2,
+                      height: LANE_H - 4
+                    }}
+                    title={ru.tracking.bandTitle}
+                    data-testid="track-band"
+                    data-id={l.id}
+                    data-from={keys[i0].t}
+                    data-to={keys[i1].t}
+                    data-count={i1 - i0 + 1}
+                  />
+                )
+              })}
+              {keys.map((k, index) =>
+                k.auto ? null : (
+                  <button
+                    key={index}
+                    type="button"
+                    className={[
+                      'anno-track__key',
+                      l.id === selectedId && index === selectedKey
+                        ? 'anno-track__key--selected'
+                        : ''
+                    ].join(' ')}
+                    style={{
+                      left: `${Math.max(0, Math.min(100, (k.t / duration) * 100))}%`,
+                      top: laneTop + LANE_H / 2 - 5
+                    }}
+                    title={`${ru.annotations.trackKey(index + 1, formatTime(k.t, { tenths: true }))}. ${ru.annotations.trackKeyHint}`}
+                    aria-label={ru.annotations.trackKey(
+                      index + 1,
+                      formatTime(k.t, { tenths: true })
+                    )}
+                    aria-pressed={l.id === selectedId && index === selectedKey}
+                    data-testid="track-key"
+                    data-id={l.id}
+                    data-index={index}
+                    data-time={k.t}
+                    onPointerDown={(e) => onKeyDown(e, a, index)}
+                    onPointerMove={onKeyMove}
+                    onPointerUp={(e) => onKeyUp(e, a)}
+                    onPointerCancel={(e) => onKeyUp(e, a)}
+                  />
+                )
+              )}
             </span>
           )
         })}

@@ -170,6 +170,8 @@ export interface AnnotationsActions {
   setStyle: (patch: Partial<CurrentStyle>) => void
   add: (annotation: Annotation) => void
   remove: (id: string) => void
+  /** Заменяет рисунок целиком одним шагом истории (слежение: ключи и перевод «поле → экран»). */
+  replaceAnnotation: (id: string, annotation: Annotation) => void
   setTiming: (id: string, timing: Timing, key?: string) => void
   setText: (id: string, text: string) => void
   /** Промежуточное изменение при перетаскивании (без записи в историю). */
@@ -353,6 +355,13 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
           s.items.filter((a) => a.id !== id)
         )
       )
+    }),
+
+  replaceAnnotation: (id, annotation) =>
+    set((s) => {
+      if (!s.items.some((a) => a.id === id)) return {}
+      const items = s.items.map((a) => (a.id === id ? annotation : a))
+      return { ...commit(s, items), selectedKey: null, selectedNode: null }
     }),
 
   setTiming: (id, timing, key) =>

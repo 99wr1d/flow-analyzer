@@ -16,7 +16,7 @@ export function Toast(): React.JSX.Element | null {
     if (!toast) return
     const timer = window.setTimeout(
       () => hide(toast.nonce),
-      toast.episodeId ? SHOW_RATE_MS : SHOW_MS
+      toast.ms ?? (toast.episodeId ? SHOW_RATE_MS : SHOW_MS)
     )
     return () => window.clearTimeout(timer)
   }, [toast, hide])
