@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { AnnotationSchema, type Annotation, type Ring, type Zone } from './annotations'
+import {
+  AnnotationSchema,
+  MAX_KEYFRAMES,
+  type Annotation,
+  type Ring,
+  type Zone
+} from './annotations'
 import {
   addKeyHere,
   applyGeomEdit,
@@ -115,12 +121,12 @@ describe('startAnimation и ключи', () => {
     expect(px(keysOf(b)[1].geom, 'p1')).toBeCloseTo(0.3, 6)
     expect(addKeyHere(b, 1.53, FPS)).toBe(b)
   })
-  it('не больше 200 ключей', () => {
+  it('не больше MAX_KEYFRAMES ключей', () => {
     let a = startAnimation(arrow(), 0, FPS, 60)
-    for (let i = 1; i < 260; i += 1) {
+    for (let i = 1; i < MAX_KEYFRAMES + 60; i += 1) {
       a = upsertKey(a, (i + 0.5) / FPS, { p1: { x: 0.2, y: 0.2 }, p2: { x: 0.3, y: 0.3 } }, FPS)
     }
-    expect(keysOf(a)).toHaveLength(200)
+    expect(keysOf(a)).toHaveLength(MAX_KEYFRAMES)
   })
 })
 
@@ -326,9 +332,12 @@ describe('схема: ключи', () => {
     const same = { ...a, keyframes: [a.keyframes[0], { ...a.keyframes[0] }] }
     expect(AnnotationSchema.safeParse(same).success).toBe(false)
   })
-  it('не больше 200 ключей, не пустой список', () => {
+  it('не больше MAX_KEYFRAMES ключей, не пустой список', () => {
     const a = twoKeys() as unknown as { keyframes: Array<{ t: number; geom: unknown }> }
-    const many = Array.from({ length: 201 }, (_, i) => ({ t: i + 1, geom: a.keyframes[0].geom }))
+    const many = Array.from({ length: MAX_KEYFRAMES + 1 }, (_, i) => ({
+      t: i + 1,
+      geom: a.keyframes[0].geom
+    }))
     expect(AnnotationSchema.safeParse({ ...a, keyframes: many }).success).toBe(false)
     expect(AnnotationSchema.safeParse({ ...a, keyframes: [] }).success).toBe(false)
   })

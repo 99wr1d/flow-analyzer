@@ -28,6 +28,8 @@ export type Geom = Record<string, unknown>
 export interface Keyframe {
   t: number
   ease?: Ease
+  /** Ключ поставлен слежением за игроком; нет поля — ручной. */
+  auto?: true
   geom: Geom
 }
 
