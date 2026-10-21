@@ -22,6 +22,9 @@ import {
   GATE_GROW,
   GATE_IOU,
   GATE_MAX,
+  DOUBT_APPEARANCE,
+  DOUBT_DIST,
+  HIDDEN_BETTER_MARGIN,
   KALMAN_Q,
   KALMAN_R,
   LOST_SECONDS,
@@ -30,6 +33,7 @@ import {
   OVERLAP_IOU,
   RECOVER_APPEARANCE_WEIGHT,
   RECOVER_DISTANCE_WEIGHT,
+  RECOVER_FAR_DIST,
   RECOVER_MAX_COST,
   SIZE_BLEND,
   SIZE_RATIO_MAX,
@@ -104,6 +108,7 @@ export class SingleTracker {
   private miss = 0
   private lastBox: Box
   private lastDets: Detection[] = []
+  private doubtful: Cand[] = []
   private lastIndex: number | null = null
   private prevHist: Float32Array | null = null
   private dead: StepResult | null = null
@@ -164,23 +169,45 @@ export class SingleTracker {
       return this.coast(pred)
     }
 
+    const recoverCost = (c: Cand): number =>
+      RECOVER_APPEARANCE_WEIGHT * (this.dirty ? 0 : c.app) +
+      RECOVER_DISTANCE_WEIGHT * Math.min(c.dist, 1)
     const ranked = cands
       .filter((c) => !c.overlapped && !c.merged)
-      .map((c) => ({
-        c,
-        cost:
-          RECOVER_APPEARANCE_WEIGHT * (this.dirty ? 0 : c.app) +
-          RECOVER_DISTANCE_WEIGHT * Math.min(c.dist, 1)
-      }))
+      .map((c) => ({ c, cost: recoverCost(c) }))
       .sort((p, q) => p.cost - q.cost)
+    // Лучше подходит рамка, которая пока слита/перекрыта, чем чистая, но хуже — ждём, пока она освободится.
+    const hidden = [...cands.filter((c) => c.overlapped || c.merged), ...this.doubtful].map(
+      recoverCost
+    )
+    if (
+      ranked.length > 0 &&
+      hidden.length > 0 &&
+      Math.min(...hidden) + HIDDEN_BETTER_MARGIN < ranked[0].cost
+    ) {
+      if (this.miss + 1 >= this.coastFrames && this.doubtful.length > 0) {
+        return {
+          kind: 'ask',
+          candidates: [...ranked.map((r) => r.c), ...this.doubtful]
+            .slice(0, ASK_MAX_CANDIDATES)
+            .map((c) => c.det)
+        }
+      }
+      return this.coast(pred)
+    }
     if (ranked.length > 0) {
       // С «грязной» приметой различать кандидатов нечем: больше одного — только вопрос.
       const gap = ranked.length > 1 ? (this.dirty ? 0 : ranked[1].cost - ranked[0].cost) : Infinity
-      if (gap >= ASK_GAP && ranked[0].cost <= RECOVER_MAX_COST) {
+      // Далеко от прогноза: похожий игрок мог оказаться и чужим — молча не берём, по истечении срока спросим.
+      const far = ranked[0].c.dist > RECOVER_FAR_DIST
+      if (gap >= ASK_GAP && !far && ranked[0].cost <= RECOVER_MAX_COST) {
         this.accept(ranked[0].c, false)
         return { kind: 'track', box: { ...ranked[0].c.det.box }, coasting: false }
       }
-      if (gap < ASK_GAP && this.miss + 1 >= this.coastFrames) {
+      if (
+        (gap < ASK_GAP || (far && ranked[0].cost <= RECOVER_MAX_COST)) &&
+        this.miss + 1 >= this.coastFrames
+      ) {
         return {
           kind: 'ask',
           candidates: ranked.slice(0, ASK_MAX_CANDIDATES).map((r) => r.c.det)
@@ -219,6 +246,7 @@ export class SingleTracker {
   }
 
   private candidates(dets: Detection[], pred: Box): Cand[] {
+    this.doubtful = []
     const radius = Math.min(GATE_MAX, GATE_BASE + GATE_GROW * this.miss)
     const norm = Math.max(this.h, MIN_NORM_HEIGHT)
     const pc = centerOf(pred)
@@ -231,16 +259,18 @@ export class SingleTracker {
       const ov = iou(pred, det.box)
       if (ov < GATE_IOU && dist >= radius) continue
       const app = appearanceDistance(this.look, det.look)
-      // Другая форма — не наш игрок, как бы близко он ни стоял (пока примета не «грязная»).
-      if (!this.dirty && app > APPEARANCE_REJECT) continue
-      out.push({
-        det,
-        iou: ov,
-        dist,
-        app,
-        overlapped: dets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU),
-        merged: det.box.w > this.w * MERGE_WIDTH_RATIO
-      })
+      const overlapped = dets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU)
+      const merged = det.box.w > this.w * MERGE_WIDTH_RATIO
+      // Другая форма — не наш игрок, как бы близко он ни стоял (пока примета не «грязная»). У слитой/перекрытой рамки
+      // примета испорчена соседом: её не отбрасываем (взять её нельзя, но она показывает, что настоящий игрок ещё тут).
+      if (!this.dirty && app > APPEARANCE_REJECT && !overlapped && !merged) {
+        // Чуть непохожа, но стоит почти там, где ждали игрока: брать нельзя, но и молча брать другого рядом тоже.
+        if (app <= DOUBT_APPEARANCE && dist <= DOUBT_DIST) {
+          this.doubtful.push({ det, iou: ov, dist, app, overlapped, merged })
+        }
+        continue
+      }
+      out.push({ det, iou: ov, dist, app, overlapped, merged })
     }
     return out
   }

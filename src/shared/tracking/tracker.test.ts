@@ -318,3 +318,37 @@ describe('SingleTracker: защита от молчаливого переско
     expect(lookOfTone([1, 2, 3])).toHaveLength(96)
   })
 })
+
+describe('SingleTracker: выход из пережидания (реальное видео, Task 7)', () => {
+  it('наш игрок пропал, одиночный игрок той же формы появился далеко (> 1 роста от прогноза): молча не берём, по истечении срока вопрос', () => {
+    const a = (): Detection => det(200, 270, RED)
+    const tr = new SingleTracker(a(), FPS, { frame: FRAME })
+    // с кадра 10 игрока нет; с кадра 14 в 2 ростах выше стоит такой же красный
+    const res = run(tr, 1, 60, (f) =>
+      f < 10 ? [a()] : f >= 14 ? [det(200, 270 - 2 * BH, RED)] : []
+    )
+    const ask = res.findIndex((r) => r.kind === 'ask')
+    expect(ask).toBeGreaterThan(0)
+    // до вопроса — только пережидание по прогнозу, на далёкого не уходили
+    res.slice(9, ask).forEach((r) => {
+      expect(r.kind === 'track' && r.coasting).toBe(true)
+      if (r.kind === 'track') expect(Math.abs(cy(r.box) - 270)).toBeLessThan(BH)
+    })
+  })
+
+  it('чистый кандидат хуже, чем перекрытая рамка у прогноза: ждём, пока она освободится, а не берём сидящего рядом', () => {
+    const own = (): Detection => det(300, 270, RED)
+    const tr = new SingleTracker(own(), FPS, { frame: FRAME })
+    // кадры 5–7: наш игрок слит с рамкой чужого соседа (перекрыт), одновременно в 0.6 роста правее стоит одноформенный
+    const mate = det(300 + BW * 1.5, 270, RED)
+    const res = run(tr, 1, 12, (f) => {
+      if (f < 5) return [own()]
+      if (f < 8) return [det(300, 270, RED), det(310, 270, BLUE), mate]
+      return [own()]
+    })
+    res.forEach((r) => {
+      expect(r.kind).toBe('track')
+      if (r.kind === 'track') expect(Math.abs(cx(r.box) - 300)).toBeLessThan(BW)
+    })
+  })
+})

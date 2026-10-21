@@ -57,3 +57,13 @@ export const START_AMBIGUOUS_RATIO = 1.5
 export const START_AMBIGUOUS_IOU = 0.1
 /** pickStart: рамка расширяется на долю высоты, чтобы щелчок у ног считался попаданием. */
 export const START_ANCHOR_SLACK = 0.15
+
+/** Выход из пережидания: чистого кандидата не берём, если слитая/перекрытая рамка подходит лучше на столько (цена 0..1). */
+export const HIDDEN_BETTER_MARGIN = 0.05
+
+/** Выход из пережидания: кандидат дальше этого (в высотах игрока) от прогноза молча не принимается — после срока вопрос. */
+export const RECOVER_FAR_DIST = 1.0
+
+/** «Сомнительная» рамка: примета хуже APPEARANCE_REJECT, но не хуже этого, и стоит не дальше DOUBT_DIST высот от прогноза. */
+export const DOUBT_APPEARANCE = 0.45
+export const DOUBT_DIST = 0.5
