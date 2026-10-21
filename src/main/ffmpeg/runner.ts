@@ -55,6 +55,12 @@ export function killAllFfmpeg(): void {
   for (const child of activeChildren) killTree(child)
 }
 
+/** Учитывает чужой запуск ffmpeg (потоковое чтение кадров), чтобы killAllFfmpeg остановил и его. Возвращает «снять с учёта». */
+export function trackChild(child: ChildProcess): () => void {
+  activeChildren.add(child)
+  return () => void activeChildren.delete(child)
+}
+
 export function runFfmpeg(options: RunOptions): Promise<RunResult> {
   const { ffmpegPath, args, onTime, signal } = options
   const stallMs = options.stallMs ?? DEFAULT_STALL_MS
