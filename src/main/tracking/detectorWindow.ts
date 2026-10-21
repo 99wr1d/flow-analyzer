@@ -92,8 +92,13 @@ export async function createDetector(): Promise<Detector> {
   const wc = win.webContents
   const devUrl = process.env['ELECTRON_RENDERER_URL']
   const devServer = is.dev && devUrl
-  if (devServer) isolateDevServer(wc.session)
-  else serveDetectorScheme(wc.session, detectorRoot(__dirname))
+  try {
+    if (devServer) isolateDevServer(wc.session)
+    else serveDetectorScheme(wc.session, detectorRoot(__dirname))
+  } catch (error) {
+    win.destroy()
+    throw error
+  }
   wc.setWindowOpenHandler(() => ({ action: 'deny' }))
   wc.on('will-navigate', (event) => event.preventDefault())
   // Окно сети не использует (CSP: connect-src 'self'), разрешений у него нет.

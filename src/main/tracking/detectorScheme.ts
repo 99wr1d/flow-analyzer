@@ -44,6 +44,8 @@ export function resolveDetectorAsset(root: string, pathname: string): string | n
 }
 
 export function serveDetectorScheme(session: Session, root: string): void {
+  // Сессия постоянная на всё время работы: обработчик ставится один раз, повторные детекторы его переиспользуют.
+  if (session.protocol.isProtocolHandled(DETECTOR_SCHEME)) return
   session.protocol.handle(DETECTOR_SCHEME, async (request) => {
     const fail = (status: number): Response =>
       new Response(String(status), { status, headers: ISOLATION_HEADERS })

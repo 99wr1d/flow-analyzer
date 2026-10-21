@@ -98,9 +98,12 @@ async function probe(app: ElectronApplication): Promise<Probe> {
       () => false,
       (e: Error) => /Кадр для детектора/.test(e.message)
     )
-    const detectorIsolated = BrowserWindow.getAllWindows().some((w) =>
+    const detWin = BrowserWindow.getAllWindows().find((w) =>
       w.webContents.getURL().startsWith('flow-detector://')
     )
+    const detectorIsolated = detWin
+      ? ((await detWin.webContents.executeJavaScript('crossOriginIsolated')) as boolean)
+      : false
     det.close()
     const afterCloseRejected = await det.detect(frame).then(
       () => false,
@@ -183,3 +186,33 @@ for (const wanted of ['webgpu', 'wasm'] as const) {
     }
   })
 }
+
+test('окно-детектор можно создавать повторно в одном запуске: окна не копятся', async () => {
+  test.setTimeout(240_000)
+  const { app } = await launch({ env: { FLOW_TEST_DETECTOR: '1', FLOW_DETECTOR_BACKEND: 'wasm' } })
+  try {
+    const r = await app.evaluate(async ({ BrowserWindow }) => {
+      type Detector = {
+        detect(f: unknown): Promise<{ frameHist: Float32Array }>
+        close(): void
+      }
+      const create = (globalThis as Record<string, unknown>)[
+        '__flowCreateDetector'
+      ] as () => Promise<Detector>
+      const frame = { rgba: new Uint8Array(320 * 240 * 4), width: 320, height: 240 }
+      const before = BrowserWindow.getAllWindows().length
+      const hist: number[] = []
+      for (let i = 0; i < 2; i += 1) {
+        const det = await create()
+        hist.push((await det.detect(frame)).frameHist.length)
+        det.close()
+        await new Promise((res) => setTimeout(res, 300))
+      }
+      return { before, after: BrowserWindow.getAllWindows().length, hist }
+    })
+    expect(r.hist).toEqual([48, 48])
+    expect(r.after).toBe(r.before)
+  } finally {
+    await app.close()
+  }
+})
