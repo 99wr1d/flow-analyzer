@@ -28,6 +28,8 @@ const PATTERN = fixture('stub-runner.json')
 // cross.mp4 + stub-cross.json: до 1.2 с один красный игрок, потом два одинаковых красных (рамки заглушки лежат на фигурах видео).
 const CROSS = fixture('stub-cross.json')
 const CROSS_VIDEO = fixture('cross.mp4')
+// stub-nested.json: два одинаковых игрока, один целиком внутри рамки другого (малая рамка поверх большой в окне «Кто из них ваш?»).
+const NESTED = fixture('stub-nested.json')
 
 type Ctx = { app: ElectronApplication; win: Page }
 
@@ -309,6 +311,36 @@ test.describe('слежение за игроком (заглушка детек
       expect(Math.abs(end.y - 0.77)).toBeLessThan(0.03)
     } finally {
       await app.close()
+    }
+  })
+
+  test('«Кто из них ваш?»: малая рамка внутри большой кликабельна, у большой кликается свободная часть', async () => {
+    for (const small of [true, false]) {
+      const { app, win } = await open(NESTED, {}, CROSS_VIDEO)
+      try {
+        // Кольцо у ног малого игрока (ноги на 0.48, он бежит вправо), внутри рамки большого (ноги на 0.65, стоит).
+        await drawRing(win, { from: [0.3, 0.45], to: [0.36, 0.51], duration: 1 })
+        const runs0 = await runsOf(win)
+        await win.getByTestId('track-button').click()
+        await expect(win.getByTestId('pick-box')).toHaveCount(2, { timeout: 60_000 })
+        const heights = await win
+          .getByTestId('pick-box')
+          .evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetHeight))
+        const smallIdx = heights[0] < heights[1] ? 0 : 1
+        const idx = small ? smallIdx : 1 - smallIdx
+        const box = win.getByTestId('pick-box').nth(idx)
+        // Малая рамка — выше в порядке отрисовки: щелчок по её центру попадает в неё; у большой — свободный низ.
+        if (small) await box.click()
+        else await box.click({ position: { x: 5, y: heights[idx] - 5 } })
+        await waitRun(win, runs0)
+        await seekVideo(win, (20 + 0.5) / FPS)
+        const end = await ringCenter(win)
+        // Малый игрок бежит вправо (0.1/с), большой стоит: кольцо едет только за выбранным (смещение кольца от рамки сохраняется).
+        if (small) expect(end.x).toBeGreaterThan(0.33 + 0.05)
+        else expect(Math.abs(end.x - 0.33)).toBeLessThan(0.02)
+      } finally {
+        await app.close()
+      }
     }
   })
 })

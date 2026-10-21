@@ -189,6 +189,7 @@ export class SingleTracker {
         return {
           kind: 'ask',
           candidates: [...ranked.map((r) => r.c), ...this.doubtful]
+            .sort((p, q) => recoverCost(p) - recoverCost(q))
             .slice(0, ASK_MAX_CANDIDATES)
             .map((c) => c.det)
         }

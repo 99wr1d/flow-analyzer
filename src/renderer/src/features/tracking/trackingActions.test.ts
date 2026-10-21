@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAX_KEYFRAMES, AnnotationSchema, type Annotation } from '../../../../shared/annotations'
+import { estimateSeconds } from '../../../../shared/tracking/trackingIpc'
 import { geomAt, keysOf, upsertKey } from '../../../../shared/animation'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
 import type { TrackSample } from '../../../../shared/tracking/keys'
@@ -10,6 +11,8 @@ import {
   canTrack,
   continueFrom,
   planTracking,
+  planSeconds,
+  rememberBackend,
   stopMessage,
   type TrackPlan
 } from './trackingApply'
@@ -423,5 +426,20 @@ describe('autoRuns: полоса «слежение» на дорожке', () =
       [1, 2],
       [4, 4]
     ])
+  })
+})
+
+describe('planSeconds: оценка времени по бэкенду прошлого запуска', () => {
+  const plan = { from: 0, to: 10 } as TrackPlan
+  it('до первого запуска — худший случай (WASM), после запуска на WebGPU — оценка для видеокарты, после WASM — снова процессор', () => {
+    rememberBackend(null)
+    const first = planSeconds(plan, FPS)
+    rememberBackend('webgpu')
+    const gpu = planSeconds(plan, FPS)
+    expect(gpu).toBeLessThan(first)
+    expect(gpu).toBe(Math.round(estimateSeconds(10, 'webgpu', FPS)))
+    rememberBackend('wasm')
+    expect(planSeconds(plan, FPS)).toBe(first)
+    rememberBackend(null)
   })
 })

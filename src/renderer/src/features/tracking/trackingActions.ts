@@ -13,6 +13,7 @@ import { getVideoElement, seekTo } from '../player/videoElement'
 import {
   applyTrackResult,
   planSeconds,
+  rememberBackend,
   planTracking,
   stopMessage,
   type PlanFailure,
@@ -309,6 +310,7 @@ export async function startTracking(annotationId: string): Promise<void> {
       else warn(ru.tracking.pickFailed, LONG_TOAST_MS)
       return
     }
+    rememberBackend(done.backend)
     applySuccess(annotationId, plan, done)
   } finally {
     running = null

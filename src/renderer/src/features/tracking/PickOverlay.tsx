@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { usePictureRect } from '../annotations/usePictureRect'
+import { pickOrder } from './pickOrder'
 import { answerConfirm, answerPick, cancelTrackingNow } from './trackingActions'
 import { useTrackingStore } from './trackingStore'
 
@@ -50,7 +51,7 @@ export function TrackingPanel(): React.JSX.Element | null {
           <div className="pick-banner" role="alert" data-testid="pick-text">
             {ru.tracking.pick}
           </div>
-          {pick.candidates.map((c, i) => (
+          {pickOrder(pick.candidates).map(({ c, i }) => (
             <button
               key={i}
               type="button"

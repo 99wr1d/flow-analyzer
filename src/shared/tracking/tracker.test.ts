@@ -352,3 +352,26 @@ describe('SingleTracker: выход из пережидания (реально�
     })
   })
 })
+
+describe('SingleTracker: сомнительная рамка у прогноза (проверка ревью)', () => {
+  it('сомнительная рамка у прогноза и ≥3 чистых одноформенных поодаль: пережидание, затем вопрос, сомнительная рамка в списке (первой)', () => {
+    // примета чуть хуже порога (0,375): майка другого оттенка и тёмные трусы вместо белых
+    const doubtLook = look([220, 120, 30], [20, 20, 20])
+    const own = det(300, 270, RED)
+    const tr = new SingleTracker(own, FPS, { frame: FRAME })
+    const doubtful = det(300, 270, doubtLook)
+    const around = [det(375, 270, RED), det(225, 270, RED), det(300, 351, RED), det(300, 189, RED)]
+    const res = run(tr, 1, 60, (f) => (f < 5 ? [det(300, 270, RED)] : [doubtful, ...around]))
+    const ask = res.findIndex((r) => r.kind === 'ask')
+    expect(ask).toBeGreaterThan(5)
+    // до вопроса — только пережидание, молча никого из чистых не берём
+    res.slice(4, ask).forEach((r) => {
+      expect(r.kind === 'track' && r.coasting).toBe(true)
+    })
+    const r = res[ask]
+    if (r.kind !== 'ask') throw new Error('ожидался вопрос')
+    expect(r.candidates.length).toBeLessThanOrEqual(3)
+    expect(r.candidates).toContain(doubtful)
+    expect(r.candidates[0]).toBe(doubtful)
+  })
+})

@@ -23,6 +23,7 @@ import {
   trackToKeys,
   type TrackSample
 } from '../../../../shared/tracking/keys'
+import type { DetectorBackend } from '../../../../shared/tracking/detectorIpc'
 import { estimateSeconds, type StopReason } from '../../../../shared/tracking/trackingIpc'
 import { ru } from '../../i18n/ru'
 import { formatTime } from '../player/format'
@@ -143,9 +144,15 @@ export function planTracking(
   return { ok: true, mode, from, at, to, anchor, replaceCount, base, convertedFromPitch: converted }
 }
 
-/** Оценка времени расчёта, секунд (до первого запуска бэкенд неизвестен — берём худший, процессор). */
+/** Бэкенд последнего законченного слежения в этом сеансе программы (до первого запуска неизвестен). */
+let lastBackend: DetectorBackend | null = null
+export function rememberBackend(backend: DetectorBackend | null): void {
+  lastBackend = backend
+}
+
+/** Оценка времени расчёта, секунд: по бэкенду прошлого запуска, до первого запуска — худший случай (процессор). */
 export function planSeconds(plan: TrackPlan, fps: number): number {
-  return Math.round(estimateSeconds(plan.to - plan.from, 'wasm', fps))
+  return Math.round(estimateSeconds(plan.to - plan.from, lastBackend ?? 'wasm', fps))
 }
 
 /** Сообщение об остановке слежения. */
