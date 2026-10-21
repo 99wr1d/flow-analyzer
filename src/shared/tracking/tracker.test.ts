@@ -1,0 +1,228 @@
+import { describe, expect, it } from 'vitest'
+import { lookOf } from './appearance'
+import { frameHistOf } from './sceneCut'
+import { pickStart, SingleTracker } from './tracker'
+import type { Box, Detection, FrameInput, StepResult } from './types'
+
+const FPS = 25
+const FRAME = { w: 960, h: 540 }
+const BW = 40
+const BH = 90
+
+/** Примета: однотонная майка сверху и однотонные трусы снизу, посчитанная настоящим lookOf. */
+function look(top: [number, number, number], bottom: [number, number, number]): Float32Array {
+  const w = 40
+  const h = 90
+  const px = new Uint8Array(w * h * 4)
+  for (let y = 0; y < h; y += 1) {
+    const c = y < h / 2 ? top : bottom
+    for (let x = 0; x < w; x += 1) px.set([c[0], c[1], c[2], 255], (y * w + x) * 4)
+  }
+  return lookOf(px, w, h, { x: 0, y: 0, w, h })
+}
+
+const RED = look([220, 30, 30], [255, 255, 255])
+const BLUE = look([30, 60, 220], [20, 20, 20])
+const WHITE_FRAME = frameHistOf(new Uint8Array(64 * 64 * 4).fill(235), 64, 64)
+const DARK_FRAME = frameHistOf(new Uint8Array(64 * 64 * 4).fill(30), 64, 64)
+
+const det = (cx: number, cy: number, lk: Float32Array, w = BW, h = BH): Detection => ({
+  box: { x: cx - w / 2, y: cy - h / 2, w, h },
+  score: 0.9,
+  look: lk
+})
+
+const frame = (index: number, detections: Detection[], hist = WHITE_FRAME): FrameInput => ({
+  index,
+  t: (index + 0.5) / FPS,
+  detections,
+  frameHist: hist
+})
+
+const cx = (b: Box): number => b.x + b.w / 2
+const cy = (b: Box): number => b.y + b.h / 2
+
+/** Прогон: кадры строит gen(f); возвращает результаты по кадрам. */
+function run(
+  tracker: SingleTracker,
+  from: number,
+  to: number,
+  gen: (f: number) => Detection[],
+  hist: (f: number) => Float32Array = () => WHITE_FRAME
+): StepResult[] {
+  const out: StepResult[] = []
+  for (let f = from; f < to; f += 1) out.push(tracker.step(frame(f, gen(f), hist(f))))
+  return out
+}
+
+describe('SingleTracker', () => {
+  it('прямой бег: ведёт все кадры, не уходит на соседа', () => {
+    const a = (f: number): Detection => det(200 + f * 5, 270, RED)
+    const other = (f: number): Detection => det(200 + f * 5, 400, BLUE)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(tr, 1, 60, (f) => [other(f), a(f)])
+    for (let i = 0; i < res.length; i += 1) {
+      const r = res[i]
+      expect(r.kind).toBe('track')
+      if (r.kind !== 'track') continue
+      expect(r.coasting).toBe(false)
+      expect(Math.abs(cy(r.box) - 270)).toBeLessThan(1)
+    }
+  })
+
+  it('пересечение с игроком другого цвета на 12 кадров: после расхождения ведёт своего', () => {
+    // Сходятся 36 кадров, 12 кадров рамки перекрыты, затем расходятся. Скорость ±1.7 пикс/кадр.
+    const v = 1.7
+    const a = (f: number): Detection => det(100 + v * f, 270, RED)
+    const b = (f: number): Detection => det(100 + 2 * v * 36 - v * f, 270, BLUE)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(tr, 1, 90, (f) => [a(f), b(f)])
+    let sawCoast = false
+    res.forEach((r, i) => {
+      const f = i + 1
+      expect(r.kind).toBe('track')
+      if (r.kind !== 'track') return
+      if (r.coasting) sawCoast = true
+      // ни разу не перескакиваем к синему: центр всегда ближе к своему, чем к чужому
+      expect(Math.abs(cx(r.box) - cx(a(f).box))).toBeLessThan(25)
+    })
+    expect(sawCoast).toBe(true)
+    const last = res[res.length - 1]
+    if (last.kind === 'track') {
+      expect(last.coasting).toBe(false)
+      expect(Math.abs(cx(last.box) - cx(a(89).box))).toBeLessThan(2)
+    }
+  })
+
+  it('пересечение с игроком того же цвета, расходятся в разные стороны: ведёт своего по прогнозу', () => {
+    const v = 3
+    const a = (f: number): Detection => det(100 + v * f, 270, RED)
+    const b = (f: number): Detection => det(100 + 2 * v * 30 - v * f, 270, RED)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(tr, 1, 70, (f) => [a(f), b(f)])
+    res.forEach((r, i) => {
+      expect(r.kind).toBe('track')
+      if (r.kind === 'track') expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(25)
+    })
+    const last = res[res.length - 1]
+    if (last.kind === 'track') expect(last.coasting).toBe(false)
+  })
+
+  it('тот же цвет, расходятся симметрично от прогноза: ask; resolve продолжает со своего', () => {
+    const a0 = (f: number): Detection => det(100 + 3 * f, 270, RED)
+    const mine = (f: number): Detection => det(100 + 3 * f, 270 + 50, RED)
+    const other = (f: number): Detection => det(100 + 3 * f, 270 - 50, RED)
+    const tr = new SingleTracker(a0(0), FPS, { frame: FRAME })
+    const gen = (f: number): Detection[] => {
+      if (f < 30) return [a0(f)]
+      if (f < 42) return [a0(f), a0(f)] // игроки стоят друг на друге
+      return [mine(f), other(f)]
+    }
+    const res = run(tr, 1, 100, gen)
+    const askIdx = res.findIndex((r) => r.kind === 'ask')
+    expect(askIdx).toBeGreaterThan(40)
+    res.slice(0, askIdx).forEach((r) => expect(r.kind).toBe('track'))
+    const ask = res[askIdx]
+    expect(ask.kind).toBe('ask')
+    if (ask.kind !== 'ask') return
+    expect(ask.candidates).toHaveLength(2)
+    const f = askIdx + 1
+    tr.resolve(mine(f))
+    const next = tr.step(frame(f + 1, [mine(f + 1), other(f + 1)]))
+    expect(next.kind).toBe('track')
+    if (next.kind === 'track') expect(Math.abs(cy(next.box) - 320)).toBeLessThan(5)
+  })
+
+  it('слияние двух рамок в одну широкую на 4 кадра: без перескока', () => {
+    const a = (f: number): Detection => det(300 + 3 * f, 270, RED)
+    const b = (f: number): Detection => det(300 + 3 * f + 60, 270, BLUE)
+    const merged = (f: number): Detection => det(300 + 3 * f + 30, 270, RED, 100)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(tr, 1, 60, (f) => (f >= 30 && f < 34 ? [merged(f)] : [a(f), b(f)]))
+    res.forEach((r, i) => {
+      expect(r.kind).toBe('track')
+      if (r.kind === 'track') expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(15)
+    })
+    expect(res.slice(29, 33).every((r) => r.kind === 'track' && r.coasting)).toBe(true)
+  })
+
+  it('смена плана: lost(cut)', () => {
+    const a = (f: number): Detection => det(200 + f * 3, 270, RED)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(
+      tr,
+      1,
+      30,
+      (f) => [a(f)],
+      (f) => (f < 20 ? WHITE_FRAME : DARK_FRAME)
+    )
+    expect(res[18].kind).toBe('track')
+    expect(res[19]).toEqual({ kind: 'lost', reason: 'cut' })
+    expect(tr.step(frame(30, [a(30)]))).toEqual({ kind: 'lost', reason: 'cut' })
+  })
+
+  it('уход за край: lost(out)', () => {
+    const a = (f: number): Detection => det(700 + f * 10, 270, RED)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    // рамка видна, пока центр левее 940
+    const res = run(tr, 1, 40, (f) => (a(f).box.x + BW / 2 < 940 ? [a(f)] : []))
+    const lost = res.find((r) => r.kind === 'lost')
+    expect(lost).toEqual({ kind: 'lost', reason: 'out' })
+  })
+
+  it('пропадание на 30 кадров посреди поля: lost(occluded) через секунду', () => {
+    const a = (f: number): Detection => det(200 + f * 2, 270, RED)
+    const tr = new SingleTracker(a(0), FPS, { frame: FRAME })
+    const res = run(tr, 1, 70, (f) => (f < 20 || f >= 50 ? [a(f)] : []))
+    const idx = res.findIndex((r) => r.kind === 'lost')
+    expect(res[idx]).toEqual({ kind: 'lost', reason: 'occluded' })
+    expect(idx + 1).toBe(19 + FPS) // последний виденный кадр 19, потеряно на 25-м пропущенном
+    expect(res.slice(19, idx).every((r) => r.kind === 'track' && r.coasting)).toBe(true)
+  })
+
+  it('«грязный» старт: примета заменяется первым чистым кадром и не уводит на чужого', () => {
+    const v = 1.7
+    const a = (f: number): Detection => det(100 + v * f, 270, RED)
+    const b = (f: number): Detection => det(100 + 2 * v * 36 - v * f, 270, BLUE)
+    // старт взят с примесью синего
+    const dirty = { ...a(0), look: BLUE }
+    const tr = new SingleTracker(dirty, FPS, { frame: FRAME, dirtyStart: true })
+    const res = run(tr, 1, 90, (f) => [a(f), b(f)])
+    res.forEach((r, i) => {
+      expect(r.kind).toBe('track')
+      if (r.kind === 'track') expect(Math.abs(cx(r.box) - cx(a(i + 1).box))).toBeLessThan(25)
+    })
+  })
+})
+
+describe('pickStart', () => {
+  const R = RED
+  it('одна рамка под якорем: ok', () => {
+    const d = det(300, 270, R)
+    const other = det(600, 270, BLUE)
+    const r = pickStart([other, d], { x: 302, y: 310 })
+    expect(r.kind).toBe('ok')
+    if (r.kind === 'ok') expect(r.det).toBe(d)
+  })
+
+  it('якорь между двумя перекрытыми игроками: ambiguous', () => {
+    const a = det(300, 270, R)
+    const b = det(320, 270, BLUE)
+    const r = pickStart([a, b], { x: 310, y: 300 })
+    expect(r.kind).toBe('ambiguous')
+    if (r.kind === 'ambiguous') expect(r.candidates).toHaveLength(2)
+  })
+
+  it('якорь в своей рамке, но рамка перекрыта соседом: ambiguous', () => {
+    const a = det(300, 270, R)
+    const b = det(325, 270, BLUE) // IoU > 0.1, якорь только в рамке a
+    const r = pickStart([a, b], { x: 290, y: 300 })
+    expect(r.kind).toBe('ambiguous')
+  })
+
+  it('рядом нет рамок: none', () => {
+    const r = pickStart([det(600, 270, R)], { x: 100, y: 100 })
+    expect(r).toEqual({ kind: 'none' })
+    expect(pickStart([], { x: 1, y: 1 })).toEqual({ kind: 'none' })
+  })
+})
