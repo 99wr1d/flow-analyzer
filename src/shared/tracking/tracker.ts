@@ -6,7 +6,8 @@
 //    рамка едет по прогнозу, приметы не обновляются. Выход — по чистым кандидатам в воротах прогноза;
 //    если отрыв лучшего от второго мал, ждём (вдруг разойдутся), по истечении срока — вопрос ask.
 //  * Никогда не перескакиваем молча на другого: при сомнении — ask, при долгом отсутствии — lost.
-//  * Приметы обновляются только на уверенных неперекрытых кадрах.
+//  * Приметы обновляются только на уверенных неперекрытых кадрах; после ответа пользователя по нечистой (слитой) рамке —
+//    только после чистого подтверждения (рамка обычного размера с нашей приметой).
 import { appearanceDistance, blendLook } from './appearance'
 import { Kalman1D } from './kalman'
 import { isSceneCut } from './sceneCut'
@@ -26,6 +27,7 @@ import {
   DIRTY_CONTINUITY_IOU,
   DIRTY_APPEARANCE_CAP,
   DIRTY_LOOK_MARGIN,
+  FROZEN_CONFIRM_APPEARANCE,
   HEIGHT_JUMP_RATIO,
   DOUBT_APPEARANCE,
   DOUBT_DIST,
@@ -109,6 +111,14 @@ export class SingleTracker {
   private h: number
   private readonly look: Float32Array
   private dirty: boolean
+  /**
+   * Примета «заморожена»: пользователь подтвердил нечистую рамку (слитую, высокую, перекрытую). Пока не придёт чистое
+   * подтверждение (уверенный кадр обычного размера с нашей приметой), примета не обновляется, иначе она поплывёт к соседу.
+   */
+  private frozen = false
+  /** Размер последней чистой рамки: по нему судят «высокая/широкая» при resolve и при снятии заморозки. */
+  private refW: number
+  private refH: number
   private readonly neighbourLooks: Float32Array[]
   private readonly coastFrames: number
   private readonly lostFrames: number
@@ -127,6 +137,8 @@ export class SingleTracker {
     this.ky = new Kalman1D(c.y, KALMAN_Q, KALMAN_R)
     this.w = start.box.w
     this.h = start.box.h
+    this.refW = this.w
+    this.refH = this.h
     this.look = Float32Array.from(start.look)
     this.dirty = opts.dirtyStart === true
     this.neighbourLooks = (opts.startNeighbours ?? []).map((d) => Float32Array.from(d.look))
@@ -282,11 +294,12 @@ export class SingleTracker {
 
   /** Ответ на «Кто из них ваш?»: слежение продолжается с выбранной рамки. */
   resolve(det: Detection): void {
-    // Резко выше сглаженного роста (проверка до обновления this.h): рамка слита с соседом, она не чистая.
-    const tall = det.box.h > this.h * HEIGHT_JUMP_RATIO
+    // Резко выше роста последней чистой рамки: слита с соседом, она не чистая. Сравнение с refH, а не с this.h: после
+    // подтверждения слитой рамки this.h — её рост, и повторное подтверждение той же слитой рамки чистым не станет.
+    const tall = det.box.h > this.refH * HEIGHT_JUMP_RATIO
     const clean =
       !tall &&
-      det.box.w <= this.w * MERGE_WIDTH_RATIO &&
+      det.box.w <= this.refW * MERGE_WIDTH_RATIO &&
       !this.lastDets.some((o) => o !== det && iou(o.box, det.box) > OVERLAP_IOU)
     const c = centerOf(det.box)
     // Прогноз по старой траектории больше не годится: заново с выбранной рамки.
@@ -297,10 +310,16 @@ export class SingleTracker {
     this.h = det.box.h
     this.lastBox = { ...det.box }
     this.miss = 0
-    // Слитая (высокая) рамка и рамка с примесью соседа примету не обновляют и «грязность» не снимают.
+    // Слитая (высокая) рамка и рамка с примесью соседа примету не обновляют и «грязность» не снимают, а примету
+    // замораживают до чистого подтверждения (см. accept); «высокая» дальше судится по refH (рост последней чистой).
     if (clean) {
       this.look.set(det.look)
       this.dirty = false
+      this.frozen = false
+      this.refW = this.w
+      this.refH = this.h
+    } else {
+      this.frozen = true
     }
   }
 
@@ -359,9 +378,22 @@ export class SingleTracker {
     this.h += SIZE_BLEND * (b.h - this.h)
     this.lastBox = { ...b }
     this.miss = 0
-    if (confident && !c.overlapped && !c.merged) {
-      blendLook(this.look, c.det.look, APPEARANCE_BLEND)
+    const clean = confident && !c.overlapped && !c.merged
+    // Заморозку снимает только чистое подтверждение: уверенная рамка не выше и не шире последней чистой, с приметой,
+    // близкой к замороженной. Подтверждённая пользователем слитая рамка сюда не проходит по росту.
+    if (
+      this.frozen &&
+      clean &&
+      b.h <= this.refH * HEIGHT_JUMP_RATIO &&
+      b.w <= this.refW * MERGE_WIDTH_RATIO &&
+      c.app <= FROZEN_CONFIRM_APPEARANCE
+    ) {
+      this.frozen = false
     }
+    if (this.frozen) return
+    this.refW = this.w
+    this.refH = this.h
+    if (clean) blendLook(this.look, c.det.look, APPEARANCE_BLEND)
   }
 
   private coast(pred: Box): StepResult {

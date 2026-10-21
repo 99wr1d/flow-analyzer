@@ -526,6 +526,62 @@ describe('SingleTracker: не перепрыгивать на другого (и
     })
   })
 
+  describe('раунд 6: после подтверждения слитой рамки примета заморожена', () => {
+    /** Наш красный (60 px) → слитая рамка M (100 px, смесь с синим) → вопрос → пользователь выбирает M. */
+    function resolveOnMerged(k: number): { tr: SingleTracker; M: Detection; f: number } {
+      const M = det(300, 280, lookMix(RED, BLUE, k), 40, 100)
+      const tr = new SingleTracker(det(300, 300, RED, 40, 60), FPS, { frame: FRAME })
+      run(tr, 1, 20, () => [det(300, 300, RED, 40, 60)])
+      let f = 20
+      let asked: StepResult | null = null
+      for (; f < 60 && !asked; f += 1) {
+        const r = tr.step(frame(f, [M]))
+        if (r.kind === 'ask') asked = r
+      }
+      if (!asked || asked.kind !== 'ask') throw new Error('нет вопроса по слитой рамке')
+      tr.resolve(asked.candidates[0])
+      return { tr, M, f }
+    }
+
+    it.each([
+      [0.3, 5, 60],
+      [0.3, 20, 60],
+      [0.5, 5, 60],
+      [0.5, 20, 100],
+      [0.7, 5, 100],
+      [0.7, 20, 60],
+      [0.7, 20, 100]
+    ])(
+      'смесь %f, слитая рамка держится %i кадров, затем сосед один (%i px): ни одного уверенного кадра',
+      (k, hold, h) => {
+        const { tr, M, f } = resolveOnMerged(k)
+        const held = run(tr, f, f + hold, () => [M])
+        expect(held.every(confident)).toBe(true) // подтверждённую рамку ведём
+        const res = run(tr, f + hold, f + hold + 40, () => [det(305, 290, BLUE, 40, h)])
+        expect(res.some(confident)).toBe(false)
+      }
+    )
+
+    it('повторное подтверждение той же слитой рамки не делает её чистой: сосед один не берётся', () => {
+      const { tr, M, f } = resolveOnMerged(0.5)
+      run(tr, f, f + 20, () => [M])
+      tr.resolve(M) // второй ответ пользователя на ту же рамку
+      const res = run(tr, f + 20, f + 60, () => [det(305, 290, BLUE, 40, 60)])
+      expect(res.some(confident)).toBe(false)
+    })
+
+    it('слитая рамка распалась на нашего и соседа: ведём нашего, на соседа не уходим', () => {
+      const { tr, M, f } = resolveOnMerged(0.5)
+      run(tr, f, f + 20, () => [M])
+      const res = run(tr, f + 20, f + 60, () => [
+        det(285, 300, RED, 40, 60),
+        det(325, 300, BLUE, 40, 60)
+      ])
+      expect(res.filter(confident).length).toBeGreaterThan(30)
+      for (const r of res) if (confident(r) && r.kind === 'track') expect(cx(r.box)).toBe(285)
+    })
+  })
+
   describe('рамка резко выше: не вечная блокировка', () => {
     const OURS = (): Detection => det(300, 300, RED, 40, 100)
     const never = (res: StepResult[]): boolean => res.every((r) => r.kind !== 'lost') // без вопроса не теряем
