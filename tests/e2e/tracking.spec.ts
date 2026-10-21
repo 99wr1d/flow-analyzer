@@ -110,9 +110,9 @@ test.describe('слежение за игроком (заглушка детек
 
       await runTracking(win)
 
-      // Остановка на смене плана: тост с причиной и временем; ключи — сплошной полосой, ромбиков нет.
+      // Остановка на смене плана (время — последний уверенный кадр, 2.34 с, а не кадр смены): тост с причиной и временем; ключи — сплошной полосой, ромбиков нет.
       const toast = win.getByTestId('toast')
-      await expect(toast).toContainText('Игрок потерян на 00:02.4 — смена плана')
+      await expect(toast).toContainText('Игрок потерян на 00:02.3 — смена плана')
       await expect(toast).toContainText('Поставьте рисунок на игрока и нажмите «Следить» ещё раз.')
       await shot(win, 'tracking-lost-toast')
       const keys = Number(await trackItem(win).getAttribute('data-keys'))
