@@ -21,12 +21,15 @@ import {
   serveDetectorScheme
 } from './detectorScheme'
 import { testFlags } from '../testFlags'
+import { withTimeout } from './deadline'
 
 export const MODEL_FILE = 'dfine_s_coco.onnx'
-/** Создание сессии (чтение модели, компиляция шейдеров WebGPU) — не дольше этого. */
 /** Меньшие кадры сети не подаются (нет смысла, и вход должен быть не пуст). */
 const MIN_FRAME_SIDE = 32
+/** Создание сессии (чтение модели, компиляция шейдеров WebGPU) — не дольше этого. */
 const READY_TIMEOUT_MS = 120_000
+/** Один запрос detect — не дольше этого (кадр на процессоре занимает доли секунды): иначе окно зависло. */
+export const DETECT_TIMEOUT_MS = 60_000
 
 export interface DetectorFrame {
   /** RGBA, width×height×4 байт. */
@@ -250,10 +253,16 @@ export async function createDetector(signal?: AbortSignal): Promise<Detector> {
         height: frame.height,
         roi: roi ?? null
       }
-      return new Promise<DetectOutput>((resolve, reject) => {
-        pending.set(id, { resolve, reject })
-        wc.send(CH.detect, request)
-      })
+      return withTimeout<DetectOutput>(
+        DETECT_TIMEOUT_MS,
+        'Детектор не ответил за отведённое время',
+        (resolve, reject) => {
+          pending.set(id, { resolve, reject })
+          wc.send(CH.detect, request)
+        },
+        // Запоздавший ответ окна уже никому не нужен.
+        () => pending.delete(id)
+      )
     },
     close
   }

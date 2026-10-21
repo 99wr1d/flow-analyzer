@@ -197,20 +197,25 @@ test('закрытие главного окна во время загрузк�
   const exited = new Promise<void>((resolve) => app.process().once('exit', () => resolve()))
   const windows = (): Promise<number> =>
     app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)
-  const before = await windows()
-  const id = await prepare(app, win)
-  await start(win, id)
-  await waitFor(async () => (await windows()) === before + 1, 60_000)
-  // закрываем именно главное окно (в списке окон есть и скрытое окно-детектор)
-  await app.evaluate(({ BrowserWindow }) => {
-    BrowserWindow.getAllWindows()
-      .find((w) => w.webContents.getURL().startsWith('file:'))
-      ?.close()
-  })
-  await Promise.race([
-    exited,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('приложение не вышло')), 20_000))
-  ])
+  try {
+    const before = await windows()
+    const id = await prepare(app, win)
+    await start(win, id)
+    await waitFor(async () => (await windows()) === before + 1, 60_000)
+    // закрываем именно главное окно (в списке окон есть и скрытое окно-детектор)
+    await app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()
+        .find((w) => w.webContents.getURL().startsWith('file:'))
+        ?.close()
+    })
+    await Promise.race([
+      exited,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('приложение не вышло')), 20_000))
+    ])
+  } finally {
+    // Если тест упал раньше выхода, приложение не должно остаться висеть.
+    await app.close().catch(() => undefined)
+  }
 })
 
 test('перезагрузка страницы во время слежения: задача отменена, новая принимается, ничего не висит', async () => {
@@ -282,14 +287,18 @@ test('вопрос «Кто из них ваш?»: ask по IPC, ответ, с�
 test('закрытие окна во время слежения: приложение выходит, процессов ffmpeg не остаётся', async () => {
   const { app, win } = await launch({ env: { ...STUB_ENV, FLOW_DETECTOR_STUB_DELAY_MS: '80' } })
   const exited = new Promise<void>((resolve) => app.process().once('exit', () => resolve()))
-  const id = await prepare(app, win)
-  await start(win, id)
-  await waitFor(async () => (await seen(win)).progress.length >= 3)
-  expect(ffmpegCount()).toBeGreaterThan(0)
-  await closeWindow(app)
-  await Promise.race([
-    exited,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('приложение не вышло')), 20_000))
-  ])
-  await waitFor(() => ffmpegCount() === 0, 10_000)
+  try {
+    const id = await prepare(app, win)
+    await start(win, id)
+    await waitFor(async () => (await seen(win)).progress.length >= 3)
+    expect(ffmpegCount()).toBeGreaterThan(0)
+    await closeWindow(app)
+    await Promise.race([
+      exited,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('приложение не вышло')), 20_000))
+    ])
+    await waitFor(() => ffmpegCount() === 0, 10_000)
+  } finally {
+    await app.close().catch(() => undefined)
+  }
 })
