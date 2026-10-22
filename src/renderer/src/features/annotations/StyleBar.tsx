@@ -39,7 +39,11 @@ function useShownStyle(): CurrentStyle {
   const style = useAnnotationsStore((s) => s.style)
   const selected = useAnnotationsStore(selectedAnnotation)
   const tool = useAnnotationsStore((s) => s.tool)
-  if (!selected) return tool === 'circle' ? { ...style, level: style.ringLevel } : style
+  if (!selected) {
+    if (tool === 'circle') return { ...style, level: style.ringLevel }
+    // Для новой подписи показан цвет подписей (он запоминается отдельно).
+    return tool === 'text' ? { ...style, color: style.textColor } : style
+  }
   const isText = selected.type === 'text' || selected.type === 'ptext'
   return {
     ...style,
@@ -295,7 +299,9 @@ function RevealControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const on = shown.reveal !== null
+  // Рисунок «Только кадр» — стоп-кадр: проявлять нечего, переключатель недоступен.
+  const frameOnly = useAnnotationsStore((s) => selectedAnnotation(s)?.timing.mode === 'frame')
+  const on = shown.reveal !== null && !frameOnly
   const secs = shown.reveal ?? shown.revealSecs
 
   // Окно закрывается щелчком вне его и по Esc.
@@ -323,7 +329,8 @@ function RevealControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
         type="button"
         className={on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'}
         aria-pressed={on}
-        title={ru.annotations.revealHint}
+        disabled={frameOnly}
+        title={frameOnly ? ru.annotations.revealFrameOnly : ru.annotations.revealHint}
         data-testid="reveal-toggle"
         onClick={(e) => {
           setOpen(false)
@@ -421,6 +428,8 @@ function FormControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
 
 export function StyleBar(): React.JSX.Element {
   const shown = useShownStyle()
+  // С плашкой тень не рисуется (плашка сама даёт контраст), поэтому кнопка выключена и показана «не нажатой».
+  const shadowOn = shown.textShadow && !shown.textBackground
   const context = useContextType()
   // Для кольца/круга вместо кнопок подписи (они ему не нужны) показываются «Кольцо / Мишень» и «Пульс»: панель остаётся в одну строку.
   const ringContext = useRingContext()
@@ -549,11 +558,13 @@ export function StyleBar(): React.JSX.Element {
           <button
             type="button"
             className={
-              shown.textShadow ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
+              shadowOn ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
             }
-            disabled={context === 'shape' || context === 'ruler'}
-            title={ru.annotations.textShadow}
-            aria-pressed={shown.textShadow}
+            disabled={context === 'shape' || context === 'ruler' || shown.textBackground}
+            title={
+              shown.textBackground ? ru.annotations.textShadowPlate : ru.annotations.textShadow
+            }
+            aria-pressed={shadowOn}
             data-testid="text-shadow"
             onClick={(e) => {
               setStyle({ textShadow: !shown.textShadow })

@@ -354,6 +354,9 @@ describe('стили 0.18: проект 0.17.0 без новых полей', ()
   })
 })
 
+/** Штриховка рисунка (у подписи её нет). */
+const dashOf = (a: unknown): unknown => (a as { style?: { dash?: unknown } }).style?.dash
+
 describe('стили 0.18: пунктир «точки» в файле', () => {
   it('в файле это dash «dashed» + dots (старые версии откроют проект и покажут штрих), в памяти — «dotted»', async () => {
     const fixture = await readFileP(join(DIR, 'v0.18.0.flowproj'), 'utf8')
@@ -362,9 +365,7 @@ describe('стили 0.18: пунктир «точки» в файле', () => {
     const parsed = parseProjectText(fixture)
     expect(parsed.ok).toBe(true)
     if (!parsed.ok) return
-    const dotted = parsed.project.annotations.filter(
-      (a) => 'style' in a && a.style.dash === 'dotted'
-    )
+    const dotted = parsed.project.annotations.filter((a) => dashOf(a) === 'dotted')
     expect(dotted).toHaveLength(1)
     expect(dotted[0].style).not.toHaveProperty('dots')
 
@@ -387,14 +388,13 @@ describe('стили 0.18: пунктир «точки» в файле', () => {
   it('«dotted» в файле, записанном ранними сборками 0.18, по-прежнему читается', async () => {
     const raw = JSON.parse(await readFileP(join(DIR, 'v0.18.0.flowproj'), 'utf8')) as Project
     for (const a of raw.annotations) {
-      if ('style' in a && (a.style as { dots?: boolean }).dots) {
-        delete (a.style as { dots?: boolean }).dots
-        a.style.dash = 'dotted'
+      const st = (a as { style?: { dots?: boolean; dash?: string } }).style
+      if (st?.dots) {
+        delete st.dots
+        st.dash = 'dotted'
       }
     }
     const parsed = parseProjectText(JSON.stringify(raw))
-    expect(
-      parsed.ok && parsed.project.annotations.some((a) => 'style' in a && a.style.dash === 'dotted')
-    ).toBe(true)
+    expect(parsed.ok && parsed.project.annotations.some((a) => dashOf(a) === 'dotted')).toBe(true)
   })
 })
