@@ -47,7 +47,14 @@ function useShownStyle(): CurrentStyle {
     textShadow: isText ? selected.style.shadow === true : style.textShadow,
     // Свечение выбранного кольца — его собственное (у старого кольца поля нет — значит, свечения нет), а не умолчание для новых.
     glow:
-      selected.type === 'circle' || selected.type === 'ring' ? selected.glow === true : style.glow
+      selected.type === 'circle' || selected.type === 'ring' ? selected.glow === true : style.glow,
+    // Вид и пульс выбранного кольца — его собственные (у старого поля нет — значит, «кольцо» без пульса).
+    look:
+      selected.type === 'circle' || selected.type === 'ring'
+        ? (selected.look ?? 'ring')
+        : style.look,
+    pulse:
+      selected.type === 'circle' || selected.type === 'ring' ? selected.pulse === true : style.pulse
   }
 }
 
@@ -182,7 +189,7 @@ function GlowToggle({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   return (
     <button
       type="button"
-      className={on ? 'chip-btn chip-btn--active' : 'chip-btn'}
+      className={on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'}
       disabled={!enabled}
       aria-pressed={on}
       title={ru.annotations.glowHint}
@@ -197,9 +204,66 @@ function GlowToggle({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   )
 }
 
+/** «Кольцо / Мишень» и «Пульс» кольца/круга: у выбранного — его значения, иначе — для новых. Для остальных рисунков недоступны. */
+function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const type = selected ? selected.type : tool
+  const enabled = type === 'circle' || type === 'ring'
+  const pulseOn = enabled && shown.pulse
+  return (
+    <>
+      {(['ring', 'target'] as const).map((look) => {
+        const on = enabled && shown.look === look
+        return (
+          <button
+            key={look}
+            type="button"
+            className={
+              on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+            }
+            disabled={!enabled}
+            aria-pressed={on}
+            title={look === 'ring' ? ru.annotations.lookRingHint : ru.annotations.lookTargetHint}
+            data-testid={`look-${look}`}
+            onClick={(e) => {
+              setStyle({ look })
+              e.currentTarget.blur()
+            }}
+          >
+            {look === 'ring' ? ru.annotations.lookRing : ru.annotations.lookTarget}
+          </button>
+        )
+      })}
+      <button
+        type="button"
+        className={
+          pulseOn ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+        }
+        disabled={!enabled}
+        aria-pressed={pulseOn}
+        title={ru.annotations.pulseHint}
+        data-testid="pulse-toggle"
+        onClick={(e) => {
+          setStyle({ pulse: !shown.pulse })
+          e.currentTarget.blur()
+        }}
+      >
+        {ru.annotations.pulse}
+      </button>
+    </>
+  )
+}
+
 export function StyleBar(): React.JSX.Element {
   const shown = useShownStyle()
   const context = useContextType()
+  // Для кольца/круга вместо кнопок подписи (они ему не нужны) показываются «Кольцо / Мишень» и «Пульс»: панель остаётся в одну строку.
+  const selectedNow = useAnnotationsStore(selectedAnnotation)
+  const toolNow = useAnnotationsStore((s) => s.tool)
+  const ringType = selectedNow ? selectedNow.type : toolNow
+  const ringContext = ringType === 'circle' || ringType === 'ring'
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()
@@ -294,39 +358,46 @@ export function StyleBar(): React.JSX.Element {
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        className={
-          shown.textBackground ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
-        }
-        disabled={context === 'shape' || context === 'ruler'}
-        title={ru.annotations.textBackground}
-        aria-pressed={shown.textBackground}
-        data-testid="text-background"
-        onClick={(e) => {
-          setStyle({ textBackground: !shown.textBackground })
-          e.currentTarget.blur()
-        }}
-      >
-        Aa
-      </button>
-      <button
-        type="button"
-        className={
-          shown.textShadow ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
-        }
-        disabled={context === 'shape' || context === 'ruler'}
-        title={ru.annotations.textShadow}
-        aria-pressed={shown.textShadow}
-        data-testid="text-shadow"
-        onClick={(e) => {
-          setStyle({ textShadow: !shown.textShadow })
-          e.currentTarget.blur()
-        }}
-      >
-        <span style={{ textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>Aa</span>
-      </button>
+      {!ringContext && (
+        <>
+          <button
+            type="button"
+            className={
+              shown.textBackground
+                ? 'chip-btn chip-btn--sq chip-btn--active'
+                : 'chip-btn chip-btn--sq'
+            }
+            disabled={context === 'shape' || context === 'ruler'}
+            title={ru.annotations.textBackground}
+            aria-pressed={shown.textBackground}
+            data-testid="text-background"
+            onClick={(e) => {
+              setStyle({ textBackground: !shown.textBackground })
+              e.currentTarget.blur()
+            }}
+          >
+            Aa
+          </button>
+          <button
+            type="button"
+            className={
+              shown.textShadow ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
+            }
+            disabled={context === 'shape' || context === 'ruler'}
+            title={ru.annotations.textShadow}
+            aria-pressed={shown.textShadow}
+            data-testid="text-shadow"
+            onClick={(e) => {
+              setStyle({ textShadow: !shown.textShadow })
+              e.currentTarget.blur()
+            }}
+          >
+            <span style={{ textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>Aa</span>
+          </button>
+        </>
+      )}
       <GlowToggle shown={shown} />
+      {ringContext && <LookControls shown={shown} />}
       <PitchControls />
       <span className="style-bar__sep" />
       <div className="style-bar__group">

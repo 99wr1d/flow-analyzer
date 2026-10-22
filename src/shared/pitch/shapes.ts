@@ -3,6 +3,16 @@
 // проецируются — поэтому вдали они сужаются, а кольцо превращается в эллипс.
 import { LEGACY_RING_FILL, type PitchAnnotation } from '../annotations'
 import { isToolAnnotation, paintPitchTool } from './pitchTools'
+import {
+  TARGET_CENTER_ALPHA,
+  TARGET_LINE_SCALE,
+  TARGET_RADII,
+  isTarget,
+  pulsePhase,
+  WAVE_LINE_SCALE,
+  waveOpacity,
+  waveScale
+} from '../styleFx'
 import type { Pt } from './linalg'
 import type { Projector } from './projector'
 
@@ -96,6 +106,12 @@ export interface PitchPaint {
   lens: LensPaint | null
   /** Кольцо со свечением: средняя ширина обводки в пикселях (ореол кладётся вдоль кромок `body`). Нет — без свечения. */
   glowPx?: number
+  /** «Мишень»: полосы трёх колец по отдельности (от внешнего к центру); они же лежат в body. */
+  targetRings?: PxPt[][][]
+  /** «Мишень»: диск заливается радиальным градиентом (центр → край), а не ровно. */
+  target?: boolean
+  /** Волна пульса (кольцо, расходящееся от центра) и её непрозрачность. */
+  wave?: { body: PxPt[][]; opacity: number }
 }
 
 export type Measure = (text: string, fontPx: number) => number
@@ -291,7 +307,9 @@ export function paintPitch(
   a: PitchAnnotation,
   proj: Projector,
   size: PaintSize,
-  measure: Measure
+  measure: Measure,
+  /** Время видео (секунды): нужно пульсу. */
+  time?: number
 ): PitchPaint {
   if (isToolAnnotation(a)) return paintPitchTool(a, proj, size, measure)
   const out = emptyPaint()
@@ -312,10 +330,17 @@ export function paintPitch(
     const angles = circleAngles(a.center, r + hw, proj, size)
     const circle = (rad: number): Pt[] => angles.map((t) => onCircle(a.center, rad, t))
     const outer = ccw(circle(r + hw))
+    // Полоса кольца радиуса rad: внешний контур и обратный обход внутреннего (дырка).
+    const pushBand = (rad: number, half: number, into: PxPt[][]): void => {
+      const outerProj = proj.projectPolygon(ccw(circle(rad + half)))
+      const innerProj = proj.projectPolygon([...ccw(circle(Math.max(rad - half, 0.01)))].reverse())
+      if (outerProj.length >= 3) into.push(px(outerProj))
+      if (outerProj.length >= 3 && innerProj.length >= 3) into.push(px(innerProj))
+    }
     const discProj = proj.projectPolygon(ccw(circle(r)))
     if (discProj.length >= 3) out.disc.push(px(discProj))
     out.discOpacity = a.fillOpacity ?? LEGACY_RING_FILL
-    if (a.style.dash === 'dashed') {
+    if (a.style.dash === 'dashed' && !isTarget(a)) {
       // Штрихи по окружности: секторы кольца.
       const circ = 2 * Math.PI * r
       const count = Math.max(6, Math.round(circ / ((DASH_LENGTH + DASH_GAP) * hw * 2)))
@@ -330,13 +355,25 @@ export function paintPitch(
           )
         pushBody(ccw([...arc(r + hw), ...arc(Math.max(r - hw, 0.01)).reverse()]))
       }
+    } else if (isTarget(a)) {
+      // «Мишень»: три кольца (тоньше обычного и тем бледнее, чем дальше от центра); заливка диска — радиальный градиент (рисует вид).
+      out.targetRings = TARGET_RADII.map((k) => {
+        const ringPolys: PxPt[][] = []
+        pushBand(r * k, hw * TARGET_LINE_SCALE, ringPolys)
+        out.body.push(...ringPolys)
+        return ringPolys
+      })
+      out.target = true
+      out.discOpacity = TARGET_CENTER_ALPHA
     } else {
-      const innerR = Math.max(r - hw, 0.01)
-      const inner = [...ccw(circle(innerR))].reverse()
-      const outerProj = proj.projectPolygon(outer)
-      const innerProj = proj.projectPolygon(inner)
-      if (outerProj.length >= 3) out.body.push(px(outerProj))
-      if (outerProj.length >= 3 && innerProj.length >= 3) out.body.push(px(innerProj))
+      pushBand(r, hw, out.body)
+    }
+    if (time !== undefined && a.pulse === true) {
+      // Пульс: волна от центра наружу, по времени видео.
+      const phase = pulsePhase(time)
+      const wave: PxPt[][] = []
+      pushBand(r * waveScale(phase), hw * WAVE_LINE_SCALE, wave)
+      if (wave.length > 0) out.wave = { body: wave, opacity: waveOpacity(phase) }
     }
     const hit = proj.projectPolygon(outer)
     if (hit.length >= 3) out.hit.push(px(hit))

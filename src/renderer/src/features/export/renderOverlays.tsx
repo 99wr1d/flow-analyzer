@@ -8,7 +8,8 @@ import {
   isUnderPlayers,
   type Annotation
 } from '../../../../shared/annotations'
-import { resolveAt } from '../../../../shared/animation'
+import { isMoving, resolveAt } from '../../../../shared/animation'
+import { pulsePhase, revealFraction } from '../../../../shared/styleFx'
 import { OVERLAY_LIMITS, type OverlayLayer } from '../../../../shared/export'
 import { frameTime, parseKey, type AnimFrame } from '../../../../shared/exportOverlays'
 import {
@@ -49,6 +50,8 @@ export interface OverlaySvgOptions {
   scale?: number
   /** Какие рисунки показать бледнее (камера могла сдвинуться); по умолчанию — по времени кадра разметки. */
   dimmedIds?: ReadonlySet<string>
+  /** Время видео (секунды) — для пульса. */
+  time?: number
 }
 
 /** SVG с набором рисунков на кадре width×height (в пикселях видео). Порядок рисунков — порядок слоёв. */
@@ -94,6 +97,7 @@ export function buildOverlaySvg(
             showHandles={false}
             projector={cal ? projectorFor(cal) : null}
             labelShift={labelShift}
+            time={options.time}
             dimmed={
               options.dimmedIds
                 ? options.dimmedIds.has(a.id)
@@ -217,6 +221,20 @@ export async function renderOverlayImages(opts: {
   return result
 }
 
+/**
+ * Ключ картинки кадра, если она зависит только от набора рисунков и фазы времени (ни один рисунок не движется по ключам):
+ * кадры с одним ключом выглядят одинаково, их можно нарисовать один раз. null — кэшировать нельзя.
+ */
+export function phaseKeyOf(items: readonly Annotation[], time: number): string | null {
+  if (items.some(isMoving)) return null
+  const parts = items.map((a) => {
+    const phase = (a.type === 'circle' || a.type === 'ring') && a.pulse === true
+    const reveal = 'reveal' in a && a.reveal !== undefined
+    return `${phase ? Math.round(pulsePhase(time) * 1e6) : ''}/${reveal ? Math.round(revealFraction(a, time) * 1e6) : ''}`
+  })
+  return `${items.map((a) => a.id).join(',')}|${parts.join(',')}`
+}
+
 /** Какие слои нужны кадрам с движущимися рисунками (хоть одному кадру). */
 export function animationLayers(
   annotations: readonly Annotation[],
@@ -267,6 +285,8 @@ export async function renderAnimationFrames(opts: {
   canvas.width = width
   canvas.height = height
   const blank = await svgToPng(buildOverlaySvg([], width, height), canvas, width, height)
+  // Картинки кадров, где рисунки не движутся и зависят лишь от времени (пульс): та же фаза — та же картинка (период 1,5 с).
+  const phaseCache = new Map<string, Uint8Array<ArrayBuffer>>()
   const pending: Record<OverlayLayer, AnimFrameData[]> = { over: [], under: [] }
   const bytes: Record<OverlayLayer, number> = { over: 0, under: 0 }
   const drain = async (layer: OverlayLayer): Promise<void> => {
@@ -283,16 +303,24 @@ export async function renderAnimationFrames(opts: {
     const time = frameTime(f.frame, fps)
     const items = f.members.map((i) => resolveAt(annotations[i], time))
     const need = layersFor(items)
+    const phaseKey = phaseKeyOf(
+      f.members.map((i) => annotations[i]),
+      time
+    )
     for (const layer of ['over', 'under'] as const) {
       if (!layers[layer]) continue
-      const data = need[layer]
-        ? await svgToPng(
-            buildOverlaySvg(items, width, height, calibrations, { part: layer }),
+      const cacheKey = phaseKey === null ? null : `${layer}|${phaseKey}`
+      const cached = cacheKey === null ? undefined : phaseCache.get(cacheKey)
+      const data = !need[layer]
+        ? blank
+        : (cached ??
+          (await svgToPng(
+            buildOverlaySvg(items, width, height, calibrations, { part: layer, time }),
             canvas,
             width,
             height
-          )
-        : blank
+          )))
+      if (cacheKey !== null && need[layer] && !cached) phaseCache.set(cacheKey, data)
       pending[layer].push({ frame: f.frame, data })
       bytes[layer] += data.length
       if (

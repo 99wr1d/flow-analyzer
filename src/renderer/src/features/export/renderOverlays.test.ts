@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Annotation } from '../../../../shared/annotations'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
-import { GLOW_ALPHA, GLOW_LAYERS } from '../../../../shared/styleFx'
-import { buildOverlaySvg, layersFor } from './renderOverlays'
+import { GLOW_ALPHA, GLOW_LAYERS, TARGET_CENTER_ALPHA } from '../../../../shared/styleFx'
+import { buildOverlaySvg, layersFor, phaseKeyOf } from './renderOverlays'
 
 const style = { color: '#ff3b30', width: 0.01, dash: 'solid' as const }
 const timing = { mode: 'range' as const, start: 0, duration: 3 }
@@ -384,5 +384,151 @@ describe('buildOverlaySvg: подписи без плашки', () => {
     expect(svg).not.toContain('text-shadow')
     expect(svg).not.toContain('stroke=')
     expect(svg).not.toContain('class="anno-shape')
+  })
+})
+
+describe('buildOverlaySvg: мишень и пульс', () => {
+  const cal = sampleCalibration()
+  const tid = (n: number): string =>
+    `3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4d${String(n).padStart(2, '0')}`
+  const circle = (over: object = {}): Annotation =>
+    ({
+      id: tid(11),
+      space: 'screen',
+      type: 'circle',
+      p1: { x: 0.4, y: 0.5 },
+      p2: { x: 0.5, y: 0.6 },
+      style: { color: '#ff5a1f', width: 0.004, dash: 'solid' },
+      fillOpacity: 0,
+      look: 'target',
+      timing,
+      ...over
+    }) as Annotation
+  const ring = (over: object = {}): Annotation =>
+    ({
+      id: tid(12),
+      space: 'pitch',
+      calibrationId: cal.id,
+      type: 'ring',
+      center: { x: 8, y: 34 },
+      radius: 1.5,
+      style: { color: '#ff5a1f', width: 0.004, dash: 'solid' },
+      fillOpacity: 0,
+      look: 'target',
+      timing,
+      ...over
+    }) as Annotation
+  const rings = (svg: string): number => (svg.match(/data-part="core"/g) ?? []).length
+  const waves = (svg: string): number => (svg.match(/data-part="wave"/g) ?? []).length
+
+  it('круг-мишень: три кольца (1, 0.66, 0.33) и радиальная заливка от ~35% в центре к нулю', () => {
+    const svg = buildOverlaySvg([circle()], 1000, 1000)
+    expect(rings(svg)).toBe(3)
+    const rx = (k: number): string => `rx="${Math.round(50 * k * 1e6) / 1e6}"`
+    for (const k of [1, 0.66, 0.33]) expect(svg).toContain(rx(k))
+    expect(svg).toMatch(/<radialGradient id="target-[^"]+"><stop offset="0"[^>]*stop-opacity="1"/)
+    expect(svg).toMatch(/<stop offset="1"[^>]*stop-opacity="0"/)
+    expect(svg).toContain(`fill-opacity="${TARGET_CENTER_ALPHA}"`)
+    expect(TARGET_CENTER_ALPHA).toBeGreaterThanOrEqual(0.33)
+    expect(TARGET_CENTER_ALPHA).toBeLessThanOrEqual(0.5)
+  })
+
+  it('круг без look — одно кольцо, как раньше (без градиента)', () => {
+    const svg = buildOverlaySvg([circle({ look: undefined })], 1000, 1000)
+    expect(rings(svg)).toBe(1)
+    expect(svg).not.toContain('radialGradient')
+  })
+
+  it('кольцо на поле — мишень: три полосы вместо одной и градиентная заливка диска', () => {
+    const one = buildOverlaySvg([ring({ look: 'ring' })], 1280, 720, [cal])
+    const target = buildOverlaySvg([ring()], 1280, 720, [cal])
+    const bodies = (s: string): number => (s.match(/<path data-part="body"/g) ?? []).length
+    expect(bodies(one)).toBe(1)
+    expect(bodies(target)).toBe(3)
+    expect(target).toMatch(/<radialGradient id="target-/)
+    expect(target).toMatch(/data-part="disc"[^>]*fill="url\(#target-/)
+    expect(one).not.toContain('radialGradient')
+  })
+
+  it('пульс: круг — волна в момент t зависит только от t, в разные моменты разная', () => {
+    const a = circle({ pulse: true })
+    const at = (t: number): string => buildOverlaySvg([a], 1000, 1000, [], { time: t })
+    expect(waves(at(0.5))).toBe(1)
+    expect(at(0.5)).toBe(at(0.5))
+    expect(at(0.5)).not.toBe(at(1.0))
+    // Период 1.5 с: t и t + 1.5 дают одну и ту же картинку.
+    expect(at(0.3)).toBe(at(1.8))
+  })
+
+  it('пульс: кольцо на поле — волна есть, в разные моменты разная; без времени и без pulse волны нет', () => {
+    const a = ring({ pulse: true })
+    const at = (t?: number): string => buildOverlaySvg([a], 1280, 720, [cal], { time: t })
+    expect(waves(at(0.4))).toBe(1)
+    expect(at(0.4)).not.toBe(at(0.9))
+    expect(waves(at(undefined))).toBe(0)
+    expect(waves(buildOverlaySvg([ring()], 1280, 720, [cal], { time: 0.4 }))).toBe(0)
+  })
+
+  it('пульс у простого кольца (не мишени) тоже даёт волну', () => {
+    const svg = buildOverlaySvg([circle({ look: 'ring', pulse: true })], 1000, 1000, [], {
+      time: 0.7
+    })
+    expect(waves(svg)).toBe(1)
+    expect(rings(svg)).toBe(1)
+  })
+
+  it('«только кадр» — стоп-кадр без волны', () => {
+    const frameOnly = circle({ pulse: true, timing: { mode: 'frame', start: 1, freezeSeconds: 2 } })
+    expect(waves(buildOverlaySvg([frameOnly], 1000, 1000, [], { time: 0.5 }))).toBe(0)
+  })
+
+  it('мишень «под игроками» уходит на слой травы целиком, наверху ничего', () => {
+    const items = [circle({ underPlayers: true, pulse: true, glow: true })]
+    const under = buildOverlaySvg(items, 1000, 1000, [], { part: 'under', time: 0.3 })
+    const over = buildOverlaySvg(items, 1000, 1000, [], { part: 'over', time: 0.3 })
+    expect(rings(under)).toBe(3)
+    expect(waves(under)).toBe(1)
+    expect(rings(over)).toBe(0)
+    expect(waves(over)).toBe(0)
+  })
+})
+
+describe('phaseKeyOf: картинки кадров с пульсом повторяются', () => {
+  const base = {
+    id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4f01',
+    space: 'screen',
+    type: 'circle',
+    p1: { x: 0.4, y: 0.5 },
+    p2: { x: 0.5, y: 0.6 },
+    style: { color: '#ff5a1f', width: 0.004, dash: 'solid' },
+    timing: { mode: 'range', start: 0, duration: 20 }
+  }
+  const pulsing = { ...base, pulse: true } as Annotation
+  const plain = { ...base } as Annotation
+
+  it('одна фаза (t и t + период) — один ключ; другая фаза — другой', () => {
+    expect(phaseKeyOf([pulsing], 0.3)).toBe(phaseKeyOf([pulsing], 0.3 + 1.5))
+    expect(phaseKeyOf([pulsing], 0.3)).toBe(phaseKeyOf([pulsing], 0.3 + 3 * 1.5))
+    expect(phaseKeyOf([pulsing], 0.3)).not.toBe(phaseKeyOf([pulsing], 0.9))
+  })
+
+  it('рисунок без пульса не зависит от времени', () => {
+    expect(phaseKeyOf([plain], 0.3)).toBe(phaseKeyOf([plain], 7.1))
+  })
+
+  it('кадры разных наборов рисунков не смешиваются', () => {
+    const other = { ...pulsing, id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4f02' } as Annotation
+    expect(phaseKeyOf([pulsing], 0.3)).not.toBe(phaseKeyOf([other], 0.3))
+  })
+
+  it('рисунок с ключами (движется) кэшировать нельзя', () => {
+    const moving = {
+      ...pulsing,
+      keyframes: [
+        { t: 0, geom: { p1: base.p1, p2: base.p2 } },
+        { t: 1, geom: { p1: { x: 0.5, y: 0.5 }, p2: { x: 0.6, y: 0.6 } } }
+      ]
+    } as unknown as Annotation
+    expect(phaseKeyOf([moving], 0.3)).toBeNull()
   })
 })

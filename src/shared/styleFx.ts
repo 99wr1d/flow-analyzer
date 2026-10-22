@@ -79,3 +79,28 @@ export function textShadowLayers(fontPx: number): TextShadowLayer[] {
     { dy: fontPx * 0.03, width: fontPx * 0.05, opacity: 0.55 }
   ]
 }
+
+/** «Мишень»: радиусы колец относительно внешнего. */
+export const TARGET_RADII = [1, 0.66, 0.33] as const
+/** «Мишень»: непрозрачность радиальной заливки в центре (к краю спадает до 0). */
+export const TARGET_CENTER_ALPHA = 0.45
+/** «Мишень»: толщина линий колец относительно обычного кольца (тоньше — как у образца). */
+export const TARGET_LINE_SCALE = 0.6
+/** «Мишень»: непрозрачность колец от внешнего к центру (внешнее бледнее). */
+export const TARGET_RING_OPACITY = [0.4, 0.6, 0.85] as const
+/** «Мишень»: профиль заливки (смещение, доля непрозрачности центра): чуть выпуклее прямой — центр светлее. */
+export const TARGET_FILL_STOPS = [
+  { offset: 0, alpha: 1 },
+  { offset: 0.4, alpha: 0.85 },
+  { offset: 0.75, alpha: 0.45 },
+  { offset: 1, alpha: 0 }
+] as const
+/** Волна пульса: радиус относительно внешнего кольца в фазе phase (0..1). */
+export const waveScale = (phase: number): number => Math.min(1, Math.max(0, phase))
+/** Волна пульса: непрозрачность линии в фазе phase — яркая у центра, тает к краю. */
+export const waveOpacity = (phase: number): number => 0.9 * (1 - Math.min(1, Math.max(0, phase)))
+
+/** Рисунок — «мишень» (а не кольцо). */
+export const isTarget = (a: { look?: string }): boolean => a.look === 'target'
+/** Волна пульса: толщина линии относительно обычного кольца (чуть жирнее колец мишени, чтобы не сливалась с ними). */
+export const WAVE_LINE_SCALE = 1.5

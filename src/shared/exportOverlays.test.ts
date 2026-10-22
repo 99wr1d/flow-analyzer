@@ -187,3 +187,15 @@ describe('стоп-кадры', () => {
     expect(plan.keys[0]).toBe('0')
   })
 })
+
+describe('рисунок с пульсом без ключей в покадровом плане', () => {
+  it('идёт покадрово (каждый кадр отрезка), а не одной картинкой на отрезок', () => {
+    const timings = [range(1, 2)]
+    const plan = planOverlays(timings, [{ start: 0, end: 4 }], 30, new Set([0]))
+    expect(plan.segments).toEqual([])
+    expect(plan.keys).toEqual([])
+    expect(plan.animation.frames).toHaveLength(60)
+    expect(plan.animation.frames[0]).toEqual({ frame: 30, members: [0] })
+    expect(hasDrawings(plan)).toBe(true)
+  })
+})

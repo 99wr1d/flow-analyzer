@@ -5,7 +5,7 @@ import type { PitchAnnotation } from '../../../../shared/annotations'
 import { shiftLabel, type LabelShift } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
 import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared/pitch/shapes'
-import { glowStack } from '../../../../shared/styleFx'
+import { TARGET_FILL_STOPS, TARGET_RING_OPACITY, glowStack } from '../../../../shared/styleFx'
 import type { Size } from './geometry'
 import { pathOf } from './pathOf'
 import { LabelText } from './LabelText'
@@ -83,6 +83,17 @@ export function PillLabel({
         />
       )}
     </g>
+  )
+}
+
+/** Радиальная заливка «мишени»: от цвета в центре к прозрачности у края (профиль — TARGET_FILL_STOPS). */
+export function TargetGradient({ id, color }: { id: string; color: string }): React.JSX.Element {
+  return (
+    <radialGradient id={`target-${id}`}>
+      {TARGET_FILL_STOPS.map((s) => (
+        <stop key={s.offset} offset={s.offset} stopColor={color} stopOpacity={s.alpha} />
+      ))}
+    </radialGradient>
   )
 }
 
@@ -222,15 +233,31 @@ export function PaintParts({
             strokeLinejoin="round"
           />
         ))}
+      {ground && paint.disc.length > 0 && paint.target && (
+        <defs>
+          <TargetGradient id={id} color={color} />
+        </defs>
+      )}
       {ground && paint.disc.length > 0 && (
         <path
           data-part="disc"
           d={pathOf(paint.disc)}
-          fill={color}
+          fill={paint.target ? `url(#target-${id})` : color}
           fillOpacity={paint.discOpacity ?? 0.18}
         />
       )}
-      {ground && paint.body.length > 0 && (
+      {ground &&
+        paint.targetRings?.map((polys, i) => (
+          <path
+            key={`ring-${i}`}
+            data-part="body"
+            d={pathOf(polys)}
+            fill={color}
+            fillOpacity={TARGET_RING_OPACITY[i]}
+            stroke="none"
+          />
+        ))}
+      {ground && paint.body.length > 0 && !paint.targetRings && (
         <path
           data-part="body"
           d={pathOf(paint.body)}
@@ -254,6 +281,15 @@ export function PaintParts({
             strokeDasharray={s.dashed ? `${s.widthPx * 2.4} ${s.widthPx * 1.8}` : undefined}
           />
         ))}
+      {ground && paint.wave && paint.wave.body.length > 0 && (
+        <path
+          data-part="wave"
+          d={pathOf(paint.wave.body)}
+          fill={color}
+          fillOpacity={paint.wave.opacity}
+          stroke="none"
+        />
+      )}
       {ground &&
         paint.nodes.map((n, i) => (
           <circle
@@ -370,6 +406,8 @@ interface PitchProps {
   part?: DrawPart
   /** Сдвиги подписей по вертикали (пиксели), чтобы подписи измерений не ложились друг на друга. */
   labelShift?: LabelShift
+  /** Время видео, секунды: нужно пульсу. */
+  time?: number
 }
 
 export function PitchBody({
@@ -379,18 +417,19 @@ export function PitchBody({
   projector,
   shadowClass,
   part,
-  labelShift
+  labelShift,
+  time
 }: PitchProps): React.JSX.Element | null {
   const paint = useMemo(() => {
     if (!projector) return null
-    const p = paintPitch(a, projector, size, measureTextWidth)
+    const p = paintPitch(a, projector, size, measureTextWidth, time)
     if (!labelShift) return p
     return {
       ...p,
       label: p.label ? shiftLabel(p.label, labelShift.label) : p.label,
       labels: p.labels.map((l, i) => shiftLabel(l, labelShift.labels?.[i]))
     }
-  }, [a, projector, size, labelShift])
+  }, [a, projector, size, labelShift, time])
   if (!paint) return null
   return (
     <PaintParts

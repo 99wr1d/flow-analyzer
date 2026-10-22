@@ -477,3 +477,199 @@ test.describe('подписи без плашки', () => {
     }
   })
 })
+
+/** Ждёт, пока слой «под игроками» перерисует растр после очередного кадра (счётчик data-rasters вырос). */
+async function nextRaster(win: Page, before: number): Promise<void> {
+  await expect
+    .poll(async () => Number((await canvasOf(win).getAttribute('data-rasters')) ?? 0), {
+      timeout: 10_000
+    })
+    .toBeGreaterThan(before)
+  await win.waitForTimeout(250)
+}
+
+const rastersOf = async (win: Page): Promise<number> =>
+  Number((await canvasOf(win).getAttribute('data-rasters')) ?? 0)
+
+/** Перемотка на середину кадра n и ожидание, пока слой «под игроками» нарисует рисунок для этого кадра. */
+async function seekFrame(win: Page, n: number): Promise<void> {
+  const before = await rastersOf(win)
+  await seekVideo(win, (n + 0.5) / 25)
+  await nextRaster(win, before)
+}
+
+test.describe('мишень и пульс', () => {
+  /** Большой плоский эллипс на траве справа внизу; возвращает его в пикселях кадра. */
+  async function drawTarget(win: Page, opts: { pulse: boolean }): Promise<Ellipse> {
+    await win.getByTestId('tool-circle').click()
+    await win.getByTestId('look-target').click()
+    if (opts.pulse) await win.getByTestId('pulse-toggle').click()
+    await dragPath(win, [
+      [0.5, 0.7],
+      [0.9, 0.9]
+    ])
+    const circle = shapes(win, 'circle')
+    await expect(circle).toHaveCount(1)
+    await win.getByTestId('duration-input').fill('3')
+    await win.keyboard.press('Escape')
+    await win.getByTestId('tool-select').click()
+    await win.keyboard.press('Escape')
+    return ellipseOf(win)
+  }
+
+  test('панель: «Кольцо / Мишень» и «Пульс» показывают значения выбранного рисунка', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Переключатели мишени')
+      const ringBtn = win.getByTestId('look-ring')
+      const targetBtn = win.getByTestId('look-target')
+      const pulse = win.getByTestId('pulse-toggle')
+      const cores = (i: number) => shapes(win, 'circle').nth(i).locator('[data-part="core"]')
+      // Для остальных рисунков кнопок мишени нет.
+      await win.getByTestId('tool-arrow').click()
+      await expect(targetBtn).toHaveCount(0)
+      await expect(pulse).toHaveCount(0)
+      // Новое кольцо A — обычное, без пульса.
+      await win.getByTestId('tool-circle').click()
+      await expect(ringBtn).toHaveAttribute('aria-pressed', 'true')
+      await expect(pulse).toHaveAttribute('aria-pressed', 'false')
+      await dragPath(win, [
+        [0.55, 0.62],
+        [0.7, 0.72]
+      ])
+      await expect(shapes(win, 'circle')).toHaveCount(1)
+      await expect(cores(0)).toHaveCount(1)
+      // Выбранное A: делаем мишенью с пульсом.
+      await targetBtn.click()
+      await pulse.click()
+      await expect(cores(0)).toHaveCount(3)
+      await expect(targetBtn).toHaveAttribute('aria-pressed', 'true')
+      await expect(pulse).toHaveAttribute('aria-pressed', 'true')
+      // Выбор «для новых» запомнился: рисуем B — мишень с пульсом.
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-circle').click()
+      await expect(targetBtn).toHaveAttribute('aria-pressed', 'true')
+      await dragPath(win, [
+        [0.2, 0.8],
+        [0.35, 0.9]
+      ])
+      await expect(shapes(win, 'circle')).toHaveCount(2)
+      await expect(cores(1)).toHaveCount(3)
+      // Возвращаем выбранному B «Кольцо» и выключаем пульс — A остаётся мишенью.
+      await ringBtn.click()
+      await pulse.click()
+      await expect(cores(1)).toHaveCount(1)
+      await expect(cores(0)).toHaveCount(3)
+      // Выбираем A: панель показывает ЕГО значения.
+      await win.getByTestId('tool-select').click()
+      const a = await ellipseOf(win, 0)
+      await clickAt(win, [a.cx / W, (a.cy + a.ry) / H])
+      await expect(shapes(win, 'circle').first()).toHaveAttribute('data-selected', 'true')
+      await expect(targetBtn).toHaveAttribute('aria-pressed', 'true')
+      await expect(pulse).toHaveAttribute('aria-pressed', 'true')
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('мишень: три кольца на траве, на экране и в готовом видео', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Мишень')
+      await seekVideo(win, 41.5 / 25)
+      const layer = await layerBox(win)
+      const base = await png(win, 'target-base')
+      const e = await drawTarget(win, { pulse: false })
+      await waitUnderDrawn(win)
+      await win.waitForTimeout(250)
+      const shot = await png(win, 'target-on')
+      const at = (k: number): Frac => [(e.cx + e.rx * k) / W, e.cy / H]
+      const screenAt = (f: Frac): [number, number] => [
+        layer.x + f[0] * layer.width,
+        layer.y + f[1] * layer.height
+      ]
+      // Кольцо заметно выделяется на фоне заливки и ореола рядом: разница с соседними точками (±0.07 радиуса) по обе стороны.
+      const sideScreen = (k: number): number =>
+        (maxDelta(shot, base, ...screenAt(at(k - 0.07))) +
+          maxDelta(shot, base, ...screenAt(at(k + 0.07)))) /
+        2
+      const onRing = [1, 0.66, 0.33].map((k) => maxDelta(shot, base, ...screenAt(at(k))))
+      const sides = [1, 0.66, 0.33].map(sideScreen)
+      console.log(`Экран, мишень: на кольцах ${onRing}, рядом с ними ${sides}`)
+      onRing.forEach((d, i) => expect(d).toBeGreaterThan(sides[i] + 12))
+      // Заливка тает к краю: у центра заметнее, чем у внешнего кольца.
+      expect(maxDelta(shot, base, ...screenAt(at(0.12)))).toBeGreaterThan(
+        maxDelta(shot, base, ...screenAt(at(0.9)))
+      )
+
+      const file = await exportWhole(ctx)
+      const index = 41
+      const exported = frameRgb(file, index, W, H)
+      const source = frameRgb(fixture('players.mp4'), index, W, H)
+      const vRing = [1, 0.66, 0.33].map((k) => videoDelta(exported, source, at(k)))
+      const vSides = [1, 0.66, 0.33].map(
+        (k) =>
+          (videoDelta(exported, source, at(k - 0.07)) +
+            videoDelta(exported, source, at(k + 0.07))) /
+          2
+      )
+      console.log(`Экспорт, мишень: на кольцах ${vRing}, рядом с ними ${vSides}`)
+      vRing.forEach((d, i) => expect(d).toBeGreaterThan(vSides[i] + 12))
+      expect(videoDelta(exported, source, at(0.12))).toBeGreaterThan(
+        videoDelta(exported, source, at(0.9))
+      )
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('пульс: волна идёт от центра; на экране и в готовом видео в один и тот же момент видео — одна и та же', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Пульс')
+      // Рисунок на весь ролик: начинается с первого кадра.
+      await seekVideo(win, 0.02)
+      const layer = await layerBox(win)
+      const e = await drawTarget(win, { pulse: true })
+      await waitUnderDrawn(win)
+      // Кадры 6 и 20: фаза 0.173 и 0.547 (период 1.5 с, 25 к/с).
+      const [a, b] = [6, 20]
+      const phase = (n: number): number => (((n + 0.5) / 25) % 1.5) / 1.5
+      const wave = (n: number): Frac => [(e.cx + e.rx * phase(n)) / W, e.cy / H]
+      const screenAt = (f: Frac): [number, number] => [
+        layer.x + f[0] * layer.width,
+        layer.y + f[1] * layer.height
+      ]
+      const shots: Record<number, Pixels> = {}
+      for (const n of [a, b]) {
+        await seekFrame(win, n)
+        shots[n] = await png(win, `pulse-${n}`)
+      }
+      // На экране: в точке волны каждого момента картинки двух моментов различаются.
+      const sa = maxDelta(shots[a], shots[b], ...screenAt(wave(a)))
+      const sb = maxDelta(shots[a], shots[b], ...screenAt(wave(b)))
+      console.log(`Экран, пульс: разница моментов в точках волн ${sa} / ${sb}`)
+      expect(sa).toBeGreaterThan(30)
+      expect(sb).toBeGreaterThan(20)
+
+      const file = await exportWhole(ctx)
+      const video = fixture('players.mp4')
+      const ea = frameRgb(file, a, W, H)
+      const eb = frameRgb(file, b, W, H)
+      const src = [frameRgb(video, a, W, H), frameRgb(video, b, W, H)]
+      // В готовом видео волна момента a — в точке wave(a), и её нет там в момент b (и наоборот).
+      const xa = [videoDelta(ea, src[0], wave(a)), videoDelta(eb, src[1], wave(a))]
+      const xb = [videoDelta(eb, src[1], wave(b)), videoDelta(ea, src[0], wave(b))]
+      console.log(`Экспорт, пульс: волна a: ${xa}; волна b: ${xb}`)
+      expect(xa[0]).toBeGreaterThan(30)
+      expect(xa[0]).toBeGreaterThan(xa[1] + 15)
+      expect(xb[0]).toBeGreaterThan(20)
+      expect(xb[0]).toBeGreaterThan(xb[1] + 8)
+    } finally {
+      await ctx.app.close()
+    }
+  })
+})

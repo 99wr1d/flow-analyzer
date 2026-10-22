@@ -20,11 +20,23 @@ import { textRect, toPx } from './hit'
 import {
   PaintHandles,
   PaintParts,
+  TargetGradient,
   PitchBody,
   PitchHandlesView,
   type DrawPart
 } from './PitchShapeView'
-import { glowStack } from '../../../../shared/styleFx'
+import {
+  TARGET_CENTER_ALPHA,
+  TARGET_LINE_SCALE,
+  TARGET_RADII,
+  TARGET_RING_OPACITY,
+  glowStack,
+  isTarget,
+  pulsePhase,
+  WAVE_LINE_SCALE,
+  waveOpacity,
+  waveScale
+} from '../../../../shared/styleFx'
 import { isDarkColor } from './styles'
 import { measureTextWidth } from './textMetrics'
 
@@ -55,6 +67,8 @@ interface ShapeProps {
   keepGround?: boolean
   /** Сдвиги подписей на поле (пиксели): см. pitchLabelShifts. */
   labelShift?: LabelShift
+  /** Время видео, секунды: нужно пульсу (нет — волны нет). */
+  time?: number
 }
 
 /** Новые рисунки на экране (прожектор, кривая, перо, зона, лупа, связи): геометрию считает paintScreenTool. */
@@ -90,7 +104,8 @@ function ShapeBody({
   size,
   selected,
   shadowClass,
-  part = 'all'
+  part = 'all',
+  time
 }: ShapeProps & { annotation: ScreenAnnotation; shadowClass?: string }): React.JSX.Element {
   if (isScreenTool(a)) {
     return (
@@ -161,6 +176,82 @@ function ShapeBody({
     const cy = (p1.y + p2.y) / 2
     const rx = Math.abs(p2.x - p1.x) / 2
     const ry = Math.abs(p2.y - p1.y) / 2
+    if (isTarget(a)) {
+      // «Мишень»: три кольца (1, 0.66, 0.33), радиальная заливка от центра к краю, волна пульса.
+      const phase = a.pulse === true && time !== undefined ? pulsePhase(time) : undefined
+      return (
+        <>
+          {selected && (
+            <ellipse
+              cx={cx}
+              cy={cy}
+              rx={rx}
+              ry={ry}
+              fill="none"
+              stroke={HALO}
+              strokeWidth={w + 8}
+            />
+          )}
+          <defs>
+            <TargetGradient id={a.id} color={color} />
+          </defs>
+          <ellipse
+            data-part="disc"
+            cx={cx}
+            cy={cy}
+            rx={rx}
+            ry={ry}
+            fill={`url(#target-${a.id})`}
+            fillOpacity={TARGET_CENTER_ALPHA}
+            stroke="none"
+          />
+          {TARGET_RADII.map((k, ki) => (
+            <g key={k} data-part="target-ring" data-k={k}>
+              {a.glow === true &&
+                glowStack(w * TARGET_LINE_SCALE, w * TARGET_LINE_SCALE).map((l, i) => (
+                  <ellipse
+                    key={`glow-${i}`}
+                    data-part="glow"
+                    cx={cx}
+                    cy={cy}
+                    rx={rx * k}
+                    ry={ry * k}
+                    fill="none"
+                    stroke={color}
+                    strokeOpacity={l.opacity}
+                    strokeWidth={l.width}
+                  />
+                ))}
+              <ellipse
+                data-part="core"
+                cx={cx}
+                cy={cy}
+                rx={rx * k}
+                ry={ry * k}
+                fill="none"
+                stroke={color}
+                strokeOpacity={TARGET_RING_OPACITY[ki]}
+                strokeWidth={w * TARGET_LINE_SCALE}
+              />
+            </g>
+          ))}
+          {phase !== undefined && (
+            <ellipse
+              data-part="wave"
+              cx={cx}
+              cy={cy}
+              rx={rx * waveScale(phase)}
+              ry={ry * waveScale(phase)}
+              fill="none"
+              stroke={color}
+              strokeOpacity={waveOpacity(phase)}
+              strokeWidth={w * WAVE_LINE_SCALE}
+            />
+          )}
+        </>
+      )
+    }
+    const phase = a.pulse === true && time !== undefined ? pulsePhase(time) : undefined
     return (
       <>
         {selected && (
@@ -195,6 +286,19 @@ function ShapeBody({
           strokeDasharray={dash}
           strokeLinecap="round"
         />
+        {phase !== undefined && (
+          <ellipse
+            data-part="wave"
+            cx={cx}
+            cy={cy}
+            rx={rx * waveScale(phase)}
+            ry={ry * waveScale(phase)}
+            fill="none"
+            stroke={color}
+            strokeOpacity={waveOpacity(phase)}
+            strokeWidth={w * WAVE_LINE_SCALE}
+          />
+        )}
       </>
     )
   }
@@ -340,6 +444,8 @@ const HAS_UNDERLAY = new Set(['zone', 'chain', 'pzone', 'pchain', 'spot', 'pspot
 export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.Element | null {
   const a = props.annotation
   const dark = isDarkColor(a.style.color)
+  // Пульс идёт только у рисунка-отрезка: «только кадр» — стоп-кадр, в нём волны нет ни на экране, ни в экспорте.
+  const time = a.timing.mode === 'range' ? props.time : undefined
   // Рисунок на поле без рабочей разметки (её удалили или точки некорректны) не показывается.
   if (isPitchAnnotation(a) && !props.projector) return null
   // Кольцо со свечением рисуется без тени: тёмная кайма под ореолом портила бы его.
@@ -361,10 +467,12 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
         shadowClass={split ? shadow : undefined}
         part={part}
         labelShift={props.labelShift}
+        time={time}
       />
     ) : (
       <ShapeBody
         {...props}
+        time={time}
         annotation={a}
         selected={selected}
         part={part}

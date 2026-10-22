@@ -96,3 +96,10 @@ export function useLiveList<T extends Annotation>(items: readonly T[]): T[] {
   // Рисунки без движения возвращаются теми же ссылками (resolveAt), поэтому мемоизация потребителей работает.
   return anyMoving ? items.map((a) => resolveAt(a, t)) : (items as T[])
 }
+
+/** Время показанного кадра (середина), если enabled; иначе undefined (перерисовки по часам нет). Для пульса. */
+export function useClockTime(enabled: boolean): number | undefined {
+  const frame = useAnimClock((s) => (enabled ? s.frame : -1))
+  const fps = usePlayerStore((s) => (enabled ? s.fps : 0))
+  return frame < 0 ? undefined : (frame + 0.5) / (fps > 0 ? fps : 25)
+}
