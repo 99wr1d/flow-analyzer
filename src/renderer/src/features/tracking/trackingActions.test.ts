@@ -331,6 +331,57 @@ describe('applyTrackResult: траектория → ключи рисунка',
     expect(Math.max(g.p1.y, g.p2.y)).toBeGreaterThanOrEqual(0.65)
   })
 
+  it('столб: овал заменяется следом под ногами игрока, столб идёт за ним (низ овала = ноги на каждом ключе)', () => {
+    const spot = {
+      id,
+      space: 'screen',
+      type: 'spot',
+      form: 'pillar',
+      p1: { x: 0.1, y: 0.1 },
+      p2: { x: 0.2, y: 0.2 },
+      dim: 0.5,
+      style,
+      timing: range
+    } as Annotation
+    const r = applyTrackResult(spot, run(1, 2), planOf(spot), { fps: FPS, aspect: 16 / 9 })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.annotation.type === 'spot' && r.annotation.form).toBe('pillar')
+    const samples = run(1, 2)
+    for (const t of [1.02, 1.5, 1.98]) {
+      const g = geomAt(r.annotation, t) as {
+        p1: { x: number; y: number }
+        p2: { x: number; y: number }
+      }
+      const sample = samples.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a))
+      // Низ-середина овала — ноги игрока (±0.01 доли кадра), а не центр фигуры.
+      expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(sample.foot.x, 1)
+      expect(Math.max(g.p1.y, g.p2.y)).toBeCloseTo(sample.foot.y, 1)
+    }
+  })
+
+  it('столб, уже стоящий у ног игрока по ширине фигуры, не трогаем', () => {
+    // Ноги на y=0.65, рост 0.3 (aspect 16/9: фигура шириной 0.45·0.3/1.78 ≈ 0.076), столб 0.6·ширина овала ≈ фигуре.
+    const spot = {
+      id,
+      space: 'screen',
+      type: 'spot',
+      form: 'pillar',
+      p1: { x: 0.3, y: 0.62 },
+      p2: { x: 0.3 + 0.126, y: 0.66 },
+      dim: 0.5,
+      style,
+      timing: range
+    } as Annotation
+    const r = applyTrackResult(spot, run(1, 2), planOf(spot), { fps: FPS, aspect: 16 / 9 })
+    if (!r.ok) throw new Error(r.reason)
+    const g = geomAt(r.annotation, 1.02) as {
+      p1: { x: number; y: number }
+      p2: { x: number; y: number }
+    }
+    expect(g.p1.y).toBeCloseTo(0.62, 6)
+    expect(g.p2.y).toBeCloseTo(0.66, 6)
+  })
+
   it('прожектор, уже накрывающий фигуру, не трогаем', () => {
     const spot = {
       id,

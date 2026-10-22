@@ -13,6 +13,7 @@ import {
   waveOpacity,
   waveScale
 } from '../styleFx'
+import type { PillarPaint } from '../tools/pillar'
 import type { Pt } from './linalg'
 import type { Projector } from './projector'
 
@@ -110,6 +111,8 @@ export interface PitchPaint {
   targetRings?: PxPt[][][]
   /** «Мишень»: диск заливается радиальным градиентом (центр → край), а не ровно. */
   target?: boolean
+  /** Световой столб (прожектор вида «Столб»): рисует общий рисовальщик; обводки, пятна и луча при нём нет. */
+  pillar?: PillarPaint
   /** Волна пульса (кольцо, расходящееся от центра) и её непрозрачность. */
   wave?: { body: PxPt[][]; opacity: number }
 }

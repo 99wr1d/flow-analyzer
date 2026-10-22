@@ -54,7 +54,12 @@ function useShownStyle(): CurrentStyle {
         ? (selected.look ?? 'ring')
         : style.look,
     pulse:
-      selected.type === 'circle' || selected.type === 'ring' ? selected.pulse === true : style.pulse
+      selected.type === 'circle' || selected.type === 'ring'
+        ? selected.pulse === true
+        : style.pulse,
+    // Вид выбранного прожектора — его собственный (у старого поля нет — значит, «овал»).
+    form:
+      selected.type === 'spot' || selected.type === 'pspot' ? (selected.form ?? 'oval') : style.form
   }
 }
 
@@ -258,11 +263,50 @@ function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   )
 }
 
+/** Сейчас настраивается прожектор (выбранный рисунок или инструмент). */
+function useSpotContext(): boolean {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  const type = selected ? selected.type : tool
+  return type === 'spot' || type === 'pspot'
+}
+
+/** «Овал / Столб» прожектора: у выбранного — его значение, иначе — для новых. */
+function FormControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  return (
+    <>
+      {(['oval', 'pillar'] as const).map((form) => {
+        const on = shown.form === form
+        return (
+          <button
+            key={form}
+            type="button"
+            className={
+              on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+            }
+            aria-pressed={on}
+            title={form === 'oval' ? ru.annotations.formOvalHint : ru.annotations.formPillarHint}
+            data-testid={`form-${form}`}
+            onClick={(e) => {
+              setStyle({ form })
+              e.currentTarget.blur()
+            }}
+          >
+            {form === 'oval' ? ru.annotations.formOval : ru.annotations.formPillar}
+          </button>
+        )
+      })}
+    </>
+  )
+}
+
 export function StyleBar(): React.JSX.Element {
   const shown = useShownStyle()
   const context = useContextType()
   // Для кольца/круга вместо кнопок подписи (они ему не нужны) показываются «Кольцо / Мишень» и «Пульс»: панель остаётся в одну строку.
   const ringContext = useRingContext()
+  const spotContext = useSpotContext()
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()
@@ -357,7 +401,7 @@ export function StyleBar(): React.JSX.Element {
           </button>
         ))}
       </div>
-      {!ringContext && (
+      {!ringContext && !spotContext && (
         <>
           <button
             type="button"
@@ -397,6 +441,7 @@ export function StyleBar(): React.JSX.Element {
       )}
       <GlowToggle shown={shown} />
       {ringContext && <LookControls shown={shown} />}
+      {spotContext && <FormControls shown={shown} />}
       <PitchControls />
       <span className="style-bar__sep" />
       <div className="style-bar__group">

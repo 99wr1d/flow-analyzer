@@ -669,3 +669,167 @@ test.describe('мишень и пульс', () => {
     }
   })
 })
+
+test.describe('световой столб', () => {
+  const sum = (c: Rgb): number => c[0] + c[1] + c[2]
+  /** Лайм-подкраска: насколько зелёный выше синего. */
+  const lime = (c: Rgb): number => c[1] - c[2]
+
+  async function drawPillar(win: Page, from: Frac, to: Frac): Promise<void> {
+    await win.getByTestId('tool-spot').click()
+    await win.getByTestId('form-pillar').click()
+    await dragPath(win, [from, to])
+    await expect(shapes(win, 'spot')).toHaveCount(1)
+    await win.getByTestId('duration-input').fill('3')
+  }
+
+  test('столб: вертикаль от верха кадра до ног, затемнение вокруг, на экране и в готовом видео', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Столб')
+      await seekVideo(win, 41.5 / 25)
+      const layer = await layerBox(win)
+      const base = await png(win, 'pillar-base')
+      // Овал 0.08 × 0.08 кадра: низ-середина (0.56, 0.80) — ноги; ширина столба = 0.6 ширины овала.
+      await drawPillar(win, [0.52, 0.72], [0.6, 0.8])
+      const spot = shapes(win, 'spot')
+      await expect(spot).toHaveAttribute('data-form', 'pillar')
+      await expect(spot.locator('[data-part="pillar"]')).toHaveCount(1)
+      await expect(spot.locator('[data-part="beam"]')).toHaveCount(0)
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
+      await win.waitForTimeout(300)
+      const lit = await png(win, 'pillar-on')
+      const screenAt = (f: Frac): [number, number] => [
+        layer.x + f[0] * layer.width,
+        layer.y + f[1] * layer.height
+      ]
+      const axisTop: Frac = [0.56, 0.12]
+      const axisMid: Frac = [0.56, 0.5]
+      const outside: Frac = [0.56 + 0.2, 0.5]
+      const belowFeet: Frac = [0.56, 0.93]
+      const ratio = (a: Pixels, b: Pixels, f: Frac): number =>
+        sum(a.at(...screenAt(f))) / Math.max(1, sum(b.at(...screenAt(f))))
+      const rIn = ratio(lit, base, axisMid)
+      const rOut = ratio(lit, base, outside)
+      const rBelow = ratio(lit, base, belowFeet)
+      console.log(
+        `Экран, столб: яркость к кадру — ось ${rIn.toFixed(2)}, сбоку ${rOut.toFixed(2)}, ниже ног ${rBelow.toFixed(2)}`
+      )
+      // Столб светлее затемнённого окружения, виден до самого верха кадра и не продолжается ниже ног.
+      expect(rIn).toBeGreaterThan(rOut + 0.2)
+      expect(ratio(lit, base, axisTop)).toBeGreaterThan(rOut + 0.1)
+      expect(rBelow).toBeLessThan(rIn - 0.2)
+      expect(rBelow).toBeLessThan(rOut + 0.15)
+      // Цвет столба — лайм: зелёный над синим сильнее, чем в кадре.
+      const dLime = lime(lit.at(...screenAt(axisMid))) - lime(base.at(...screenAt(axisMid)))
+      expect(dLime).toBeGreaterThan(6)
+
+      // Экспорт: то же самое в кадре готового видео.
+      const file = await exportWhole(ctx)
+      const index = 41
+      const exported = frameRgb(file, index, W, H)
+      const source = frameRgb(fixture('players.mp4'), index, W, H)
+      const vr = (f: Frac): number => sum(rgbOf(exported, f)) / Math.max(1, sum(rgbOf(source, f)))
+      console.log(
+        `Экспорт, столб: ось ${vr(axisMid).toFixed(2)}, сбоку ${vr(outside).toFixed(2)}, ниже ног ${vr(belowFeet).toFixed(2)}`
+      )
+      expect(vr(axisMid)).toBeGreaterThan(vr(outside) + 0.2)
+      expect(vr(axisTop)).toBeGreaterThan(vr(outside) + 0.1)
+      expect(vr(belowFeet)).toBeLessThan(vr(axisMid) - 0.2)
+      // Экран = экспорт: яркость на оси столба совпадает с экраном (допуск на сжатие).
+      expect(Math.abs(vr(axisMid) - rIn)).toBeLessThan(0.15)
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('ноги у верхнего края — короткий столб; ширина столба растёт с овалом', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Короткий столб')
+      const layers = (i: number) => shapes(win, 'spot').nth(i).locator('[data-part="pillar-layer"]')
+      const extent = async (i: number): Promise<{ w: number; bottom: number }> => {
+        const r = await layers(i).evaluateAll((els) =>
+          els.map((e) => ({
+            y: Number(e.getAttribute('y')),
+            h: Number(e.getAttribute('height')),
+            w: Number(e.getAttribute('width'))
+          }))
+        )
+        const widest = r.reduce((a, b) => (b.w > a.w ? b : a))
+        return { w: widest.w, bottom: widest.y + widest.h }
+      }
+      await drawPillar(win, [0.5, 0.72], [0.58, 0.8])
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-spot').click()
+      await dragPath(win, [
+        [0.2, 0.06],
+        [0.3, 0.13]
+      ])
+      await expect(shapes(win, 'spot')).toHaveCount(2)
+      const low = await extent(0)
+      const high = await extent(1)
+      console.log(
+        `Столб: низ ${low.bottom.toFixed(0)} и ${high.bottom.toFixed(0)}, ширина ${low.w.toFixed(0)} и ${high.w.toFixed(0)}`
+      )
+      // Низ короткого столба — на 0.13 кадра, длинного — на 0.8.
+      expect(high.bottom).toBeLessThan(low.bottom * 0.3)
+      expect(high.bottom).toBeGreaterThan(0)
+      // Шире овал — шире столб (0.1 против 0.08 кадра).
+      expect(high.w / low.w).toBeCloseTo(1.25, 1)
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('панель: «Овал / Столб» показывает вид выбранного рисунка, выбор запоминается для новых', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Переключатель столба')
+      const oval = win.getByTestId('form-oval')
+      const pillar = win.getByTestId('form-pillar')
+      // Для других рисунков переключателя нет.
+      await win.getByTestId('tool-arrow').click()
+      await expect(pillar).toHaveCount(0)
+      await win.getByTestId('tool-spot').click()
+      await expect(oval).toHaveAttribute('aria-pressed', 'true')
+      // Рисуем A овалом, потом выбранному A ставим «Столб».
+      await dragPath(win, [
+        [0.2, 0.5],
+        [0.3, 0.6]
+      ])
+      await expect(shapes(win, 'spot')).toHaveCount(1)
+      await expect(shapes(win, 'spot').first()).toHaveAttribute('data-form', 'oval')
+      await pillar.click()
+      await expect(shapes(win, 'spot').first()).toHaveAttribute('data-form', 'pillar')
+      await expect(pillar).toHaveAttribute('aria-pressed', 'true')
+      // «Запомнилось»: новый рисунок B — столб; ему возвращаем «Овал», A остаётся столбом.
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-spot').click()
+      await expect(pillar).toHaveAttribute('aria-pressed', 'true')
+      await dragPath(win, [
+        [0.6, 0.5],
+        [0.7, 0.6]
+      ])
+      await expect(shapes(win, 'spot')).toHaveCount(2)
+      await expect(shapes(win, 'spot').nth(1)).toHaveAttribute('data-form', 'pillar')
+      await oval.click()
+      await expect(shapes(win, 'spot').nth(1)).toHaveAttribute('data-form', 'oval')
+      await expect(shapes(win, 'spot').first()).toHaveAttribute('data-form', 'pillar')
+      // Выбираем A: панель показывает ЕГО вид.
+      await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
+      await clickAt(win, [0.25, 0.3])
+      await expect(shapes(win, 'spot').first()).toHaveAttribute('data-selected', 'true')
+      await expect(pillar).toHaveAttribute('aria-pressed', 'true')
+      await expect(oval).toHaveAttribute('aria-pressed', 'false')
+    } finally {
+      await ctx.app.close()
+    }
+  })
+})

@@ -146,6 +146,53 @@ test.describe('слежение за игроком (заглушка детек
     }
   })
 
+  test('столб едет за бегуном: низ овала у ног на каждом кадре, столб вертикален по экрану от верха кадра', async () => {
+    const { app, win } = await open()
+    try {
+      await seekVideo(win, 0.5 / FPS)
+      await win.getByTestId('tool-spot').click()
+      await win.getByTestId('form-pillar').click()
+      await dragOnPicture(win, [0.04, 0.7], [0.13, 0.78])
+      const spot = win.locator('[data-testid="annotation"][data-type="spot"]')
+      await expect(spot).toHaveCount(1)
+      await win.getByTestId('tool-select').click()
+      await win.getByTestId('duration-input').fill('2.2')
+      await runTracking(win)
+      expect(Number(await trackItem(win).getAttribute('data-auto-keys'))).toBeGreaterThanOrEqual(2)
+
+      const layerRect = async (): Promise<{ cx: number; top: number; bottom: number }> => {
+        const box = (await win.getByTestId('annotation-layer').boundingBox())!
+        const rects = spot.locator('[data-part="pillar-layer"]')
+        const widest = rects.nth(0)
+        const b = (await widest.boundingBox())!
+        return {
+          cx: (b.x + b.width / 2 - box.x) / box.width,
+          top: (b.y - box.y) / box.height,
+          bottom: (b.y + b.height - box.y) / box.height
+        }
+      }
+      const seen: Array<{ cx: number; bottom: number; t: number }> = []
+      for (const t of [0.6, 1.2, 1.8]) {
+        await seekVideo(win, t)
+        const r = await layerRect()
+        const g = JSON.parse((await spot.getAttribute('data-geo')) as string) as Geo
+        // Ось столба — середина овала по горизонтали, низ — низ овала (ноги), верх — за верхним краем кадра.
+        expect(Math.abs(r.cx - (g.p1.x + g.p2.x) / 2)).toBeLessThan(0.01)
+        expect(Math.abs(r.bottom - Math.max(g.p1.y, g.p2.y))).toBeLessThan(0.03)
+        expect(r.top).toBeLessThanOrEqual(0.001)
+        seen.push({ cx: r.cx, bottom: r.bottom, t })
+        // Ноги бегуна: центр рамки 0.05 + 0.25·t + 0.03, ноги на 0.74 (±5 % кадра).
+        expect(Math.abs(r.cx - (0.05 + 0.25 * t + 0.03 - 0.005))).toBeLessThan(0.05)
+        expect(Math.abs(r.bottom - 0.74)).toBeLessThan(0.05)
+      }
+      // Столб действительно поехал вправо вместе с игроком.
+      expect(seen[2].cx).toBeGreaterThan(seen[0].cx + 0.2)
+      await shot(win, 'tracking-pillar')
+    } finally {
+      await app.close()
+    }
+  })
+
   test('«Только кадр» и стрелка: кнопки «Следить» нет', async () => {
     const { app, win } = await open()
     try {

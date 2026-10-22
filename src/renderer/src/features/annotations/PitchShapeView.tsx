@@ -6,6 +6,11 @@ import { shiftLabel, type LabelShift } from '../../../../shared/pitch/labelNudge
 import type { Projector } from '../../../../shared/pitch/projector'
 import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared/pitch/shapes'
 import { TARGET_FILL_STOPS, TARGET_RING_OPACITY, glowStack } from '../../../../shared/styleFx'
+import {
+  PILLAR_LAYERS,
+  PILLAR_VERTICAL_STOPS,
+  type PillarPaint
+} from '../../../../shared/tools/pillar'
 import type { Size } from './geometry'
 import { pathOf } from './pathOf'
 import { LabelText } from './LabelText'
@@ -97,6 +102,67 @@ export function TargetGradient({ id, color }: { id: string; color: string }): Re
   )
 }
 
+/**
+ * Световой столб: вертикальная полоса по экрану от верха кадра до ног. Стопка вертикальных полос разной ширины с одним
+ * вертикальным градиентом (без SVG-фильтров: одинаково на экране и в экспорте) — ярче к низу и к оси, края мягко тают;
+ * внизу лужица света на ногах.
+ */
+export function Pillar({
+  id,
+  pillar,
+  color
+}: {
+  id: string
+  pillar: PillarPaint
+  color: string
+}): React.JSX.Element {
+  const { x, half, top, bottom } = pillar
+  const extra = half * 3
+  return (
+    <g data-part="pillar" pointerEvents="none">
+      <defs>
+        <linearGradient
+          id={`pillar-${id}`}
+          gradientUnits="userSpaceOnUse"
+          x1="0"
+          y1={top}
+          x2="0"
+          y2={bottom}
+        >
+          {PILLAR_VERTICAL_STOPS.map((s) => (
+            <stop key={s.offset} offset={s.offset} stopColor={color} stopOpacity={s.alpha} />
+          ))}
+        </linearGradient>
+        <radialGradient id={`pillar-pool-${id}`}>
+          <stop offset="0" stopColor={color} stopOpacity="0.55" />
+          <stop offset="1" stopColor={color} stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {PILLAR_LAYERS.map((l, i) => (
+        <rect
+          key={i}
+          data-part="pillar-layer"
+          x={x - half * l.reach}
+          y={top - extra}
+          width={2 * half * l.reach}
+          height={bottom - top + extra}
+          fill={`url(#pillar-${id})`}
+          fillOpacity={l.alpha}
+          stroke="none"
+        />
+      ))}
+      <ellipse
+        data-part="pillar-pool"
+        cx={x}
+        cy={bottom}
+        rx={half * 1.9}
+        ry={half * 0.55}
+        fill={`url(#pillar-pool-${id})`}
+      />
+    </g>
+  )
+}
+
 const pointsAttr = (poly: readonly { x: number; y: number }[]): string =>
   poly.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')
 
@@ -154,6 +220,7 @@ export function PaintParts({
           stroke="none"
         />
       )}
+      {top && paint.pillar && <Pillar id={id} pillar={paint.pillar} color={color} />}
       {top && paint.beam && (
         <>
           <defs>

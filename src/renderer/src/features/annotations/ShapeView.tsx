@@ -428,9 +428,15 @@ function geometryOf(a: Annotation): string {
     case 'ring':
       return JSON.stringify({ center: a.center, radius: a.radius })
     case 'pspot':
-      return JSON.stringify({ center: a.center, radius: a.radius, dim: a.dim, beam: a.beam })
+      return JSON.stringify({
+        center: a.center,
+        radius: a.radius,
+        dim: a.dim,
+        beam: a.beam,
+        form: a.form
+      })
     case 'spot':
-      return JSON.stringify({ p1: a.p1, p2: a.p2, dim: a.dim, beam: a.beam })
+      return JSON.stringify({ p1: a.p1, p2: a.p2, dim: a.dim, beam: a.beam, form: a.form })
     case 'curve':
     case 'pcurve':
       return JSON.stringify({ p1: a.p1, p2: a.p2, c: a.c })
@@ -503,6 +509,7 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
       data-selected={props.selected}
       data-under={isUnderPlayers(a) ? 'true' : 'false'}
       data-glow={glowing ? 'true' : undefined}
+      data-form={a.type === 'spot' || a.type === 'pspot' ? (a.form ?? 'oval') : undefined}
       data-dimmed={props.dimmed ? 'true' : undefined}
       opacity={props.dimmed ? 0.5 : undefined}
     >

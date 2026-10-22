@@ -9,6 +9,7 @@ import type {
   GroundZone
 } from '../annotations'
 import { curveMid, densifyQuad } from '../tools/curve'
+import { PILLAR_WIDTH_SHARE } from '../tools/pillar'
 import { polygonArea } from '../tools/polygon'
 import { fitHomography, type Correspondence } from './homography'
 import { penaltyAreaRect } from './landmarks'
@@ -165,6 +166,30 @@ describe('прожектор на поле', () => {
     // Площадь в пикселях ≈ площадь эллипса.
     expect(polygonArea(poly)).toBeGreaterThan(300)
     expect(paint.handles.map((h) => h.id)).toEqual(['radius'])
+  })
+
+  it('столб: вертикаль по экрану от верха кадра до низа-середины пятна на траве, нажимается и освещается столб', () => {
+    const ground = paintPitch(spot, proj, SIZE, measure).lit[0]
+    const gx = ground.map((q) => q.x)
+    const paint = paintPitch({ ...spot, form: 'pillar', beam: true }, proj, SIZE, measure)
+    const pillar = paint.pillar!
+    expect(pillar).toBeDefined()
+    expect(pillar.x).toBeCloseTo((Math.min(...gx) + Math.max(...gx)) / 2, 6)
+    expect(pillar.bottom).toBeCloseTo(Math.max(...ground.map((q) => q.y)), 6)
+    expect(pillar.top).toBe(0)
+    expect(pillar.half * 2).toBeCloseTo((Math.max(...gx) - Math.min(...gx)) * PILLAR_WIDTH_SHARE, 6)
+    // Луч и пятно при столбе не рисуются; освещён и нажимается только столб.
+    expect(paint.beam).toBeNull()
+    expect(paint.disc).toEqual([])
+    expect(paint.body).toEqual([])
+    expect(paint.visible).toBe(true)
+    expect(paint.lit).toHaveLength(1)
+    expect(Math.min(...paint.lit[0].map((q) => q.y))).toBeLessThanOrEqual(0)
+    expect(paint.hit).toHaveLength(1)
+    expect(paint.handles.map((h) => h.id)).toEqual(['radius'])
+    // Старое поведение: форма «овал» и без form — без столба.
+    expect(paintPitch({ ...spot, form: 'oval' }, proj, SIZE, measure).pillar).toBeUndefined()
+    expect(paintPitch(spot, proj, SIZE, measure).pillar).toBeUndefined()
   })
 
   it('с лучом: высота = 1.9 м × масштаб (пикселей на метр) в этой точке, луч выше основания', () => {

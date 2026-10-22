@@ -577,7 +577,7 @@ test.describe('анимация рисунков', () => {
     }
   })
 
-  test('панель стиля: элементы не налезают друг на друга при окне 1100, 1440 и 1920 для каждого инструмента, скриншоты', async () => {
+  test('панель стиля: элементы не налезают друг на друга при окне 1100, 1440, 1599, 1600 и 1920 для каждого инструмента, скриншоты', async () => {
     const ctx = await launch()
     const { win, app } = ctx
     try {
@@ -589,19 +589,35 @@ test.describe('анимация рисунков', () => {
       const sizes: Array<[number, number]> = [
         [1100, 720],
         [1440, 860],
+        [1599, 860],
+        [1600, 860],
         [1920, 1080]
       ]
       for (const [w, h] of sizes) {
         await app.evaluate(
           ({ BrowserWindow }, [width, height]) => {
-            BrowserWindow.getAllWindows()[0].setSize(width, height)
+            BrowserWindow.getAllWindows()[0].setContentSize(width, height)
           },
           [w, h]
         )
-        await win.waitForFunction((width) => window.innerWidth >= width - 20, w)
+        await win.waitForTimeout(400)
+        // Окно с рамкой шире содержимого на постоянную величину: подгоняем так, чтобы ширина страницы была ровно w
+        // (границы 1599/1600 px важны для раскладки панели); окно не уже своего минимума — считаем по фактической ширине.
+        const measured = await win.evaluate(() => window.innerWidth)
+        if (measured !== w && measured - w < 40) {
+          await app.evaluate(
+            ({ BrowserWindow }, [width, height]) => {
+              BrowserWindow.getAllWindows()[0].setContentSize(width, height)
+            },
+            [w - (measured - w), h]
+          )
+          await win.waitForTimeout(400)
+        }
+        const inner = await win.evaluate(() => window.innerWidth)
+        if (w >= 1440) expect(inner).toBe(w)
         await win.waitForTimeout(400)
         let first: { x: number; y: number; width: number; height: number } | null = null
-        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler']) {
+        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler', 'spot']) {
           await win.getByTestId(`tool-${tool}`).click()
           await win.waitForTimeout(100)
           const info = await win.getByTestId('style-bar').evaluate((el) => {
@@ -631,12 +647,19 @@ test.describe('анимация рисунков', () => {
                   k.r.top < box.top - 0.5
               )
               .map((k) => k.id)
-            return { overlaps, outside, height: box.height, count: kids.length }
+            // Строки панели: по середине кнопок; середины ближе 14 px — одна строка.
+            const mids = kids.map((k) => k.r.top + k.r.height / 2).sort((a, b) => a - b)
+            const rows = mids.filter((m, i) => i === 0 || m - mids[i - 1] > 14).length
+            return { overlaps, outside, height: box.height, count: kids.length, rows }
           })
           expect(info.count, `${tool} @${w}`).toBeGreaterThan(10)
           expect(info.overlaps, `наложения: ${tool} @${w}`).toEqual([])
           expect(info.outside, `за краем панели: ${tool} @${w}`).toEqual([])
           expect(info.height).toBeLessThanOrEqual(80)
+          // От 1600 px в одну строку; уже — не больше двух (под две строки место занято, третья сдвинула бы картинку).
+          expect(info.rows, `строк панели: ${tool} @${inner}`).toBeLessThanOrEqual(
+            inner >= 1600 ? 1 : 2
+          )
           // Картинка не прыгает при смене инструмента: высота панели одна и та же.
           const rect = await stableLayerBox(win)
           if (!first) first = rect

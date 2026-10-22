@@ -17,6 +17,7 @@ import {
   polylineLength,
   trimEnd
 } from '../tools/curve'
+import { pillarFromFooting, pillarPoly } from '../tools/pillar'
 import { interiorPoint, polygonArea } from '../tools/polygon'
 import { catmullRom } from '../tools/simplify'
 import type { Pt } from './linalg'
@@ -203,12 +204,32 @@ export function paintPitchTool(
     const ground = px(groundProj)
     const outer = ccw(circle(r + rim))
     const inner = [...ccw(circle(Math.max(r - rim, 0.01)))].reverse()
+    let lit: PxPt[] = ground
+    // Столб: след — низ-середина пятна на траве; столб идёт вертикально по экрану до верха кадра (как у экранного).
+    let pillar: ReturnType<typeof pillarFromFooting> = null
+    if (a.form === 'pillar' && ground.length >= 3) {
+      const xs = ground.map((p) => p.x)
+      const x0 = Math.min(...xs)
+      const x1 = Math.max(...xs)
+      pillar = pillarFromFooting(
+        { x: (x0 + x1) / 2, y: Math.max(...ground.map((p) => p.y)) },
+        x1 - x0
+      )
+    }
+    if (pillar) {
+      out.pillar = pillar
+      lit = pillarPoly(pillar, size.h * 0.1)
+      out.hit = [pillarPoly(pillar, 0, true)]
+      out.lit.push(lit)
+      out.visible = true
+      handle('radius', { x: a.center.x + r, y: a.center.y })
+      return out
+    }
     const outerProj = proj.projectPolygon(outer)
     const innerProj = proj.projectPolygon(inner)
     if (outerProj.length >= 3) out.body.push(px(outerProj))
     if (outerProj.length >= 3 && innerProj.length >= 3) out.body.push(px(innerProj))
     if (ground.length >= 3) out.disc.push(ground)
-    let lit: PxPt[] = ground
     if (a.beam) {
       const beam = beamSilhouette(ground, r)
       if (beam) {
