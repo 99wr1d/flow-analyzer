@@ -367,3 +367,15 @@ describe('правка стиля старого рисунка (0.18)', () => {
     for (const k of ['glow', 'reveal', 'look', 'pulse', 'form']) expect(k in a).toBe(false)
   })
 })
+
+describe('толщина кольца запоминается отдельно', () => {
+  it('с инструментом «Круг» выбор толщины меняет ringLevel, а не толщину остальных рисунков', () => {
+    useAnnotationsStore.setState({ tool: 'circle', selectedId: null })
+    const before = useAnnotationsStore.getState().style.level
+    useAnnotationsStore.getState().setStyle({ level: 2 })
+    const st = useAnnotationsStore.getState().style
+    expect(st.ringLevel).toBe(2)
+    expect(st.level).toBe(before)
+    useAnnotationsStore.getState().setStyle({ ringLevel: 0 })
+  })
+})

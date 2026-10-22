@@ -191,8 +191,8 @@ describe('applyTrackResult: траектория → ключи рисунка',
       p1: { x: number; y: number }
       p2: { x: number; y: number }
     }
-    // Смещение от ног, как нарисовал тренер: центр 0.33 при ногах 0.332 на кадре старта.
-    expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(last.foot.x - 0.002, 3)
+    // Кольцо в центре ног игрока (при старте оно перецентрируется на ноги).
+    expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(last.foot.x, 3)
     expect((g.p1.y + g.p2.y) / 2).toBeCloseTo(0.65, 3)
     expect(AnnotationSchema.safeParse(r.annotation).success).toBe(true)
   })
@@ -441,5 +441,26 @@ describe('planSeconds: оценка времени по бэкенду прош�
     rememberBackend('wasm')
     expect(planSeconds(plan, FPS)).toBe(first)
     rememberBackend(null)
+  })
+})
+
+describe('слежение: кольцо охватывает ноги игрока', () => {
+  it('на старте центр — точка ног, ширина ≈ 0.9 роста рамки, сплющивание кольца сохраняется', () => {
+    const a = circle()
+    const plan = planOf(a)
+    const samples = run(1, 3)
+    const r = applyTrackResult(a, samples, plan, { fps: FPS, aspect: 16 / 9 })
+    if (!r.ok) throw new Error(r.reason)
+    const k = keysOf(r.annotation)[0]
+    const g = k.geom as { p1: { x: number; y: number }; p2: { x: number; y: number } }
+    const foot = samples.reduce((b, s) =>
+      Math.abs(s.t - plan.at) < Math.abs(b.t - plan.at) ? s : b
+    )
+    expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(foot.foot.x, 2)
+    expect((g.p1.y + g.p2.y) / 2).toBeCloseTo(foot.foot.y, 2)
+    const w = (g.p2.x - g.p1.x) * (16 / 9)
+    expect(w).toBeCloseTo(0.9 * 0.3, 2)
+    const h = g.p2.y - g.p1.y
+    expect(h / w).toBeCloseTo(0.5625, 2) // как у исходного кольца
   })
 })

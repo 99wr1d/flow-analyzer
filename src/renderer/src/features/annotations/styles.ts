@@ -56,6 +56,8 @@ export interface CurrentStyle {
   textLevel: TextLevel
   dash: 'solid' | 'dashed' | 'dotted'
   textBackground: boolean
+  /** Толщина нового кольца/круга (по умолчанию «Тонкая»; остальные рисунки — level). */
+  ringLevel: Level
   /** Свечение нового кольца/круга. */
   glow: boolean
   /** Вид нового кольца/круга. */
@@ -79,6 +81,7 @@ export const DEFAULT_STYLE: CurrentStyle = {
   dash: 'solid',
   // Новые рисунки 0.18 (старые без этих полей рисуются как раньше): кольцо со свечением, подпись без плашки с тенью.
   textBackground: false,
+  ringLevel: 0,
   glow: true,
   look: 'ring',
   pulse: false,

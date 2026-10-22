@@ -220,6 +220,29 @@ function coverFigure(a: Annotation, ref: TrackSample, at: number, aspect: number
   return keys.length === 0 ? next : a
 }
 
+/** Ширина кольца у ног в долях высоты рамки игрока: кольцо плотно охватывает ноги. */
+export const RING_WIDTH_OF_HEIGHT = 0.9
+
+/**
+ * Кольцо (экранный круг без ключей), от которого начинают слежение: центр — точка ног игрока (низ рамки), ширина ≈ 0.9 роста
+ * игрока, сплющивание (высота/ширина в пикселях) остаётся как у кольца. Кольцо, уже анимированное руками, не трогаем.
+ */
+function fitRing(a: Annotation, ref: TrackSample, at: number, aspect: number): Annotation {
+  if (a.type !== 'circle' || keysOf(a).length > 0) return a
+  const g = geomAt(a, at) as unknown as Box2
+  const w = Math.abs(g.p2.x - g.p1.x) * aspect
+  const h = Math.abs(g.p2.y - g.p1.y)
+  if (!(w > 0) || !(ref.height > 0)) return a
+  const ratio = h / w
+  const rx = (RING_WIDTH_OF_HEIGHT * ref.height) / 2 / aspect
+  const ry = rx * aspect * ratio
+  return {
+    ...a,
+    p1: { x: ref.foot.x - rx, y: ref.foot.y - ry },
+    p2: { x: ref.foot.x + rx, y: ref.foot.y + ry }
+  } as Annotation
+}
+
 /**
  * Ключ, поставленный руками (по умолчанию его переход «плавный»), перед ключами слежения идёт равномерно: иначе на длинном
  * прореженном участке рисунок отстаёт от игрока в начале перехода и обгоняет в конце.
@@ -256,7 +279,7 @@ export function applyTrackResult(
   const aspect = opts.aspect && opts.aspect > 0 ? opts.aspect : 16 / 9
   const src0 = plan.convertedFromPitch ? plan.base : current
   const ref = nearestSample(samples, plan.at)
-  const src = coverFigure(src0, ref, plan.at, aspect)
+  const src = fitRing(coverFigure(src0, ref, plan.at, aspect), ref, plan.at, aspect)
   const existing = keysOf(src)
 
   // Ручные ключи-опоры после места: если игрок там далеко от ручного положения — останавливаемся перед ними.

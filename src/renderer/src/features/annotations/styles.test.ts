@@ -179,3 +179,10 @@ describe('новые стили 0.18: палитра и умолчания', () 
     ).toBe(true)
   })
 })
+
+describe('толщина нового кольца', () => {
+  it('по умолчанию «Тонкая», остальные рисунки — прежняя', () => {
+    expect(DEFAULT_STYLE.ringLevel).toBe(0)
+    expect(DEFAULT_STYLE.level).toBe(1)
+  })
+})

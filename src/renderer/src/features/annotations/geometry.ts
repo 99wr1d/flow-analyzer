@@ -89,7 +89,7 @@ export function squareFrom(origin: Point, point: Point, size: Size): Point {
 }
 
 /** Ширина эллипса «у ног», созданного щелчком, в долях высоты кадра. */
-export const GROUND_ELLIPSE_WIDTH = 0.12
+export const GROUND_ELLIPSE_WIDTH = 0.07
 
 /**
  * Плоский эллипс «на траве» вокруг точки щелчка: отношение высоты к ширине (в пикселях) — ratio

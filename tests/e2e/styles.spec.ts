@@ -23,8 +23,8 @@ type Rgb = [number, number, number]
 
 const W = 640
 const H = 360
-/** Уровень толщины «Средняя»: 0.011 высоты кадра. */
-const WIDTH = 0.011
+/** Уровень толщины «Тонкая» (по умолчанию у кольца): 0.006 высоты кадра. */
+const WIDTH = 0.006
 
 const png = async (win: Page, name: string): Promise<Pixels> =>
   readPng(await win.screenshot(), SHOTS, `styles-px-${name}`)
@@ -132,7 +132,7 @@ test.describe('кольцо «как в образце»', () => {
       const layer = await layerBox(win)
       const base = await png(win, 'glow-base')
 
-      // Щелчок по траве: эллипс 12% высоты кадра шириной, высота — 0.35 от ширины (разметки поля нет).
+      // Щелчок по траве: эллипс 7% высоты кадра шириной, высота — 0.35 от ширины (разметки поля нет).
       await win.getByTestId('tool-circle').click()
       await expect(win.getByTestId('glow-toggle')).toHaveAttribute('aria-pressed', 'true')
       await clickAt(win, [0.62, 0.8])
@@ -161,8 +161,8 @@ test.describe('кольцо «как в образце»', () => {
       const dNear = maxDelta(lit, base, ...screenAt(near))
       const dFar = maxDelta(lit, base, ...screenAt(far))
       console.log(`Экран, ореол: рядом с обводкой ${dNear}, далеко ${dFar}`)
-      expect(dNear).toBeGreaterThan(25)
-      expect(dFar).toBeLessThan(8)
+      expect(dNear).toBeGreaterThan(9)
+      expect(dFar).toBeLessThan(6)
       // Оттенок ореола — цвет кольца (жёлтый): красный и зелёный растут сильнее синего.
       const [r0, g0, b0] = base.at(...screenAt(near))
       const [r1, g1, b1] = lit.at(...screenAt(near))
@@ -177,8 +177,8 @@ test.describe('кольцо «как в образце»', () => {
       const vNear = videoDelta(exported, source, near)
       const vFar = videoDelta(exported, source, far)
       console.log(`Экспорт, ореол: рядом с обводкой ${vNear}, далеко ${vFar}`)
-      expect(vNear).toBeGreaterThan(20)
-      expect(vFar).toBeLessThan(12)
+      expect(vNear).toBeGreaterThan(8)
+      expect(vFar).toBeLessThan(9)
       const [er, eg, eb] = rgbOf(exported, near)
       const [sr, sg, sb] = rgbOf(source, near)
       expect(er - sr).toBeGreaterThan(eb - sb)
@@ -193,7 +193,7 @@ test.describe('кольцо «как в образце»', () => {
       await waitUnderDrawn(win)
       await win.waitForTimeout(250)
       const dark = await png(win, 'glow-off')
-      expect(maxDelta(dark, base, ...screenAt(near))).toBeLessThan(8)
+      expect(maxDelta(dark, base, ...screenAt(near))).toBeLessThan(5)
       const file2 = await exportWhole(ctx)
       expect(videoDelta(frameRgb(file2, index, W, H), source, near)).toBeLessThan(12)
     } finally {
@@ -232,12 +232,12 @@ test.describe('кольцо «как в образце»', () => {
       ]
       // Над верхом эллипса — тело игрока (ореол под ним, игрок чистый); слева от эллипса — трава (ореол виден).
       const body = aboveTop(e, 0.8)
-      const grass: Frac = [(e.cx - e.rx) / W - (WIDTH * H * 1.3) / W, e.cy / H]
+      const grass: Frac = [(e.cx - e.rx) / W - (WIDTH * H * 1.5) / W, e.cy / H]
       const dBody = maxDelta(lit, base, ...screenAt(body))
       const dGrass = maxDelta(lit, base, ...screenAt(grass))
       console.log(`Экран: игрок под ореолом ${dBody}, трава у обводки ${dGrass}`)
       expect(dBody).toBeLessThan(12)
-      expect(dGrass).toBeGreaterThan(25)
+      expect(dGrass).toBeGreaterThan(9)
 
       const file = await exportWhole(ctx)
       const index = 35
@@ -247,7 +247,7 @@ test.describe('кольцо «как в образце»', () => {
       const vGrass = videoDelta(exported, source, grass)
       console.log(`Экспорт: игрок под ореолом ${vBody}, трава у обводки ${vGrass}`)
       expect(vBody).toBeLessThan(14)
-      expect(vGrass).toBeGreaterThan(20)
+      expect(vGrass).toBeGreaterThan(8)
     } finally {
       await ctx.app.close()
     }

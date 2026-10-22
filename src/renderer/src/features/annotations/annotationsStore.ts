@@ -334,8 +334,15 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
 
   setStyle: (patch) =>
     set((s) => {
-      const style = { ...s.style, ...patch }
       const target = s.items.find((a) => a.id === s.selectedId)
+      // Толщина кольца/круга запоминается отдельно от толщины остальных рисунков.
+      const ringContext = target
+        ? target.type === 'circle' || target.type === 'ring'
+        : s.tool === 'circle'
+      const style =
+        ringContext && patch.level !== undefined
+          ? { ...s.style, ...patch, level: s.style.level, ringLevel: patch.level }
+          : { ...s.style, ...patch }
       if (!target) return { style }
       const key = `style:${Object.keys(patch).join(',')}`
       const items = s.items.map((a) => (a.id === target.id ? restyle(a, patch) : a))

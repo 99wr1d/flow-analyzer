@@ -33,7 +33,8 @@ import {
 function useShownStyle(): CurrentStyle {
   const style = useAnnotationsStore((s) => s.style)
   const selected = useAnnotationsStore(selectedAnnotation)
-  if (!selected) return style
+  const tool = useAnnotationsStore((s) => s.tool)
+  if (!selected) return tool === 'circle' ? { ...style, level: style.ringLevel } : style
   const isText = selected.type === 'text' || selected.type === 'ptext'
   return {
     ...style,

@@ -94,11 +94,11 @@ describe('glowStack: ореол «стопкой» полупрозрачных 
     expect(GLOW_REACH).toBeLessThanOrEqual(3)
     expect(widths[GLOW_LAYERS - 1]).toBeGreaterThan(4)
   })
-  it('у самой обводки ореол накопленно около 40% непрозрачности', () => {
+  it('у самой обводки ореол накопленно около 15% непрозрачности (едва заметный, как в образце)', () => {
     const stack = glowStack(6, 6)
     const through = stack.reduce((acc, l) => acc * (1 - l.opacity), 1)
-    expect(1 - through).toBeGreaterThan(0.35)
-    expect(1 - through).toBeLessThan(0.5)
+    expect(1 - through).toBeGreaterThan(0.1)
+    expect(1 - through).toBeLessThan(0.2)
     expect(stack.every((l) => l.opacity === GLOW_ALPHA)).toBe(true)
   })
   it('для кромки (база 0) ширина слоя — только вылет', () => {

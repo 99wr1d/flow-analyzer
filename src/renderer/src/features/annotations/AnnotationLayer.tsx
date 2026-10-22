@@ -440,7 +440,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         ...box,
         fillOpacity: options.fillOpacity,
         ...newDrawingFx('circle', style),
-        style: shapeStyleOf(style)
+        style: shapeStyleOf({ ...style, level: style.ringLevel })
       }
     }
     let end = clamped
@@ -467,7 +467,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       p2: end,
       ...(g.tool === 'circle' ? { fillOpacity: options.fillOpacity } : {}),
       ...newDrawingFx(g.tool, style),
-      style: shapeStyleOf(style)
+      style: shapeStyleOf(g.tool === 'circle' ? { ...style, level: style.ringLevel } : style)
     }
   }
 
@@ -506,7 +506,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         radius,
         fillOpacity: options.fillOpacity,
         ...newDrawingFx('ring', current),
-        style
+        style: shapeStyleOf({ ...current, level: current.ringLevel })
       }
     }
     if (g.tool === 'spot') {
