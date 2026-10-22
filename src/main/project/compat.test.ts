@@ -105,6 +105,17 @@ const ERAS: Era[] = [
     grassKey: true,
     types: ['arrow', 'ring', 'pen', 'loupe'],
     animated: 2
+  },
+  {
+    file: 'v0.17.0.flowproj',
+    appVersion: '0.17.0',
+    annotations: 6,
+    calibrations: 1,
+    episodes: 2,
+    meta: true,
+    grassKey: true,
+    types: ['ring', 'circle', 'text', 'arrow', 'pspot', 'spot'],
+    animated: 1
   }
 ]
 
@@ -285,5 +296,49 @@ describe('ключи слежения (auto)', () => {
   it('больше 3000 ключей не принимается', async () => {
     const keys = Array.from({ length: 3001 }, (_, i) => key(i, true))
     expect(parseProjectText(await withKeys(keys)).ok).toBe(false)
+  })
+})
+
+describe('стили 0.18: проект 0.17.0 без новых полей', () => {
+  const NEW_KEYS = ['glow', 'look', 'pulse', 'form', 'reveal', 'shadow']
+
+  it('читается и сохраняется без появления новых полей (старый вид)', async () => {
+    const path = await install(ERAS[ERAS.length - 1])
+    const opened = await openProjectFile(userData, path)
+    expect(opened.status).toBe('opened')
+    if (opened.status !== 'opened') return
+    await saveToPath(userData, requestFrom(opened.project), await videoFacts(video), path, '0.18.0')
+    const raw = JSON.parse(await readFileP(path, 'utf8')) as Project
+    expect(raw.annotations).toHaveLength(6)
+    for (const a of raw.annotations) {
+      const rec = a as unknown as Record<string, unknown>
+      for (const k of NEW_KEYS) expect(k in rec, `${a.type}.${k}`).toBe(false)
+      expect(rec.style as object).not.toHaveProperty('shadow')
+    }
+    const text = raw.annotations.find((a) => a.type === 'text')
+    expect(text && 'style' in text && (text.style as { background: boolean }).background).toBe(true)
+    const arrow = raw.annotations.find((a) => a.type === 'arrow')
+    expect(arrow && arrow.style.dash).toBe('dashed')
+  })
+
+  it('проект с новыми полями читается, поля сохраняются', async () => {
+    const raw = JSON.parse(await readFileP(join(DIR, 'v0.17.0.flowproj'), 'utf8')) as Project
+    const set = (type: string, extra: object): void => {
+      const a = raw.annotations.find((x) => x.type === type)
+      Object.assign(a as object, extra)
+    }
+    set('ring', { glow: true, look: 'target', pulse: true })
+    set('arrow', { glow: true, reveal: 0.8 })
+    set('pspot', { form: 'pillar' })
+    set('text', { style: { color: '#c6ff3d', size: 0.045, background: false, shadow: true } })
+    const parsed = parseProjectText(JSON.stringify(raw))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const by = (t: string): Record<string, unknown> =>
+      parsed.project.annotations.find((x) => x.type === t) as unknown as Record<string, unknown>
+    expect(by('ring')).toMatchObject({ glow: true, look: 'target', pulse: true })
+    expect(by('arrow')).toMatchObject({ glow: true, reveal: 0.8 })
+    expect(by('pspot')).toMatchObject({ form: 'pillar' })
+    expect(by('text').style).toMatchObject({ background: false, shadow: true })
   })
 })

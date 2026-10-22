@@ -36,6 +36,7 @@ function useShownStyle(): CurrentStyle {
   if (!selected) return style
   const isText = selected.type === 'text' || selected.type === 'ptext'
   return {
+    ...style,
     color: selected.style.color,
     level: levelOf(selected),
     textLevel: textLevelOf(selected),

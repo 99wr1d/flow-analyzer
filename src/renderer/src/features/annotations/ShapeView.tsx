@@ -29,8 +29,9 @@ import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetr
 const HALO = 'rgba(43, 214, 123, 0.38)'
 const ACCENT = '#2bd67b'
 
-function dashArray(width: number, dash: 'solid' | 'dashed'): string | undefined {
-  return dash === 'dashed' ? `${width * 2.4} ${width * 1.8}` : undefined
+// «Точки» (0.18) рисуются в задаче про пунктир точками; до неё ведут себя как штрих.
+function dashArray(width: number, dash: 'solid' | 'dashed' | 'dotted'): string | undefined {
+  return dash !== 'solid' ? `${width * 2.4} ${width * 1.8}` : undefined
 }
 
 interface ShapeProps {

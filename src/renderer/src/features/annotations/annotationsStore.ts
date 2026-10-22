@@ -31,7 +31,7 @@ import {
   undo,
   type HistoryState
 } from './history'
-import { DEFAULT_STYLE, LEVELS, TEXT_SIZES, type CurrentStyle } from './styles'
+import { DEFAULT_STYLE, LEVELS, TEXT_SIZES, applyFxPatch, type CurrentStyle } from './styles'
 
 export type Tool =
   | 'select'
@@ -205,23 +205,28 @@ function withSelection(s: AnnotationsState, h: HistoryState): Partial<Annotation
 
 function restyle(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
   if (a.type === 'text' || a.type === 'ptext') {
+    const shadow = patch.textShadow ?? a.style.shadow
     return {
       ...a,
       style: {
         color: patch.color ?? a.style.color,
         size: patch.textLevel !== undefined ? TEXT_SIZES[patch.textLevel].size : a.style.size,
-        background: patch.textBackground ?? a.style.background
+        background: patch.textBackground ?? a.style.background,
+        ...(shadow !== undefined ? { shadow } : {})
       }
     } as Annotation
   }
-  return {
-    ...a,
-    style: {
-      color: patch.color ?? a.style.color,
-      width: patch.level !== undefined ? LEVELS[patch.level].width : a.style.width,
-      dash: patch.dash ?? a.style.dash
-    }
-  } as Annotation
+  return applyFxPatch(
+    {
+      ...a,
+      style: {
+        color: patch.color ?? a.style.color,
+        width: patch.level !== undefined ? LEVELS[patch.level].width : a.style.width,
+        dash: patch.dash ?? a.style.dash
+      }
+    } as Annotation,
+    patch
+  )
 }
 
 const initial = (): AnnotationsState => ({

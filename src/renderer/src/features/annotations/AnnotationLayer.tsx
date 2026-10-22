@@ -81,7 +81,7 @@ import {
 } from './polyDraft'
 import { LiveHandles, LiveShape, LiveSpotlightDim } from './LiveViews'
 import { HandlesView, ShapeView } from './ShapeView'
-import { shapeStyleOf, textStyleOf } from './styles'
+import { newDrawingFx, shapeStyleOf, textStyleOf } from './styles'
 import { TextEditor } from './TextEditor'
 import { measureTextWidth } from './textMetrics'
 import { usePictureRect } from './usePictureRect'
@@ -399,7 +399,14 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     const base = { id: crypto.randomUUID(), space: 'screen' as const, timing }
     if (g.tool === 'spot') {
       const box = moved < CLICK_PX ? defaultSpot(g.origin) : { p1: g.origin, p2: clamped }
-      return { ...base, type: 'spot', ...box, dim: options.dim, style: shapeStyleOf(style) }
+      return {
+        ...base,
+        type: 'spot',
+        ...box,
+        dim: options.dim,
+        ...newDrawingFx('spot', style),
+        style: shapeStyleOf(style)
+      }
     }
     if (g.tool === 'loupe') {
       const radius = DEFAULT_LOUPE_RADIUS
@@ -432,6 +439,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         p1: g.origin,
         p2: end,
         c: defaultControl(g.origin, end, CURVE_BEND, size),
+        ...newDrawingFx('curve', style),
         style: shapeStyleOf(style)
       }
     }
@@ -441,6 +449,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       p1: g.origin,
       p2: end,
       ...(g.tool === 'circle' ? { fillOpacity: options.fillOpacity } : {}),
+      ...newDrawingFx(g.tool, style),
       style: shapeStyleOf(style)
     }
   }
@@ -479,6 +488,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         center: g.origin,
         radius,
         fillOpacity: options.fillOpacity,
+        ...newDrawingFx('ring', current),
         style
       }
     }
@@ -495,6 +505,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         radius,
         dim: options.dim,
         beam: options.beam,
+        ...newDrawingFx('pspot', current),
         style
       }
     }
@@ -506,11 +517,12 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         p1: g.origin,
         p2: end,
         c: defaultControl(g.origin, end, CURVE_BEND),
+        ...newDrawingFx('pcurve', current),
         style
       }
     }
     const type = g.tool === 'arrow' ? 'parrow' : g.tool === 'line' ? 'pline' : 'ruler'
-    return { ...base, type, p1: g.origin, p2: end, style }
+    return { ...base, type, p1: g.origin, p2: end, ...newDrawingFx(type, current), style }
   }
 
   /** Перо: рисунок по собранным точкам (на экране — доли кадра, на поле — метры). */

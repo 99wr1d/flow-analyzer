@@ -1,5 +1,11 @@
 // Палитра и размеры рисунков.
-import type { Annotation, ShapeStyle, TextStyle } from '../../../../shared/annotations'
+import type {
+  Annotation,
+  RingLook,
+  ShapeStyle,
+  SpotForm,
+  TextStyle
+} from '../../../../shared/annotations'
 
 export interface PaletteColor {
   value: string
@@ -13,7 +19,11 @@ export const PALETTE: PaletteColor[] = [
   { value: '#ff3b30', name: 'Красный' },
   { value: '#4cc9f0', name: 'Голубой' },
   { value: '#34d058', name: 'Зелёный' },
-  { value: '#111827', name: 'Тёмный' }
+  { value: '#111827', name: 'Тёмный' },
+  // 0.18: цвета образцов (читаются на траве).
+  { value: '#c6ff3d', name: 'Лайм' },
+  { value: '#2e8bff', name: 'Ярко-синий' },
+  { value: '#ff5a1f', name: 'Оранжево-красный' }
 ]
 
 /** Три толщины линии (доли высоты видео). */
@@ -44,8 +54,22 @@ export interface CurrentStyle {
   level: Level
   /** Размер текста: индекс в TEXT_SIZES. */
   textLevel: TextLevel
-  dash: 'solid' | 'dashed'
+  dash: 'solid' | 'dashed' | 'dotted'
   textBackground: boolean
+  /** Свечение нового кольца/круга. */
+  glow: boolean
+  /** Вид нового кольца/круга. */
+  look: RingLook
+  /** Пульс «мишени». */
+  pulse: boolean
+  /** Вид нового прожектора. */
+  form: SpotForm
+  /** Свечение новых стрелок/линий/кривых. */
+  lineGlow: boolean
+  /** Проявление новых стрелок/линий/кривых, секунд; null — выключено. */
+  reveal: number | null
+  /** Тень под текстом новой подписи. */
+  textShadow: boolean
 }
 
 export const DEFAULT_STYLE: CurrentStyle = {
@@ -53,7 +77,15 @@ export const DEFAULT_STYLE: CurrentStyle = {
   level: 1,
   textLevel: DEFAULT_TEXT_LEVEL,
   dash: 'solid',
-  textBackground: true
+  // Новые рисунки 0.18 (старые без этих полей рисуются как раньше): кольцо со свечением, подпись без плашки с тенью.
+  textBackground: false,
+  glow: true,
+  look: 'ring',
+  pulse: false,
+  form: 'oval',
+  lineGlow: false,
+  reveal: null,
+  textShadow: true
 }
 
 export function shapeStyleOf(s: CurrentStyle): ShapeStyle {
@@ -61,7 +93,58 @@ export function shapeStyleOf(s: CurrentStyle): ShapeStyle {
 }
 
 export function textStyleOf(s: CurrentStyle): TextStyle {
-  return { color: s.color, size: TEXT_SIZES[s.textLevel].size, background: s.textBackground }
+  return {
+    color: s.color,
+    size: TEXT_SIZES[s.textLevel].size,
+    background: s.textBackground,
+    shadow: s.textShadow
+  }
+}
+
+/** Виды линий, у которых есть свечение и проявление. */
+const LINE_TYPES: ReadonlySet<string> = new Set([
+  'arrow',
+  'line',
+  'curve',
+  'parrow',
+  'pline',
+  'pcurve'
+])
+
+/**
+ * Поля стиля 0.18 НОВОГО рисунка этого вида (записываются явно, по выбору в панели).
+ * У старых рисунков этих полей нет — они рисуются как раньше.
+ */
+export function newDrawingFx(type: string, s: CurrentStyle): Record<string, unknown> {
+  if (type === 'circle' || type === 'ring') return { glow: s.glow, look: s.look, pulse: s.pulse }
+  if (type === 'spot' || type === 'pspot') return { form: s.form }
+  if (LINE_TYPES.has(type)) {
+    return { glow: s.lineGlow, ...(s.reveal !== null ? { reveal: s.reveal } : {}) }
+  }
+  return {}
+}
+
+/**
+ * Правка уже нарисованного рисунка из панели: меняются только поля, которые тренер переключил (patch).
+ * Нет поля у рисунка и нет его в patch — рисунок остаётся как был.
+ */
+export function applyFxPatch(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
+  const out: Record<string, unknown> = { ...a }
+  const circleLike = a.type === 'circle' || a.type === 'ring'
+  if (circleLike) {
+    if (patch.glow !== undefined) out.glow = patch.glow
+    if (patch.look !== undefined) out.look = patch.look
+    if (patch.pulse !== undefined) out.pulse = patch.pulse
+  }
+  if ((a.type === 'spot' || a.type === 'pspot') && patch.form !== undefined) out.form = patch.form
+  if (LINE_TYPES.has(a.type)) {
+    if (patch.lineGlow !== undefined) out.glow = patch.lineGlow
+    if (patch.reveal !== undefined) {
+      if (patch.reveal === null) delete out.reveal
+      else out.reveal = patch.reveal
+    }
+  }
+  return out as unknown as Annotation
 }
 
 /** Ближайший уровень толщины к сохранённому значению. */
