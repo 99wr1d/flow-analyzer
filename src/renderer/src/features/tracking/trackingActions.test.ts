@@ -193,7 +193,7 @@ describe('applyTrackResult: траектория → ключи рисунка',
     }
     // Кольцо в центре ног игрока (при старте оно перецентрируется на ноги).
     expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(last.foot.x, 3)
-    expect((g.p1.y + g.p2.y) / 2).toBeCloseTo(0.65, 3)
+    expect((g.p1.y + g.p2.y) / 2).toBeCloseTo(0.65 - 0.07 * 0.3, 3)
     expect(AnnotationSchema.safeParse(r.annotation).success).toBe(true)
   })
 
@@ -445,7 +445,7 @@ describe('planSeconds: оценка времени по бэкенду прош�
 })
 
 describe('слежение: кольцо охватывает ноги игрока', () => {
-  it('на старте центр — точка ног, ширина ≈ 0.9 роста рамки, сплющивание кольца сохраняется', () => {
+  it('на старте центр — точка ног, ширина ≈ 0.72 высоты рамки, сплющивание кольца сохраняется', () => {
     const a = circle()
     const plan = planOf(a)
     const samples = run(1, 3)
@@ -457,9 +457,9 @@ describe('слежение: кольцо охватывает ноги игро�
       Math.abs(s.t - plan.at) < Math.abs(b.t - plan.at) ? s : b
     )
     expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(foot.foot.x, 2)
-    expect((g.p1.y + g.p2.y) / 2).toBeCloseTo(foot.foot.y, 2)
+    expect((g.p1.y + g.p2.y) / 2).toBeCloseTo(foot.foot.y - 0.07 * 0.3, 2)
     const w = (g.p2.x - g.p1.x) * (16 / 9)
-    expect(w).toBeCloseTo(0.9 * 0.3, 2)
+    expect(w).toBeCloseTo(0.72 * 0.3, 2)
     const h = g.p2.y - g.p1.y
     expect(h / w).toBeCloseTo(0.5625, 2) // как у исходного кольца
   })

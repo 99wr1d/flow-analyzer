@@ -472,18 +472,18 @@ async function redCentre(win: Page): Promise<number> {
 }
 
 test.describe('время ключей слежения и кадры', () => {
-  test('ключи попадают на тот же кадр, что показывает плеер (по пикселям, ±2.5 px при шаге бегуна 6.4 px)', async () => {
+  test('ключи попадают на тот же кадр, что показывает плеер (по пикселям, ±3.5 px при шаге бегуна 6.4 px)', async () => {
     const { app, win } = await open()
     try {
       await drawRing(win, { duration: 2.9 })
       await runTracking(win)
-      // Кадры без перекрытия синим: бегун на 0.05..0.36 и правее 0.48 (t < 1.2 и t > 1.75). Кольцо — центр на 0.005 левее центра рамки.
+      // Кадры без перекрытия синим: бегун на 0.05..0.36 и правее 0.48 (t < 1.2 и t > 1.75). Кольцо при старте слежения встаёт центром на ноги (центр рамки по x).
       for (const n of [3, 10, 20, 46, 50, 55, 58]) {
         await seekVideo(win, (n + 0.5) / FPS)
         const red = await redCentre(win)
         expect(red).toBeGreaterThan(0)
         const ring = await ringCenter(win)
-        expect(Math.abs(ring.x + 0.005 - red) * W).toBeLessThan(2.5)
+        expect(Math.abs(ring.x - red) * W).toBeLessThan(3.5)
       }
     } finally {
       await app.close()

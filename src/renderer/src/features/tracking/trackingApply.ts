@@ -220,8 +220,13 @@ function coverFigure(a: Annotation, ref: TrackSample, at: number, aspect: number
   return keys.length === 0 ? next : a
 }
 
-/** Ширина кольца у ног в долях высоты рамки игрока: кольцо плотно охватывает ноги. */
-export const RING_WIDTH_OF_HEIGHT = 0.9
+/**
+ * Ширина кольца у ног в долях высоты рамки игрока: кольцо плотно охватывает ноги. Рамка детектора с запасом выше самой фигуры
+ * (по проверке на трансляции — ~1.3 роста), поэтому 0.72 рамки ≈ 0.9 видимого роста.
+ */
+export const RING_WIDTH_OF_HEIGHT = 0.72
+/** Подъём центра кольца над низом рамки (доли высоты рамки): рамка заходит ниже подошв. */
+export const RING_LIFT = 0.07
 
 /**
  * Кольцо (экранный круг без ключей), от которого начинают слежение: центр — точка ног игрока (низ рамки), ширина ≈ 0.9 роста
@@ -236,10 +241,11 @@ function fitRing(a: Annotation, ref: TrackSample, at: number, aspect: number): A
   const ratio = h / w
   const rx = (RING_WIDTH_OF_HEIGHT * ref.height) / 2 / aspect
   const ry = rx * aspect * ratio
+  const cy = ref.foot.y - RING_LIFT * ref.height
   return {
     ...a,
-    p1: { x: ref.foot.x - rx, y: ref.foot.y - ry },
-    p2: { x: ref.foot.x + rx, y: ref.foot.y + ry }
+    p1: { x: ref.foot.x - rx, y: cy - ry },
+    p2: { x: ref.foot.x + rx, y: cy + ry }
   } as Annotation
 }
 

@@ -148,6 +148,7 @@ test.describe('кольцо «как в образце»', () => {
       await waitUnderDrawn(win)
       await win.keyboard.press('Escape')
       await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
       await win.waitForTimeout(250)
 
       // Экран: рядом с обводкой (0.8 толщины от края) трава подкрашена цветом кольца, далеко (6 толщин) — нет.
@@ -193,9 +194,10 @@ test.describe('кольцо «как в образце»', () => {
       await waitUnderDrawn(win)
       await win.waitForTimeout(250)
       const dark = await png(win, 'glow-off')
-      expect(maxDelta(dark, base, ...screenAt(near))).toBeLessThan(5)
+      // Без свечения возвращается прежняя тень (темнит траву), но не подкрашивает её цветом кольца.
+      expect(dark.at(...screenAt(near))[0] - base.at(...screenAt(near))[0]).toBeLessThan(4)
       const file2 = await exportWhole(ctx)
-      expect(videoDelta(frameRgb(file2, index, W, H), source, near)).toBeLessThan(12)
+      expect(rgbOf(frameRgb(file2, index, W, H), near)[0] - rgbOf(source, near)[0]).toBeLessThan(5)
     } finally {
       await ctx.app.close()
     }
@@ -223,6 +225,7 @@ test.describe('кольцо «как в образце»', () => {
       await waitUnderDrawn(win)
       await win.keyboard.press('Escape')
       await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
       await win.waitForTimeout(250)
       const e = await ellipseOf(win)
       const lit = await png(win, 'under-on')
@@ -273,6 +276,7 @@ test.describe('кольцо «как в образце»', () => {
       await expect(toggle).toHaveAttribute('aria-pressed', 'true')
       // Без выбора выключаем свечение «для новых» и рисуем кольцо B.
       await win.keyboard.press('Escape')
+      await win.getByTestId('tool-circle').click()
       await expect(toggle).toBeEnabled()
       await toggle.click()
       await expect(toggle).toHaveAttribute('aria-pressed', 'false')
