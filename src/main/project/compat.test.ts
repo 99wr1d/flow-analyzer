@@ -24,7 +24,7 @@ import { readProjectFile } from './files'
 import { openProjectFile, saveToPath, videoFacts } from './session'
 
 const DIR = resolve('tests/fixtures/projects')
-const CURRENT_APP_VERSION = '0.17.0'
+const CURRENT_APP_VERSION = '0.18.0'
 
 interface Era {
   file: string
@@ -105,6 +105,28 @@ const ERAS: Era[] = [
     grassKey: true,
     types: ['arrow', 'ring', 'pen', 'loupe'],
     animated: 2
+  },
+  {
+    file: 'v0.17.0.flowproj',
+    appVersion: '0.17.0',
+    annotations: 6,
+    calibrations: 1,
+    episodes: 2,
+    meta: true,
+    grassKey: true,
+    types: ['ring', 'circle', 'text', 'arrow', 'pspot', 'spot'],
+    animated: 1
+  },
+  {
+    file: 'v0.18.0.flowproj',
+    appVersion: '0.18.0',
+    annotations: 6,
+    calibrations: 1,
+    episodes: 2,
+    meta: true,
+    grassKey: true,
+    types: ['ring', 'circle', 'text', 'arrow', 'pspot', 'spot'],
+    animated: 1
   }
 ]
 
@@ -285,5 +307,94 @@ describe('ключи слежения (auto)', () => {
   it('больше 3000 ключей не принимается', async () => {
     const keys = Array.from({ length: 3001 }, (_, i) => key(i, true))
     expect(parseProjectText(await withKeys(keys)).ok).toBe(false)
+  })
+})
+
+describe('стили 0.18: проект 0.17.0 без новых полей', () => {
+  const NEW_KEYS = ['glow', 'look', 'pulse', 'form', 'reveal', 'shadow']
+
+  it('читается и сохраняется без появления новых полей (старый вид)', async () => {
+    const path = await install(ERAS.find((e) => e.appVersion === '0.17.0')!)
+    const opened = await openProjectFile(userData, path)
+    expect(opened.status).toBe('opened')
+    if (opened.status !== 'opened') return
+    await saveToPath(userData, requestFrom(opened.project), await videoFacts(video), path, '0.18.0')
+    const raw = JSON.parse(await readFileP(path, 'utf8')) as Project
+    expect(raw.annotations).toHaveLength(6)
+    for (const a of raw.annotations) {
+      const rec = a as unknown as Record<string, unknown>
+      for (const k of NEW_KEYS) expect(k in rec, `${a.type}.${k}`).toBe(false)
+      expect(rec.style as object).not.toHaveProperty('shadow')
+    }
+    const text = raw.annotations.find((a) => a.type === 'text')
+    expect(text && 'style' in text && (text.style as { background: boolean }).background).toBe(true)
+    const arrow = raw.annotations.find((a) => a.type === 'arrow')
+    expect(arrow && arrow.style.dash).toBe('dashed')
+  })
+
+  it('проект с новыми полями читается, поля сохраняются', async () => {
+    const raw = JSON.parse(await readFileP(join(DIR, 'v0.17.0.flowproj'), 'utf8')) as Project
+    const set = (type: string, extra: object): void => {
+      const a = raw.annotations.find((x) => x.type === type)
+      Object.assign(a as object, extra)
+    }
+    set('ring', { glow: true, look: 'target', pulse: true })
+    set('arrow', { glow: true, reveal: 0.8 })
+    set('pspot', { form: 'pillar' })
+    set('text', { style: { color: '#c6ff3d', size: 0.045, background: false, shadow: true } })
+    const parsed = parseProjectText(JSON.stringify(raw))
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const by = (t: string): Record<string, unknown> =>
+      parsed.project.annotations.find((x) => x.type === t) as unknown as Record<string, unknown>
+    expect(by('ring')).toMatchObject({ glow: true, look: 'target', pulse: true })
+    expect(by('arrow')).toMatchObject({ glow: true, reveal: 0.8 })
+    expect(by('pspot')).toMatchObject({ form: 'pillar' })
+    expect(by('text').style).toMatchObject({ background: false, shadow: true })
+  })
+})
+
+/** Штриховка рисунка (у подписи её нет). */
+const dashOf = (a: unknown): unknown => (a as { style?: { dash?: unknown } }).style?.dash
+
+describe('стили 0.18: пунктир «точки» в файле', () => {
+  it('в файле это dash «dashed» + dots (старые версии откроют проект и покажут штрих), в памяти — «dotted»', async () => {
+    const fixture = await readFileP(join(DIR, 'v0.18.0.flowproj'), 'utf8')
+    // В самом файле эпохи 0.18.0 нет значения «dotted» (его не прочтёт ни одна старая версия).
+    expect(fixture).not.toContain('"dotted"')
+    const parsed = parseProjectText(fixture)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const dotted = parsed.project.annotations.filter((a) => dashOf(a) === 'dotted')
+    expect(dotted).toHaveLength(1)
+    expect(dotted[0].style).not.toHaveProperty('dots')
+
+    const path = await install(ERAS.find((e) => e.appVersion === '0.18.0')!)
+    const opened = await openProjectFile(userData, path)
+    expect(opened.status).toBe('opened')
+    if (opened.status !== 'opened') return
+    await saveToPath(userData, requestFrom(opened.project), await videoFacts(video), path, '0.18.0')
+    const text = await readFileP(path, 'utf8')
+    expect(text).not.toContain('"dotted"')
+    const raw = JSON.parse(text) as Project
+    const saved = raw.annotations.filter((a) => 'style' in a && 'dots' in a.style)
+    expect(saved).toHaveLength(1)
+    expect(saved[0].style).toMatchObject({ dash: 'dashed', dots: true })
+    // Заново прочитанный файл — те же рисунки, что в памяти.
+    const again = parseProjectText(text)
+    expect(again.ok && again.project.annotations).toEqual(parsed.project.annotations)
+  })
+
+  it('«dotted» в файле, записанном ранними сборками 0.18, по-прежнему читается', async () => {
+    const raw = JSON.parse(await readFileP(join(DIR, 'v0.18.0.flowproj'), 'utf8')) as Project
+    for (const a of raw.annotations) {
+      const st = (a as { style?: { dots?: boolean; dash?: string } }).style
+      if (st?.dots) {
+        delete st.dots
+        st.dash = 'dotted'
+      }
+    }
+    const parsed = parseProjectText(JSON.stringify(raw))
+    expect(parsed.ok && parsed.project.annotations.some((a) => dashOf(a) === 'dotted')).toBe(true)
   })
 })

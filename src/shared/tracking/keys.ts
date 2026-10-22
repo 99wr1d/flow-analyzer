@@ -18,6 +18,7 @@ import {
 import { geomAt, type Geom, type Keyframe } from '../animation'
 import type { Calibration } from '../pitch/calibration'
 import { projectorFor } from '../pitch/calibration'
+import { groundEllipseRatio } from '../pitch/ground'
 import type { Pt } from '../pitch/linalg'
 
 export interface TrackSample {
@@ -216,8 +217,17 @@ export function pitchToScreenForTracking(a: Annotation, cal: Calibration, t: num
     maxX = Math.max(maxX, p.x)
     maxY = Math.max(maxY, p.y)
   }
-  const p1 = { x: clamp(minX, 0, 1), y: clamp(minY, 0, 1) }
-  const p2 = { x: clamp(maxX, 0, 1), y: clamp(maxY, 0, 1) }
+  let p1 = { x: clamp(minX, 0, 1), y: clamp(minY, 0, 1) }
+  let p2 = { x: clamp(maxX, 0, 1), y: clamp(maxY, 0, 1) }
+  const clipped = minX < 0 || minY < 0 || maxX > 1 || maxY > 1
+  if (a.type === 'ring' && clipped && p2.x > p1.x) {
+    // Кольцо на краю кадра: обрезка исказила бы эллипс. Ширину оставляем, высоту берём по разметке «как на траве» в центре.
+    const cx = (p1.x + p2.x) / 2
+    const cy = clamp((minY + maxY) / 2, 0, 1)
+    const half = (groundEllipseRatio(cal, { x: cx, y: cy }) * (p2.x - p1.x) * cal.aspect) / 2
+    p1 = { x: p1.x, y: clamp(cy - half, 0, 1) }
+    p2 = { x: p2.x, y: clamp(cy + half, 0, 1) }
+  }
   if (a.type === 'ring') {
     const out: Circle = {
       id: a.id,
@@ -227,6 +237,9 @@ export function pitchToScreenForTracking(a: Annotation, cal: Calibration, t: num
       p2,
       style: a.style,
       fillOpacity: a.fillOpacity ?? LEGACY_RING_FILL,
+      ...(a.glow !== undefined ? { glow: a.glow } : {}),
+      ...(a.look !== undefined ? { look: a.look } : {}),
+      ...(a.pulse !== undefined ? { pulse: a.pulse } : {}),
       underPlayers: true,
       timing: a.timing
     }
@@ -239,7 +252,9 @@ export function pitchToScreenForTracking(a: Annotation, cal: Calibration, t: num
     p1,
     p2,
     dim: a.dim,
+    ...(a.dimmed !== undefined ? { dimmed: a.dimmed } : {}),
     beam: a.beam,
+    ...(a.form !== undefined ? { form: a.form } : {}),
     style: a.style,
     timing: a.timing
   }

@@ -9,6 +9,7 @@ import type {
   GroundZone
 } from '../annotations'
 import { curveMid, densifyQuad } from '../tools/curve'
+import { PILLAR_WIDTH_SHARE } from '../tools/pillar'
 import { polygonArea } from '../tools/polygon'
 import { fitHomography, type Correspondence } from './homography'
 import { penaltyAreaRect } from './landmarks'
@@ -165,6 +166,30 @@ describe('прожектор на поле', () => {
     // Площадь в пикселях ≈ площадь эллипса.
     expect(polygonArea(poly)).toBeGreaterThan(300)
     expect(paint.handles.map((h) => h.id)).toEqual(['radius'])
+  })
+
+  it('столб: вертикаль по экрану от верха кадра до низа-середины пятна на траве, нажимается и освещается столб', () => {
+    const ground = paintPitch(spot, proj, SIZE, measure).lit[0]
+    const gx = ground.map((q) => q.x)
+    const paint = paintPitch({ ...spot, form: 'pillar', beam: true }, proj, SIZE, measure)
+    const pillar = paint.pillar!
+    expect(pillar).toBeDefined()
+    expect(pillar.x).toBeCloseTo((Math.min(...gx) + Math.max(...gx)) / 2, 6)
+    expect(pillar.bottom).toBeCloseTo(Math.max(...ground.map((q) => q.y)), 6)
+    expect(pillar.top).toBe(0)
+    expect(pillar.half * 2).toBeCloseTo((Math.max(...gx) - Math.min(...gx)) * PILLAR_WIDTH_SHARE, 6)
+    // Луч и пятно при столбе не рисуются; освещён и нажимается только столб.
+    expect(paint.beam).toBeNull()
+    expect(paint.disc).toEqual([])
+    expect(paint.body).toEqual([])
+    expect(paint.visible).toBe(true)
+    expect(paint.lit).toHaveLength(1)
+    expect(Math.min(...paint.lit[0].map((q) => q.y))).toBeLessThanOrEqual(0)
+    expect(paint.hit).toHaveLength(1)
+    expect(paint.handles.map((h) => h.id)).toEqual(['radius'])
+    // Старое поведение: форма «овал» и без form — без столба.
+    expect(paintPitch({ ...spot, form: 'oval' }, proj, SIZE, measure).pillar).toBeUndefined()
+    expect(paintPitch(spot, proj, SIZE, measure).pillar).toBeUndefined()
   })
 
   it('с лучом: высота = 1.9 м × масштаб (пикселей на метр) в этой точке, луч выше основания', () => {
@@ -390,5 +415,62 @@ describe('вспомогательное', () => {
       0.5
     )
     expect(ribbons).toHaveLength(2)
+  })
+})
+
+describe('пунктир точками на поле', () => {
+  const dotted = { color: '#ffffff', width: 0.011, dash: 'dotted' as const }
+  const diam = (poly: Array<{ x: number; y: number }>): number =>
+    Math.max(...poly.map((p) => Math.hypot(p.x - poly[0].x, p.y - poly[0].y)))
+
+  it('кривая: отдельные круглые точки (12-угольники), заметно больше одной, без сплошной ленты', () => {
+    const paint = paintPitch({ ...curve, style: dotted }, proj, SIZE, measure)
+    const dots = paint.body.filter((p) => p.length === 12)
+    expect(dots.length).toBeGreaterThan(8)
+    // Всё, кроме точек, — только наконечник.
+    expect(paint.body.length - dots.length).toBe(1)
+  })
+
+  it('перо и связь: точки есть, у короткой линии — хотя бы две', () => {
+    const pen: GroundPen = {
+      ...base,
+      style: dotted,
+      id: id(7),
+      type: 'ppen',
+      points: [
+        { x: 4, y: 20 },
+        { x: 4.2, y: 20 }
+      ],
+      arrow: false
+    }
+    expect(paintPitch(pen, proj, SIZE, measure).body.length).toBeGreaterThanOrEqual(2)
+    const chain: GroundChain = {
+      ...base,
+      style: dotted,
+      id: id(8),
+      type: 'pchain',
+      points: [
+        { x: 4, y: 20 },
+        { x: 9, y: 26 },
+        { x: 14, y: 22 }
+      ],
+      fill: false,
+      labels: false
+    }
+    const dots = paintPitch(chain, proj, SIZE, measure).body.filter((p) => p.length === 12)
+    expect(dots.length).toBeGreaterThan(6)
+    expect(diam(dots[0])).toBeGreaterThan(0)
+  })
+
+  it('перо из сотен точек строится быстро', () => {
+    const points = Array.from({ length: 600 }, (_, i) => ({
+      x: 4 + (i / 600) * 20,
+      y: 20 + Math.sin(i / 15) * 6
+    }))
+    const pen: GroundPen = { ...base, style: dotted, id: id(9), type: 'ppen', points, arrow: false }
+    paintPitch(pen, proj, SIZE, measure)
+    const t0 = performance.now()
+    paintPitch(pen, proj, SIZE, measure)
+    expect(performance.now() - t0).toBeLessThan(50)
   })
 })

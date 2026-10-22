@@ -7,7 +7,8 @@ import { isMoving } from '../../../../shared/animation'
 import type { Annotation } from '../../../../shared/annotations'
 import type { Calibration } from '../../../../shared/pitch/calibration'
 import { usePlayerStore } from '../../store/playerStore'
-import { useLiveList } from '../annotations/animClock'
+import { isTimeVarying } from '../../../../shared/styleFx'
+import { useClockTime, useLiveList } from '../annotations/animClock'
 import type { Rect } from '../annotations/geometry'
 import { buildOverlaySvg, rasterizeSvg } from '../export/renderOverlays'
 import { getVideoElement } from '../player/videoElement'
@@ -55,6 +56,9 @@ export function UnderCanvas({
   // Движущиеся рисунки: геометрия на показанный кадр (перерисовка на каждый кадр только при движении).
   const items = useLiveList(stored)
   const moving = stored.some(isMoving)
+  // Пульс: растр перерисовывается на каждый показанный кадр (время кадра — то же, что в экспорте).
+  const pulsing = stored.some(isTimeVarying)
+  const time = useClockTime(pulsing)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<UnderRenderer | null>(null)
   const rasterRef = useRef<HTMLCanvasElement | null>(null)
@@ -67,14 +71,23 @@ export function UnderCanvas({
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
   const scale = Math.max(
     0.5,
-    Math.min(dpr, (moving ? MAX_MOVING_CANVAS_WIDTH : MAX_CANVAS_WIDTH) / Math.max(1, rect.w))
+    Math.min(
+      dpr,
+      (moving || pulsing ? MAX_MOVING_CANVAS_WIDTH : MAX_CANVAS_WIDTH) / Math.max(1, rect.w)
+    )
   )
   const pxW = Math.max(2, Math.round(rect.w * scale))
   const pxH = Math.max(2, Math.round(rect.h * scale))
 
   const signature = useMemo(
-    () => items.map((a) => `${a.id}#${refId(a)}${dimmedIds.has(a.id) ? '!' : ''}`).join(','),
-    [items, dimmedIds]
+    () =>
+      items
+        .map(
+          (a) =>
+            `${a.id}#${refId(a)}${dimmedIds.has(a.id) ? '!' : ''}${isTimeVarying(a) ? `@${time}` : ''}`
+        )
+        .join(','),
+    [items, dimmedIds, time]
   )
   // Что нужно в обработчиках без перезапуска эффектов, лежит в ссылках (обновляются после каждой отрисовки).
   const live = useRef({ active, maskView, pxW, pxH })
@@ -143,7 +156,8 @@ export function UnderCanvas({
       const svg = buildOverlaySvg(items, rect.w, rect.h, calibrations, {
         part: 'under',
         scale: pxW / rect.w,
-        dimmedIds
+        dimmedIds,
+        time
       })
       rasterRef.current ??= document.createElement('canvas')
       const raster = rasterRef.current

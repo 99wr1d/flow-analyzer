@@ -4,9 +4,29 @@ import { useMemo } from 'react'
 import type { PitchAnnotation } from '../../../../shared/annotations'
 import { shiftLabel, type LabelShift } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
-import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared/pitch/shapes'
+import {
+  paintPitch,
+  type LabelPaint,
+  type PitchPaint,
+  type StrokePaint
+} from '../../../../shared/pitch/shapes'
+import {
+  TARGET_FILL_STOPS,
+  TARGET_RING_OPACITY,
+  LINE_CORE_SCALE,
+  dashStyle,
+  glowStack,
+  lineCoreColor,
+  lineGlowStack
+} from '../../../../shared/styleFx'
+import {
+  PILLAR_LAYERS,
+  PILLAR_VERTICAL_STOPS,
+  type PillarPaint
+} from '../../../../shared/tools/pillar'
 import type { Size } from './geometry'
 import { pathOf } from './pathOf'
+import { LabelText } from './LabelText'
 import { isDarkColor } from './styles'
 import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
 
@@ -26,22 +46,24 @@ const LABEL_TEST_ID: Record<LabelPaint['kind'], string> = {
 export function PillLabel({
   label,
   color,
-  background
+  background,
+  shadow
 }: {
   label: LabelPaint
   color: string
   /** Только для подписей-текста: показывать ли плашку. */
   background: boolean
+  /** Тень подписи-текста (нет поля — прежний контур без плашки). */
+  shadow?: boolean
 }): React.JSX.Element {
   const dark = isDarkColor(color)
   const x = label.x - label.w / 2
   const y = label.y - label.h / 2
   const measured = label.kind !== 'text'
-  const plain = !measured && !background
   const framed = label.kind === 'width' || label.kind === 'area' || label.kind === 'ruler'
   return (
     <g data-testid={LABEL_TEST_ID[label.kind]} data-text={label.text}>
-      {!plain && (
+      {(measured || background) && (
         <rect
           x={x}
           y={y}
@@ -53,25 +75,122 @@ export function PillLabel({
           strokeWidth={framed ? Math.max(1, label.fontPx * 0.07) : undefined}
         />
       )}
-      <text
-        x={label.x}
-        y={label.y}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontSize={label.fontPx}
-        fontFamily={TEXT_FONT_FAMILY}
-        fontWeight={TEXT_FONT_WEIGHT}
-        fill={measured ? '#ffffff' : color}
-        stroke={plain ? (dark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.75)') : undefined}
-        strokeWidth={plain ? label.fontPx * 0.14 : undefined}
-        strokeLinejoin="round"
-        paintOrder="stroke"
-      >
-        {label.text}
-      </text>
+      {measured ? (
+        <text
+          x={label.x}
+          y={label.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={label.fontPx}
+          fontFamily={TEXT_FONT_FAMILY}
+          fontWeight={TEXT_FONT_WEIGHT}
+          fill="#ffffff"
+        >
+          {label.text}
+        </text>
+      ) : (
+        <LabelText
+          text={label.text}
+          x={label.x}
+          y={label.y}
+          fontPx={label.fontPx}
+          color={color}
+          plate={background}
+          shadow={shadow}
+          anchor="middle"
+        />
+      )}
     </g>
   )
 }
+
+/** Радиальная заливка «мишени»: от цвета в центре к прозрачности у края (профиль — TARGET_FILL_STOPS). */
+export function TargetGradient({ id, color }: { id: string; color: string }): React.JSX.Element {
+  return (
+    <radialGradient id={`target-${id}`}>
+      {TARGET_FILL_STOPS.map((s) => (
+        <stop key={s.offset} offset={s.offset} stopColor={color} stopOpacity={s.alpha} />
+      ))}
+    </radialGradient>
+  )
+}
+
+/**
+ * Световой столб: вертикальная полоса по экрану от верха кадра до ног. Стопка вертикальных полос разной ширины с одним
+ * вертикальным градиентом (без SVG-фильтров: одинаково на экране и в экспорте) — ярче к низу и к оси, края мягко тают;
+ * внизу лужица света на ногах.
+ */
+export function Pillar({
+  id,
+  pillar,
+  color
+}: {
+  id: string
+  pillar: PillarPaint
+  color: string
+}): React.JSX.Element {
+  const { x, half, top, bottom } = pillar
+  const extra = half * 3
+  return (
+    <g data-part="pillar" pointerEvents="none">
+      <defs>
+        <linearGradient
+          id={`pillar-${id}`}
+          gradientUnits="userSpaceOnUse"
+          x1="0"
+          y1={top}
+          x2="0"
+          y2={bottom}
+        >
+          {PILLAR_VERTICAL_STOPS.map((s) => (
+            <stop key={s.offset} offset={s.offset} stopColor={color} stopOpacity={s.alpha} />
+          ))}
+        </linearGradient>
+        <radialGradient id={`pillar-pool-${id}`}>
+          <stop offset="0" stopColor={color} stopOpacity="0.55" />
+          <stop offset="1" stopColor={color} stopOpacity="0" />
+        </radialGradient>
+      </defs>
+      {PILLAR_LAYERS.map((l, i) => (
+        <rect
+          key={i}
+          data-part="pillar-layer"
+          x={x - half * l.reach}
+          y={top - extra}
+          width={2 * half * l.reach}
+          height={bottom - top + extra}
+          fill={`url(#pillar-${id})`}
+          fillOpacity={l.alpha}
+          stroke="none"
+        />
+      ))}
+      <ellipse
+        data-part="pillar-pool"
+        cx={x}
+        cy={bottom}
+        rx={half * 1.9}
+        ry={half * 0.55}
+        fill={`url(#pillar-pool-${id})`}
+      />
+    </g>
+  )
+}
+
+/** Длина линии в пикселях (замкнутая — с замыкающим звеном): нужна точкам, чтобы лечь поровну. */
+const strokeLength = (pts: readonly { x: number; y: number }[], closed: boolean): number => {
+  let len = 0
+  for (let i = 1; i < pts.length; i += 1)
+    len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+  if (closed && pts.length > 1)
+    len += Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y)
+  return len
+}
+
+/** Штриховка линии рисунка на экране; точки раскладываются по длине всей линии (layoutLength), пока видна её часть. */
+const strokeDash = (s: StrokePaint): ReturnType<typeof dashStyle> =>
+  dashStyle(s.dash, s.widthPx, s.layoutLength ?? strokeLength(s.points, s.closed), s.closed)
+
+const strokeD = (s: StrokePaint): string => pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')
 
 const pointsAttr = (poly: readonly { x: number; y: number }[]): string =>
   poly.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')
@@ -85,6 +204,8 @@ interface PaintProps {
   selected: boolean
   /** Плашка под текстом (для ptext). */
   textBackground?: boolean
+  /** Тень подписи (для ptext). */
+  textShadow?: boolean
   /** Класс тени для всего, кроме полупрозрачных подложек (если не задан, тень задаёт родитель). */
   shadowClass?: string
   /**
@@ -106,6 +227,7 @@ export function PaintParts({
   size,
   selected,
   textBackground = true,
+  textShadow,
   shadowClass,
   part = 'all'
 }: PaintProps): React.JSX.Element | null {
@@ -127,6 +249,7 @@ export function PaintParts({
           stroke="none"
         />
       )}
+      {top && paint.pillar && <Pillar id={id} pillar={paint.pillar} color={color} />}
       {top && paint.beam && (
         <>
           <defs>
@@ -191,15 +314,65 @@ export function PaintParts({
   const rest = (
     <>
       {top && selected && (part === 'top' ? <g opacity={0.5}>{halo}</g> : halo)}
+      {ground &&
+        paint.glowPx !== undefined &&
+        paint.body.length > 0 &&
+        glowStack(0, paint.glowPx, paint.glowBoost).map((l, i) => (
+          <path
+            key={`glow-${i}`}
+            data-part="glow"
+            d={pathOf(paint.body)}
+            fill="none"
+            stroke={color}
+            strokeOpacity={l.opacity}
+            strokeWidth={l.width}
+            strokeLinejoin="round"
+          />
+        ))}
+      {ground &&
+        paint.lineGlow === true &&
+        paint.strokes.map((s, i) => {
+          const ds = strokeDash(s)
+          return lineGlowStack(s.widthPx).map((l, k) => (
+            <path
+              key={`line-glow-${i}-${k}`}
+              data-part="glow"
+              d={strokeD(s)}
+              fill="none"
+              stroke={color}
+              strokeOpacity={l.opacity}
+              strokeWidth={l.width}
+              strokeLinejoin="round"
+              strokeLinecap={ds.cap}
+              strokeDasharray={ds.array}
+            />
+          ))
+        })}
+      {ground && paint.disc.length > 0 && paint.target && (
+        <defs>
+          <TargetGradient id={id} color={color} />
+        </defs>
+      )}
       {ground && paint.disc.length > 0 && (
         <path
           data-part="disc"
           d={pathOf(paint.disc)}
-          fill={color}
+          fill={paint.target ? `url(#target-${id})` : color}
           fillOpacity={paint.discOpacity ?? 0.18}
         />
       )}
-      {ground && paint.body.length > 0 && (
+      {ground &&
+        paint.targetRings?.map((polys, i) => (
+          <path
+            key={`ring-${i}`}
+            data-part="body"
+            d={pathOf(polys)}
+            fill={color}
+            fillOpacity={TARGET_RING_OPACITY[i]}
+            stroke="none"
+          />
+        ))}
+      {ground && paint.body.length > 0 && !paint.targetRings && (
         <path
           data-part="body"
           d={pathOf(paint.body)}
@@ -210,19 +383,52 @@ export function PaintParts({
         />
       )}
       {ground &&
-        paint.strokes.map((s, i) => (
-          <path
-            key={`stroke-${i}`}
-            data-part="stroke"
-            d={pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')}
-            fill="none"
-            stroke={color}
-            strokeWidth={s.widthPx}
-            strokeLinejoin="round"
-            strokeLinecap={s.dashed ? 'butt' : 'round'}
-            strokeDasharray={s.dashed ? `${s.widthPx * 2.4} ${s.widthPx * 1.8}` : undefined}
-          />
-        ))}
+        paint.strokes.map((s, i) => {
+          const ds = strokeDash(s)
+          return (
+            <path
+              key={`stroke-${i}`}
+              data-part="stroke"
+              d={strokeD(s)}
+              fill="none"
+              stroke={color}
+              strokeWidth={s.widthPx}
+              strokeLinejoin="round"
+              strokeLinecap={ds.cap}
+              strokeDasharray={ds.array}
+            />
+          )
+        })}
+      {ground && paint.core && paint.core.length > 0 && (
+        <path data-part="core" d={pathOf(paint.core)} fill={lineCoreColor(color)} stroke="none" />
+      )}
+      {ground &&
+        paint.lineGlow === true &&
+        paint.strokes.map((s, i) => {
+          const ds = strokeDash(s)
+          return (
+            <path
+              key={`line-core-${i}`}
+              data-part="core"
+              d={strokeD(s)}
+              fill="none"
+              stroke={lineCoreColor(color)}
+              strokeWidth={s.widthPx * LINE_CORE_SCALE}
+              strokeLinejoin="round"
+              strokeLinecap={ds.cap}
+              strokeDasharray={ds.array}
+            />
+          )
+        })}
+      {ground && paint.wave && paint.wave.body.length > 0 && (
+        <path
+          data-part="wave"
+          d={pathOf(paint.wave.body)}
+          fill={color}
+          fillOpacity={paint.wave.opacity}
+          stroke="none"
+        />
+      )}
       {ground &&
         paint.nodes.map((n, i) => (
           <circle
@@ -259,7 +465,12 @@ export function PaintParts({
         />
       )}
       {top && paint.label && (
-        <PillLabel label={paint.label} color={color} background={textBackground} />
+        <PillLabel
+          label={paint.label}
+          color={color}
+          background={textBackground}
+          shadow={textShadow}
+        />
       )}
       {top &&
         paint.labels.map((l, i) => (
@@ -334,6 +545,8 @@ interface PitchProps {
   part?: DrawPart
   /** Сдвиги подписей по вертикали (пиксели), чтобы подписи измерений не ложились друг на друга. */
   labelShift?: LabelShift
+  /** Время видео, секунды: нужно пульсу. */
+  time?: number
 }
 
 export function PitchBody({
@@ -343,18 +556,19 @@ export function PitchBody({
   projector,
   shadowClass,
   part,
-  labelShift
+  labelShift,
+  time
 }: PitchProps): React.JSX.Element | null {
   const paint = useMemo(() => {
     if (!projector) return null
-    const p = paintPitch(a, projector, size, measureTextWidth)
+    const p = paintPitch(a, projector, size, measureTextWidth, time)
     if (!labelShift) return p
     return {
       ...p,
       label: p.label ? shiftLabel(p.label, labelShift.label) : p.label,
       labels: p.labels.map((l, i) => shiftLabel(l, labelShift.labels?.[i]))
     }
-  }, [a, projector, size, labelShift])
+  }, [a, projector, size, labelShift, time])
   if (!paint) return null
   return (
     <PaintParts
@@ -364,6 +578,7 @@ export function PitchBody({
       size={size}
       selected={selected}
       textBackground={a.type === 'ptext' ? a.style.background : true}
+      textShadow={a.type === 'ptext' ? a.style.shadow : undefined}
       shadowClass={shadowClass}
       part={part}
     />

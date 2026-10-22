@@ -3,6 +3,25 @@
 // проецируются — поэтому вдали они сужаются, а кольцо превращается в эллипс.
 import { LEGACY_RING_FILL, type PitchAnnotation } from '../annotations'
 import { isToolAnnotation, paintPitchTool } from './pitchTools'
+import {
+  TARGET_CENTER_ALPHA,
+  TARGET_LINE_SCALE,
+  TARGET_RADII,
+  isTarget,
+  LINE_CORE_SCALE,
+  LINE_GLOW_BOOST,
+  LINE_GLOW_REACH,
+  pulseActive,
+  pulsePhase,
+  revealFraction,
+  revealedDotCount,
+  WAVE_LINE_SCALE,
+  waveOpacity,
+  waveScale,
+  type DashKind
+} from '../styleFx'
+import type { PillarPaint } from '../tools/pillar'
+import { DOT_STEP, dotsAlong } from '../tools/curve'
 import type { Pt } from './linalg'
 import type { Projector } from './projector'
 
@@ -43,7 +62,12 @@ export interface StrokePaint {
   points: PxPt[]
   closed: boolean
   widthPx: number
-  dashed: boolean
+  dash: DashKind
+  /**
+   * Длина всей линии, пиксели: по ней ложатся точки, пока видна только часть (проявление), — так они не ползут.
+   * Нет — по длине самой линии.
+   */
+  layoutLength?: number
 }
 
 /** «Луч» над светлым пятном прожектора: силуэт и границы по вертикали (для градиента). */
@@ -94,9 +118,40 @@ export interface PitchPaint {
   /** Освещённые области прожектора. */
   lit: PxPt[][]
   lens: LensPaint | null
+  /** Кольцо со свечением: средняя ширина обводки в пикселях (ореол кладётся вдоль кромок `body`). Нет — без свечения. */
+  glowPx?: number
+  /** Плотность ореола `body` относительно кольца (светящиеся линии плотнее); нет — как у кольца. */
+  glowBoost?: number
+  /** Светящаяся линия на экране (кривая): ореол и светлое ядро кладутся вдоль `strokes`. */
+  lineGlow?: boolean
+  /** Светящаяся линия на поле: светлое ядро — более узкие полосы вдоль тех же линий (поверх `body`). */
+  core?: PxPt[][]
+  /** «Мишень»: полосы трёх колец по отдельности (от внешнего к центру); они же лежат в body. */
+  targetRings?: PxPt[][][]
+  /** «Мишень»: диск заливается радиальным градиентом (центр → край), а не ровно. */
+  target?: boolean
+  /** Световой столб (прожектор вида «Столб»): рисует общий рисовальщик; обводки, пятна и луча при нём нет. */
+  pillar?: PillarPaint
+  /** Волна пульса (кольцо, расходящееся от центра) и её непрозрачность. */
+  wave?: { body: PxPt[][]; opacity: number }
 }
 
 export type Measure = (text: string, fontPx: number) => number
+
+/** Средняя ширина полос `body` в пикселях: 2·площадь / периметр (у кольца — ширина обводки). */
+export function bandWidthPx(polys: readonly PxPt[][]): number {
+  let area = 0
+  let perimeter = 0
+  for (const poly of polys) {
+    for (let i = 0; i < poly.length; i += 1) {
+      const p = poly[i]
+      const q = poly[(i + 1) % poly.length]
+      area += (p.x * q.y - q.x * p.y) / 2
+      perimeter += Math.hypot(q.x - p.x, q.y - p.y)
+    }
+  }
+  return perimeter > 0 ? (2 * Math.abs(area)) / perimeter : 0
+}
 
 export const toPx = (p: Pt, size: PaintSize): PxPt => ({ x: p.x * size.w, y: p.y * size.h })
 
@@ -128,6 +183,15 @@ export function ribbon(a: Pt, b: Pt, hw: number): Pt[] {
     { x: a.x - nx, y: a.y - ny }
   ])
 }
+
+const DOT_SIDES = 12
+/** Точка пунктира «точки» на поле: круг радиуса hw (м) вокруг центра (в перспективе после проекции — эллипс). */
+export const dotDisc = (c: Pt, hw: number): Pt[] =>
+  ccw(Array.from({ length: DOT_SIDES }, (_, i) => onCircle(c, hw, (i * 2 * Math.PI) / DOT_SIDES)))
+
+/** Центры точек вдоль ломаной на поле: шаг ≈ 2.5 толщины (w — толщина линии, м). */
+export const worldDots = (line: readonly Pt[], w: number, closed = false): Pt[] =>
+  dotsAlong(line, DOT_STEP * w, closed)
 
 /** Штрихи вдоль отрезка a→b (длины в метрах). Для сплошной линии — один отрезок. */
 export function dashSegments(a: Pt, b: Pt, dash: number, gap: number): Array<[Pt, Pt]> {
@@ -274,15 +338,17 @@ export function paintPitch(
   a: PitchAnnotation,
   proj: Projector,
   size: PaintSize,
-  measure: Measure
+  measure: Measure,
+  /** Время видео (секунды): нужно пульсу. */
+  time?: number
 ): PitchPaint {
-  if (isToolAnnotation(a)) return paintPitchTool(a, proj, size, measure)
+  if (isToolAnnotation(a)) return paintPitchTool(a, proj, size, measure, time)
   const out = emptyPaint()
   const px = (poly: Pt[]): PxPt[] => poly.map((p) => toPx(p, size))
-  const pushBody = (worldPoly: Pt[]): void => {
+  const pushBody = (worldPoly: Pt[], into: PxPt[][] = out.body): void => {
     if (worldPoly.length < 3) return
     const projected = proj.projectPolygon(worldPoly)
-    if (projected.length >= 3) out.body.push(px(projected))
+    if (projected.length >= 3) into.push(px(projected))
   }
   const handle = (id: PitchHandleId, w: Pt): void => {
     const p = proj.toImage(w)
@@ -295,10 +361,21 @@ export function paintPitch(
     const angles = circleAngles(a.center, r + hw, proj, size)
     const circle = (rad: number): Pt[] => angles.map((t) => onCircle(a.center, rad, t))
     const outer = ccw(circle(r + hw))
+    // Полоса кольца радиуса rad: внешний контур и обратный обход внутреннего (дырка).
+    const pushBand = (rad: number, half: number, into: PxPt[][]): void => {
+      const outerProj = proj.projectPolygon(ccw(circle(rad + half)))
+      const innerProj = proj.projectPolygon([...ccw(circle(Math.max(rad - half, 0.01)))].reverse())
+      if (outerProj.length >= 3) into.push(px(outerProj))
+      if (outerProj.length >= 3 && innerProj.length >= 3) into.push(px(innerProj))
+    }
     const discProj = proj.projectPolygon(ccw(circle(r)))
     if (discProj.length >= 3) out.disc.push(px(discProj))
     out.discOpacity = a.fillOpacity ?? LEGACY_RING_FILL
-    if (a.style.dash === 'dashed') {
+    if (a.style.dash === 'dotted' && !isTarget(a)) {
+      // Точки по окружности: круглые, поровну.
+      const ring = circle(r)
+      for (const c of worldDots(ring, hw * 2, true)) pushBody(dotDisc(c, hw))
+    } else if (a.style.dash === 'dashed' && !isTarget(a)) {
       // Штрихи по окружности: секторы кольца.
       const circ = 2 * Math.PI * r
       const count = Math.max(6, Math.round(circ / ((DASH_LENGTH + DASH_GAP) * hw * 2)))
@@ -313,47 +390,93 @@ export function paintPitch(
           )
         pushBody(ccw([...arc(r + hw), ...arc(Math.max(r - hw, 0.01)).reverse()]))
       }
+    } else if (isTarget(a)) {
+      // «Мишень»: три кольца (тоньше обычного и тем бледнее, чем дальше от центра); заливка диска — радиальный градиент (рисует вид).
+      out.targetRings = TARGET_RADII.map((k) => {
+        const ringPolys: PxPt[][] = []
+        pushBand(r * k, hw * TARGET_LINE_SCALE, ringPolys)
+        out.body.push(...ringPolys)
+        return ringPolys
+      })
+      out.target = true
+      out.discOpacity = TARGET_CENTER_ALPHA
     } else {
-      const innerR = Math.max(r - hw, 0.01)
-      const inner = [...ccw(circle(innerR))].reverse()
-      const outerProj = proj.projectPolygon(outer)
-      const innerProj = proj.projectPolygon(inner)
-      if (outerProj.length >= 3) out.body.push(px(outerProj))
-      if (outerProj.length >= 3 && innerProj.length >= 3) out.body.push(px(innerProj))
+      pushBand(r, hw, out.body)
+    }
+    if (time !== undefined && pulseActive(a)) {
+      // Пульс: волна от центра наружу, по времени видео.
+      const phase = pulsePhase(time)
+      const wave: PxPt[][] = []
+      pushBand(r * waveScale(phase), hw * WAVE_LINE_SCALE, wave)
+      if (wave.length > 0) out.wave = { body: wave, opacity: waveOpacity(phase) }
     }
     const hit = proj.projectPolygon(outer)
     if (hit.length >= 3) out.hit.push(px(hit))
+    if (a.glow === true && out.body.length > 0) out.glowPx = bandWidthPx(out.body)
     handle('radius', { x: a.center.x + r, y: a.center.y })
   } else if (a.type === 'pline' || a.type === 'parrow' || a.type === 'ruler') {
     const w = worldWidthOf(a)
     const hw = w / 2
     const len = worldDistance(a.p1, a.p2)
+    let wholeHit: PxPt[][] | null = null
     if (len > 0) {
       const ux = (a.p2.x - a.p1.x) / len
       const uy = (a.p2.y - a.p1.y) / len
-      if (a.type === 'parrow') {
-        const head = Math.min(Math.max(w * 4, 1.2), len * 0.6)
-        const half = Math.max(head * 0.5, hw * 1.6)
-        const base: Pt = { x: a.p2.x - ux * head, y: a.p2.y - uy * head }
-        const shaftEnd: Pt = { x: a.p2.x - ux * head * 0.8, y: a.p2.y - uy * head * 0.8 }
-        const segs =
-          a.style.dash === 'dashed'
-            ? dashSegments(a.p1, shaftEnd, DASH_LENGTH * w, DASH_GAP * w)
-            : [[a.p1, shaftEnd] as [Pt, Pt]]
-        segs.forEach(([s, e]) => pushBody(ribbon(s, e, hw)))
-        pushBody(
-          ccw([
+      if (a.type === 'parrow' || a.type === 'pline') {
+        // Проявление: путь обрезается по длине (линия растёт от p1); точки — первые floor(доля · число) по порядку;
+        // наконечник появляется, когда линия дошла до конца.
+        const frac = time === undefined ? 1 : revealFraction(a, time)
+        const glow = a.glow === true
+        const head = a.type === 'parrow' ? Math.min(Math.max(w * 4, 1.2), len * 0.6) : 0
+        const shaftEnd: Pt =
+          a.type === 'parrow' ? { x: a.p2.x - ux * head * 0.8, y: a.p2.y - uy * head * 0.8 } : a.p2
+        const shaftLen = a.type === 'parrow' ? len - head * 0.8 : len
+        const cut = Math.min(1, frac) * shaftLen
+        const reach: Pt = { x: a.p1.x + ux * cut, y: a.p1.y + uy * cut }
+        const lay = (into: PxPt[][], half: number): void => {
+          if (!(frac > 0)) return
+          if (a.style.dash === 'dotted') {
+            const dots = worldDots([a.p1, shaftEnd], w)
+            for (const c of dots.slice(0, revealedDotCount(dots.length, Math.min(1, frac)))) {
+              pushBody(dotDisc(c, half), into)
+            }
+          } else {
+            const segs =
+              a.style.dash === 'dashed'
+                ? dashSegments(a.p1, reach, DASH_LENGTH * w, DASH_GAP * w)
+                : [[a.p1, reach] as [Pt, Pt]]
+            segs.forEach(([s, e]) => pushBody(ribbon(s, e, half), into))
+          }
+        }
+        lay(out.body, hw)
+        if (glow) {
+          out.core = []
+          lay(out.core, hw * LINE_CORE_SCALE)
+        }
+        let headPoly: Pt[] | null = null
+        if (a.type === 'parrow') {
+          const half = Math.max(head * 0.5, hw * 1.6)
+          const base: Pt = { x: a.p2.x - ux * head, y: a.p2.y - uy * head }
+          headPoly = ccw([
             a.p2,
             { x: base.x - uy * half, y: base.y + ux * half },
             { x: base.x + uy * half, y: base.y - ux * half }
           ])
-        )
+          if (frac >= 1) pushBody(headPoly)
+        }
+        // Попадание курсором и ореол — по сплошной ленте всей линии (точки и недорисованная часть не в счёт).
+        if (a.style.dash === 'dotted' || a.reveal !== undefined || glow) {
+          const whole: PxPt[][] = []
+          pushBody(ribbon(a.p1, shaftEnd, hw), whole)
+          if (glow) {
+            out.glowPx = bandWidthPx(whole) * LINE_GLOW_REACH
+            out.glowBoost = LINE_GLOW_BOOST
+          }
+          if (headPoly) pushBody(headPoly, whole)
+          wholeHit = whole
+        }
       } else {
-        const segs =
-          a.type === 'pline' && a.style.dash === 'dashed'
-            ? dashSegments(a.p1, a.p2, DASH_LENGTH * w, DASH_GAP * w)
-            : [[a.p1, a.p2] as [Pt, Pt]]
-        segs.forEach(([s, e]) => pushBody(ribbon(s, e, hw)))
+        pushBody(ribbon(a.p1, a.p2, hw))
       }
       if (a.type === 'ruler') {
         for (const end of [a.p1, a.p2]) {
@@ -384,7 +507,7 @@ export function paintPitch(
         }
       }
       // Область попадания — те же ленты, но тоньше не меньше линии (допуск добавляется при проверке).
-      out.hit = out.body.slice()
+      out.hit = wholeHit ?? out.body.slice()
     }
     handle('p1', a.p1)
     handle('p2', a.p2)

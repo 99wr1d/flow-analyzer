@@ -29,6 +29,7 @@ import {
   FALLBACK_FPS,
   type StopReason
 } from '../../../../shared/tracking/trackingIpc'
+import { PILLAR_WIDTH_SHARE } from '../../../../shared/tools/pillar'
 import { ru } from '../../i18n/ru'
 import { formatTime } from '../player/format'
 
@@ -183,11 +184,42 @@ const DIVERGE_HEIGHT_FRACTION = 0.5
 
 type Box2 = { p1: Pt; p2: Pt }
 
+/** Плоскость следа столба относительно его ширины (высота/ширина в пикселях). */
+const PILLAR_FOOTING_RATIO = 0.35
+
+/**
+ * Столб стоит на ногах игрока: низ овала — точка ног, ширина столба ≈ ширине фигуры. Если столб, как его поставил тренер,
+ * уже стоит у ног игрока и по ширине подходит, он остаётся; иначе овал заменяется следом под ногами (только пока нет ключей).
+ */
+function footPillar(a: Annotation, ref: TrackSample, at: number, aspect: number): Annotation {
+  if (a.type !== 'spot') return a
+  const g = geomAt(a, at) as unknown as Box2
+  const figureW = (ref.height * FIGURE_ASPECT) / aspect
+  const cx = (g.p1.x + g.p2.x) / 2
+  const rx0 = Math.abs(g.p2.x - g.p1.x) / 2
+  const bottom = Math.max(g.p1.y, g.p2.y)
+  const width = 2 * rx0 * PILLAR_WIDTH_SHARE
+  const placed =
+    Math.abs(bottom - ref.foot.y) <= 0.15 * ref.height &&
+    Math.abs(cx - ref.foot.x) <= 0.5 * figureW &&
+    width >= 0.6 * figureW &&
+    width <= 1.6 * figureW
+  if (placed || keysOf(a).length > 0) return a
+  const rx = figureW / 2 / PILLAR_WIDTH_SHARE
+  const ry = rx * aspect * PILLAR_FOOTING_RATIO
+  return {
+    ...a,
+    p1: { x: ref.foot.x - rx, y: ref.foot.y - 2 * ry },
+    p2: { x: ref.foot.x + rx, y: ref.foot.y }
+  } as Annotation
+}
+
 /**
  * Прожектор накрывает всю фигуру игрока, а не только ноги: если овал, как его нарисовал тренер, не накрывает фигуру
  * на стартовом кадре, он заменяется овалом вокруг фигуры. Прожектор с лучом (с поля) не трогаем: луч поднимается сам.
  */
 function coverFigure(a: Annotation, ref: TrackSample, at: number, aspect: number): Annotation {
+  if (a.type === 'spot' && a.form === 'pillar') return footPillar(a, ref, at, aspect)
   if (a.type !== 'spot' || a.beam) return a
   const g = geomAt(a, at) as unknown as Box2
   const cx = (g.p1.x + g.p2.x) / 2
@@ -218,6 +250,44 @@ function coverFigure(a: Annotation, ref: TrackSample, at: number, aspect: number
   const keys = keysOf(a)
   // У рисунка ещё нет ключей слежения на этом месте: новая форма — геометрия рисунка и всех его ключей до слежения.
   return keys.length === 0 ? next : a
+}
+
+/**
+ * Ширина кольца у ног в долях высоты рамки игрока: кольцо плотно охватывает ноги. Рамка детектора с запасом выше самой фигуры
+ * (по проверке на трансляции — ~1.3 роста), поэтому 0.72 рамки ≈ 0.9 видимого роста.
+ */
+export const RING_WIDTH_OF_HEIGHT = 0.72
+/** Подъём центра кольца над низом рамки (доли высоты рамки): рамка заходит ниже подошв. */
+export const RING_LIFT = 0.07
+
+/**
+ * Кольцо (экранный круг без ключей), от которого начинают слежение: центр — точка ног игрока (низ рамки), ширина ≈ 0.9 роста
+ * игрока, сплющивание (высота/ширина в пикселях) остаётся как у кольца. Перецентрируется ТОЛЬКО новое кольцо у ног: экранный круг,
+ * не переведённый с поля, со свойством glow (создан в 0.18) и шириной не больше 1.5 высоты рамки. Остальное (кольцо с поля,
+ * старый круг 0.17, большой круг на группу, уже анимированный руками) остаётся как нарисовал тренер (смещение и масштаб).
+ */
+export function fitRing(
+  a: Annotation,
+  ref: TrackSample,
+  at: number,
+  aspect: number,
+  convertedFromPitch: boolean
+): Annotation {
+  if (a.type !== 'circle' || a.glow === undefined || convertedFromPitch || keysOf(a).length > 0)
+    return a
+  const g = geomAt(a, at) as unknown as Box2
+  const w = Math.abs(g.p2.x - g.p1.x) * aspect
+  const h = Math.abs(g.p2.y - g.p1.y)
+  if (!(w > 0) || !(ref.height > 0) || w > 1.5 * ref.height) return a
+  const ratio = h / w
+  const rx = (RING_WIDTH_OF_HEIGHT * ref.height) / 2 / aspect
+  const ry = rx * aspect * ratio
+  const cy = ref.foot.y - RING_LIFT * ref.height
+  return {
+    ...a,
+    p1: { x: ref.foot.x - rx, y: cy - ry },
+    p2: { x: ref.foot.x + rx, y: cy + ry }
+  } as Annotation
 }
 
 /**
@@ -256,7 +326,13 @@ export function applyTrackResult(
   const aspect = opts.aspect && opts.aspect > 0 ? opts.aspect : 16 / 9
   const src0 = plan.convertedFromPitch ? plan.base : current
   const ref = nearestSample(samples, plan.at)
-  const src = coverFigure(src0, ref, plan.at, aspect)
+  const src = fitRing(
+    coverFigure(src0, ref, plan.at, aspect),
+    ref,
+    plan.at,
+    aspect,
+    plan.convertedFromPitch
+  )
   const existing = keysOf(src)
 
   // Ручные ключи-опоры после места: если игрок там далеко от ручного положения — останавливаемся перед ними.

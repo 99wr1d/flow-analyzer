@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AnnotationSchema, type Annotation, type Circle, type Ring } from '../annotations'
 import { keysOf, type Keyframe } from '../animation'
+import { groundEllipseRatio } from '../pitch/ground'
 import { sampleCalibration } from '../pitch/pitch.testkit'
 import {
   mergeTrackedKeys,
@@ -209,6 +210,25 @@ describe('pitchToScreenForTracking', () => {
     expect(out.p2.y).toBeGreaterThan(out.p1.y)
     expect('calibrationId' in out).toBe(false)
     expect(AnnotationSchema.safeParse(out).success).toBe(true)
+  })
+  it('свечение, вид и пульс кольца переходят в эллипс; у старого кольца этих полей нет', () => {
+    const fx = pitchToScreenForTracking(
+      ring({ glow: true, look: 'target', pulse: true }),
+      cal,
+      12
+    ) as Circle
+    expect(fx.glow).toBe(true)
+    expect(fx.look).toBe('target')
+    expect(fx.pulse).toBe(true)
+    const old = pitchToScreenForTracking(ring(), cal, 12) as Circle
+    expect('glow' in old || 'look' in old || 'pulse' in old).toBe(false)
+  })
+  it('эллипс лежит на траве: отношение высоты к ширине как у круга на поле в этой точке', () => {
+    const out = pitchToScreenForTracking(ring(), cal, 12) as Circle
+    const w = (out.p2.x - out.p1.x) * cal.aspect
+    const h = out.p2.y - out.p1.y
+    const centre = { x: (out.p1.x + out.p2.x) / 2, y: (out.p1.y + out.p2.y) / 2 }
+    expect(Math.abs(h / w - groundEllipseRatio(cal, centre)) / (h / w)).toBeLessThan(0.1)
   })
   it('прожектор на поле → экранный прожектор с лучом', () => {
     const pspot: Annotation = {

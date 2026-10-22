@@ -252,3 +252,26 @@ describe('старые проекты читаются, новые сохран�
     expect(bad.success).toBe(false)
   })
 })
+
+describe('прожектор: поле dimmed', () => {
+  it('spotDim: нет поля или true — затемняет с силой dim, false — не затемняет', async () => {
+    const { spotDim } = await import('./annotations')
+    expect(spotDim({ dim: 0.5 })).toBe(0.5)
+    expect(spotDim({ dim: 0.5, dimmed: true })).toBe(0.5)
+    expect(spotDim({ dim: 0.5, dimmed: false })).toBe(0)
+  })
+  it('схема принимает dimmed и сохраняет, старый прожектор остаётся без поля', async () => {
+    const { SpotlightSchema } = await import('./annotations')
+    const base = {
+      id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11',
+      type: 'spot',
+      p1: { x: 0.1, y: 0.1 },
+      p2: { x: 0.2, y: 0.3 },
+      dim: 0.5,
+      style: { color: '#ffd60a', width: 0.01, dash: 'solid' },
+      timing: { mode: 'range', start: 0, duration: 3 }
+    }
+    expect(SpotlightSchema.parse({ ...base, dimmed: false }).dimmed).toBe(false)
+    expect('dimmed' in SpotlightSchema.parse(base)).toBe(false)
+  })
+})

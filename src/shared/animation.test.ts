@@ -431,3 +431,22 @@ describe('ключи слежения: ручная правка снимает 
     expect(keysOf(next)[2].auto).toBe(true)
   })
 })
+
+describe('movingIndices: рисунки, зависящие от времени', () => {
+  const pulsing = (over: object = {}): Annotation =>
+    ({
+      id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4e01',
+      space: 'screen',
+      type: 'circle',
+      p1: { x: 0.4, y: 0.5 },
+      p2: { x: 0.5, y: 0.6 },
+      style: { color: '#ff5a1f', width: 0.004, dash: 'solid' },
+      timing: { mode: 'range', start: 1, duration: 3 },
+      ...over
+    }) as Annotation
+  it('круг/кольцо с пульсом без ключей попадает в покадровые; без пульса — нет', () => {
+    expect(movingIndices([pulsing({ pulse: true }), pulsing(), pulsing({ pulse: false })])).toEqual(
+      [0]
+    )
+  })
+})

@@ -1,3 +1,4 @@
+import { LabelText } from './LabelText'
 import { memo, useMemo } from 'react'
 import {
   LEGACY_CIRCLE_FILL,
@@ -19,19 +20,37 @@ import { textRect, toPx } from './hit'
 import {
   PaintHandles,
   PaintParts,
+  TargetGradient,
   PitchBody,
   PitchHandlesView,
   type DrawPart
 } from './PitchShapeView'
+import {
+  LINE_CORE_SCALE,
+  TARGET_CENTER_ALPHA,
+  TARGET_LINE_SCALE,
+  TARGET_RADII,
+  TARGET_RING_OPACITY,
+  dashStyle,
+  glowStack,
+  isTarget,
+  isTimeVarying,
+  lineCoreColor,
+  lineGlowStack,
+  LINE_GLOW_BOOST,
+  LINE_GLOW_REACH,
+  pulseActive,
+  pulsePhase,
+  revealFraction,
+  WAVE_LINE_SCALE,
+  waveOpacity,
+  waveScale
+} from '../../../../shared/styleFx'
 import { isDarkColor } from './styles'
-import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
+import { measureTextWidth } from './textMetrics'
 
 const HALO = 'rgba(43, 214, 123, 0.38)'
 const ACCENT = '#2bd67b'
-
-function dashArray(width: number, dash: 'solid' | 'dashed'): string | undefined {
-  return dash === 'dashed' ? `${width * 2.4} ${width * 1.8}` : undefined
-}
 
 interface ShapeProps {
   annotation: Annotation
@@ -52,6 +71,8 @@ interface ShapeProps {
   keepGround?: boolean
   /** Сдвиги подписей на поле (пиксели): см. pitchLabelShifts. */
   labelShift?: LabelShift
+  /** Время видео, секунды: нужно пульсу (нет — волны нет). */
+  time?: number
 }
 
 /** Новые рисунки на экране (прожектор, кривая, перо, зона, лупа, связи): геометрию считает paintScreenTool. */
@@ -60,15 +81,17 @@ function ScreenToolBody({
   size,
   selected,
   shadowClass,
-  part
+  part,
+  time
 }: {
   annotation: ScreenToolAnnotation
   size: Size
   selected: boolean
   shadowClass?: string
   part?: DrawPart
+  time?: number
 }): React.JSX.Element {
-  const paint = useMemo(() => paintScreenTool(a, size), [a, size])
+  const paint = useMemo(() => paintScreenTool(a, size, time), [a, size, time])
   return (
     <PaintParts
       paint={paint}
@@ -82,12 +105,38 @@ function ScreenToolBody({
   )
 }
 
+/** Волна пульса экранного круга: эллипс растёт от центра к краю и бледнеет. */
+function WaveEllipse(p: {
+  cx: number
+  cy: number
+  rx: number
+  ry: number
+  phase: number
+  color: string
+  w: number
+}): React.JSX.Element {
+  return (
+    <ellipse
+      data-part="wave"
+      cx={p.cx}
+      cy={p.cy}
+      rx={p.rx * waveScale(p.phase)}
+      ry={p.ry * waveScale(p.phase)}
+      fill="none"
+      stroke={p.color}
+      strokeOpacity={waveOpacity(p.phase)}
+      strokeWidth={p.w * WAVE_LINE_SCALE}
+    />
+  )
+}
+
 function ShapeBody({
   annotation: a,
   size,
   selected,
   shadowClass,
-  part = 'all'
+  part = 'all',
+  time
 }: ShapeProps & { annotation: ScreenAnnotation; shadowClass?: string }): React.JSX.Element {
   if (isScreenTool(a)) {
     return (
@@ -97,6 +146,7 @@ function ShapeBody({
         selected={selected}
         shadowClass={shadowClass}
         part={part}
+        time={isTimeVarying(a) ? time : undefined}
       />
     )
   }
@@ -134,23 +184,15 @@ function ShapeBody({
             fill={dark ? 'rgba(255,255,255,0.88)' : 'rgba(10,12,16,0.68)'}
           />
         )}
-        <text
+        <LabelText
+          text={a.text}
           x={r.x + pad}
           y={r.y + r.h / 2}
-          dominantBaseline="central"
-          fontSize={font}
-          fontFamily={TEXT_FONT_FAMILY}
-          fontWeight={TEXT_FONT_WEIGHT}
-          fill={a.style.color}
-          stroke={
-            a.style.background ? undefined : dark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.75)'
-          }
-          strokeWidth={a.style.background ? undefined : font * 0.14}
-          strokeLinejoin="round"
-          paintOrder="stroke"
-        >
-          {a.text}
-        </text>
+          fontPx={font}
+          color={a.style.color}
+          plate={a.style.background}
+          shadow={a.style.shadow}
+        />
       </>
     )
   }
@@ -158,7 +200,6 @@ function ShapeBody({
   const p1 = toPx(a.p1, size)
   const p2 = toPx(a.p2, size)
   const w = Math.max(1, a.style.width * size.h)
-  const dash = dashArray(w, a.style.dash)
   const color = a.style.color
 
   if (a.type === 'circle') {
@@ -166,12 +207,98 @@ function ShapeBody({
     const cy = (p1.y + p2.y) / 2
     const rx = Math.abs(p2.x - p1.x) / 2
     const ry = Math.abs(p2.y - p1.y) / 2
+    if (isTarget(a)) {
+      // «Мишень»: три кольца (1, 0.66, 0.33), радиальная заливка от центра к краю, волна пульса.
+      const phase = pulseActive(a) && time !== undefined ? pulsePhase(time) : undefined
+      return (
+        <>
+          {selected && (
+            <ellipse
+              cx={cx}
+              cy={cy}
+              rx={rx}
+              ry={ry}
+              fill="none"
+              stroke={HALO}
+              strokeWidth={w + 8}
+            />
+          )}
+          <defs>
+            <TargetGradient id={a.id} color={color} />
+          </defs>
+          <ellipse
+            data-part="disc"
+            cx={cx}
+            cy={cy}
+            rx={rx}
+            ry={ry}
+            fill={`url(#target-${a.id})`}
+            fillOpacity={TARGET_CENTER_ALPHA}
+            stroke="none"
+          />
+          {TARGET_RADII.map((k, ki) => (
+            <g key={k} data-part="target-ring" data-k={k}>
+              {a.glow === true &&
+                glowStack(w * TARGET_LINE_SCALE, w * TARGET_LINE_SCALE).map((l, i) => (
+                  <ellipse
+                    key={`glow-${i}`}
+                    data-part="glow"
+                    cx={cx}
+                    cy={cy}
+                    rx={rx * k}
+                    ry={ry * k}
+                    fill="none"
+                    stroke={color}
+                    strokeOpacity={l.opacity}
+                    strokeWidth={l.width}
+                  />
+                ))}
+              <ellipse
+                data-part="core"
+                cx={cx}
+                cy={cy}
+                rx={rx * k}
+                ry={ry * k}
+                fill="none"
+                stroke={color}
+                strokeOpacity={TARGET_RING_OPACITY[ki]}
+                strokeWidth={w * TARGET_LINE_SCALE}
+              />
+            </g>
+          ))}
+          {phase !== undefined && (
+            <WaveEllipse cx={cx} cy={cy} rx={rx} ry={ry} phase={phase} color={color} w={w} />
+          )}
+        </>
+      )
+    }
+    const phase = pulseActive(a) && time !== undefined ? pulsePhase(time) : undefined
+    const ellipseLen = Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry)))
+    const ds = dashStyle(a.style.dash, w, ellipseLen, true)
     return (
       <>
         {selected && (
           <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke={HALO} strokeWidth={w + 8} />
         )}
+        {a.glow === true &&
+          glowStack(w, w).map((l, i) => (
+            <ellipse
+              key={`glow-${i}`}
+              data-part="glow"
+              cx={cx}
+              cy={cy}
+              rx={rx}
+              ry={ry}
+              fill="none"
+              stroke={color}
+              strokeOpacity={l.opacity}
+              strokeWidth={l.width}
+              strokeDasharray={ds.array}
+              strokeLinecap={ds.cap}
+            />
+          ))}
         <ellipse
+          data-part="core"
           cx={cx}
           cy={cy}
           rx={rx}
@@ -180,75 +307,92 @@ function ShapeBody({
           fillOpacity={a.fillOpacity ?? LEGACY_CIRCLE_FILL}
           stroke={color}
           strokeWidth={w}
-          strokeDasharray={dash}
+          strokeDasharray={ds.array}
           strokeLinecap="round"
         />
+        {phase !== undefined && (
+          <WaveEllipse cx={cx} cy={cy} rx={rx} ry={ry} phase={phase} color={color} w={w} />
+        )}
       </>
     )
   }
 
-  if (a.type === 'line') {
-    return (
-      <>
-        {selected && (
-          <line
-            x1={p1.x}
-            y1={p1.y}
-            x2={p2.x}
-            y2={p2.y}
-            stroke={HALO}
-            strokeWidth={w + 8}
-            strokeLinecap="round"
-          />
-        )}
+  // Стрелка и линия: свечение (ореол стопкой слоёв и светлое ядро) и проявление (путь обрезается по длине).
+  const arrow = a.type === 'arrow' ? arrowShape(p1, p2, w) : null
+  const shaftEnd = arrow ? arrow.lineEnd : p2
+  const shaftLen = Math.hypot(shaftEnd.x - p1.x, shaftEnd.y - p1.y)
+  // Точки раскладываются по длине всей линии, а не видимой части: они не ползут, пока линия растёт.
+  const ds = dashStyle(a.style.dash, w, shaftLen)
+  const frac = time === undefined ? 1 : revealFraction(a, time)
+  // Стержень проявляется по своей длине: наконечник появляется ровно тогда, когда стержень дорос.
+  const k = Math.min(1, frac)
+  const end =
+    frac >= 1 ? shaftEnd : { x: p1.x + (shaftEnd.x - p1.x) * k, y: p1.y + (shaftEnd.y - p1.y) * k }
+  const glow = a.glow === true
+  const head = arrow && frac >= 1 ? arrow.head.map((p) => `${p.x},${p.y}`).join(' ') : null
+  const stroke = (
+    key: string,
+    part: string,
+    stroked: string,
+    width: number,
+    opacity?: number
+  ): React.JSX.Element => (
+    <line
+      key={key}
+      data-part={part}
+      x1={p1.x}
+      y1={p1.y}
+      x2={end.x}
+      y2={end.y}
+      stroke={stroked}
+      strokeOpacity={opacity}
+      strokeWidth={width}
+      strokeDasharray={ds.array}
+      strokeLinecap={ds.cap}
+    />
+  )
+  return (
+    <>
+      {selected && (
         <line
           x1={p1.x}
           y1={p1.y}
           x2={p2.x}
           y2={p2.y}
-          stroke={color}
-          strokeWidth={w}
-          strokeDasharray={dash}
-          strokeLinecap={a.style.dash === 'dashed' ? 'butt' : 'round'}
+          stroke={HALO}
+          strokeWidth={w + 8}
+          strokeLinecap="round"
         />
-      </>
-    )
-  }
-
-  const arrow = arrowShape(p1, p2, w)
-  const points = arrow.head.map((p) => `${p.x},${p.y}`).join(' ')
-  return (
-    <>
-      {selected && (
-        <>
-          <line
-            x1={p1.x}
-            y1={p1.y}
-            x2={p2.x}
-            y2={p2.y}
-            stroke={HALO}
-            strokeWidth={w + 8}
-            strokeLinecap="round"
-          />
-        </>
       )}
-      <line
-        x1={p1.x}
-        y1={p1.y}
-        x2={arrow.lineEnd.x}
-        y2={arrow.lineEnd.y}
-        stroke={color}
-        strokeWidth={w}
-        strokeDasharray={dash}
-        strokeLinecap={a.style.dash === 'dashed' ? 'butt' : 'round'}
-      />
-      <polygon
-        points={points}
-        fill={color}
-        stroke={color}
-        strokeWidth={w * 0.5}
-        strokeLinejoin="round"
-      />
+      {glow &&
+        frac > 0 &&
+        lineGlowStack(w).map((l, i) => stroke(`glow-${i}`, 'glow', color, l.width, l.opacity))}
+      {glow &&
+        head &&
+        glowStack(0, w * LINE_GLOW_REACH, LINE_GLOW_BOOST).map((l, i) => (
+          <polygon
+            key={`head-glow-${i}`}
+            data-part="glow"
+            points={head}
+            fill="none"
+            stroke={color}
+            strokeOpacity={l.opacity}
+            strokeWidth={l.width}
+            strokeLinejoin="round"
+          />
+        ))}
+      {frac > 0 && stroke('line', 'line', color, w)}
+      {head && (
+        <polygon
+          data-part="head"
+          points={head}
+          fill={color}
+          stroke={color}
+          strokeWidth={w * 0.5}
+          strokeLinejoin="round"
+        />
+      )}
+      {glow && frac > 0 && stroke('core', 'core', lineCoreColor(color), w * LINE_CORE_SCALE)}
     </>
   )
 }
@@ -301,9 +445,23 @@ function geometryOf(a: Annotation): string {
     case 'ring':
       return JSON.stringify({ center: a.center, radius: a.radius })
     case 'pspot':
-      return JSON.stringify({ center: a.center, radius: a.radius, dim: a.dim, beam: a.beam })
+      return JSON.stringify({
+        center: a.center,
+        radius: a.radius,
+        dim: a.dim,
+        dimmed: a.dimmed,
+        beam: a.beam,
+        form: a.form
+      })
     case 'spot':
-      return JSON.stringify({ p1: a.p1, p2: a.p2, dim: a.dim, beam: a.beam })
+      return JSON.stringify({
+        p1: a.p1,
+        p2: a.p2,
+        dim: a.dim,
+        dimmed: a.dimmed,
+        beam: a.beam,
+        form: a.form
+      })
     case 'curve':
     case 'pcurve':
       return JSON.stringify({ p1: a.p1, p2: a.p2, c: a.c })
@@ -328,9 +486,17 @@ const HAS_UNDERLAY = new Set(['zone', 'chain', 'pzone', 'pchain', 'spot', 'pspot
 export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.Element | null {
   const a = props.annotation
   const dark = isDarkColor(a.style.color)
+  // Пульс идёт только у рисунка-отрезка: «только кадр» — стоп-кадр, в нём волны нет ни на экране, ни в экспорте.
+  const time = a.timing.mode === 'range' ? props.time : undefined
   // Рисунок на поле без рабочей разметки (её удалили или точки некорректны) не показывается.
   if (isPitchAnnotation(a) && !props.projector) return null
-  const shadow = dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
+  // Кольцо и линия со свечением рисуются без тени: тёмная кайма под ореолом портила бы его.
+  const glowing = 'glow' in a && a.glow === true
+  // Подпись без плашки с полем shadow сама решает про тень (тонкая тёмная кайма букв или никакой); общая тень группы — только старым подписям.
+  const ownShadow =
+    (a.type === 'text' || a.type === 'ptext') && !a.style.background && a.style.shadow !== undefined
+  const shadow =
+    glowing || ownShadow ? undefined : dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
   // У рисунков с полупрозрачной заливкой тень на группе просвечивала бы сквозь заливку: тень получают только линии и подписи.
   const split = HAS_UNDERLAY.has(a.type)
   const body = (part: DrawPart | undefined, selected: boolean): React.JSX.Element =>
@@ -343,10 +509,12 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
         shadowClass={split ? shadow : undefined}
         part={part}
         labelShift={props.labelShift}
+        time={time}
       />
     ) : (
       <ShapeBody
         {...props}
+        time={time}
         annotation={a}
         selected={selected}
         part={part}
@@ -365,6 +533,8 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
       data-text={a.type === 'text' || a.type === 'ptext' ? a.text : undefined}
       data-selected={props.selected}
       data-under={isUnderPlayers(a) ? 'true' : 'false'}
+      data-glow={glowing ? 'true' : undefined}
+      data-form={a.type === 'spot' || a.type === 'pspot' ? (a.form ?? 'oval') : undefined}
       data-dimmed={props.dimmed ? 'true' : undefined}
       opacity={props.dimmed ? 0.5 : undefined}
     >

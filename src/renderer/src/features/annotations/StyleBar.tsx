@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { canBeUnder, isUnderPlayers } from '../../../../shared/annotations'
 import { ru } from '../../i18n/ru'
 import { GrassMenu } from '../under/GrassMenu'
@@ -6,6 +7,7 @@ import { useKeyHint } from '../commands/useKeys'
 import { redoAny, undoAny, useCanRedo, useCanUndo } from '../history/unified'
 import {
   DashedLineIcon,
+  DottedLineIcon,
   PitchIcon,
   RedoIcon,
   SolidLineIcon,
@@ -20,8 +22,11 @@ import { useActiveCalibration } from '../pitch/usePitch'
 import { selectedAnnotation, underForNew, useAnnotationsStore } from './annotationsStore'
 import {
   LEVELS,
+  MAX_REVEAL,
+  MIN_REVEAL,
   PALETTE,
   TEXT_SIZES,
+  isLineType,
   levelOf,
   textLevelOf,
   type CurrentStyle,
@@ -33,14 +38,47 @@ import {
 function useShownStyle(): CurrentStyle {
   const style = useAnnotationsStore((s) => s.style)
   const selected = useAnnotationsStore(selectedAnnotation)
-  if (!selected) return style
+  const tool = useAnnotationsStore((s) => s.tool)
+  if (!selected) {
+    if (tool === 'circle') return { ...style, level: style.ringLevel }
+    // Для новой подписи показан цвет подписей (он запоминается отдельно).
+    return tool === 'text' ? { ...style, color: style.textColor } : style
+  }
   const isText = selected.type === 'text' || selected.type === 'ptext'
   return {
+    ...style,
     color: selected.style.color,
     level: levelOf(selected),
     textLevel: textLevelOf(selected),
     dash: isText ? style.dash : selected.style.dash,
-    textBackground: isText ? selected.style.background : style.textBackground
+    textBackground: isText ? selected.style.background : style.textBackground,
+    // Тень выбранной подписи — её собственная (у старой подписи поля нет — значит, прежний контур, т. е. не «тень»).
+    textShadow: isText ? selected.style.shadow === true : style.textShadow,
+    // Свечение выбранного кольца — его собственное (у старого кольца поля нет — значит, свечения нет), а не умолчание для новых.
+    glow:
+      selected.type === 'circle' || selected.type === 'ring' ? selected.glow === true : style.glow,
+    // Вид и пульс выбранного кольца — его собственные (у старого поля нет — значит, «кольцо» без пульса).
+    look:
+      selected.type === 'circle' || selected.type === 'ring'
+        ? (selected.look ?? 'ring')
+        : style.look,
+    pulse:
+      selected.type === 'circle' || selected.type === 'ring'
+        ? selected.pulse === true
+        : style.pulse,
+    // Свечение и проявление выбранной линии — её собственные (у старой линии полей нет — значит, выключены).
+    lineGlow: isLineType(selected.type)
+      ? (selected as { glow?: boolean }).glow === true
+      : style.lineGlow,
+    reveal: isLineType(selected.type)
+      ? ((selected as { reveal?: number }).reveal ?? null)
+      : style.reveal,
+    revealSecs: isLineType(selected.type)
+      ? ((selected as { reveal?: number }).reveal ?? style.revealSecs)
+      : style.revealSecs,
+    // Вид выбранного прожектора — его собственный (у старого поля нет — значит, «овал»).
+    form:
+      selected.type === 'spot' || selected.type === 'pspot' ? (selected.form ?? 'oval') : style.form
   }
 }
 
@@ -164,9 +202,239 @@ function UnderToggle(): React.JSX.Element {
   )
 }
 
+/** «Свечение» кольца/круга и линий: у выбранного — его значение, иначе — для новых. Для остальных рисунков недоступно. */
+function GlowToggle({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const type = selected ? selected.type : tool
+  const line = isLineType(type)
+  const enabled = type === 'circle' || type === 'ring' || line
+  const value = line ? shown.lineGlow : shown.glow
+  const on = enabled && value
+  return (
+    <button
+      type="button"
+      className={on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'}
+      disabled={!enabled}
+      aria-pressed={on}
+      title={line ? ru.annotations.glowLineHint : ru.annotations.glowHint}
+      data-testid="glow-toggle"
+      onClick={(e) => {
+        setStyle(line ? { lineGlow: !value } : { glow: !value })
+        e.currentTarget.blur()
+      }}
+    >
+      {ru.annotations.glow}
+    </button>
+  )
+}
+
+/** Сейчас настраивается кольцо или круг (выбранный рисунок или инструмент). */
+function useRingContext(): boolean {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  const type = selected ? selected.type : tool
+  return type === 'circle' || type === 'ring'
+}
+
+/** «Кольцо / Мишень» и «Пульс» кольца/круга: у выбранного — его значения, иначе — для новых. Для остальных рисунков недоступны. */
+function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const pulseOn = shown.pulse
+  return (
+    <>
+      {(['ring', 'target'] as const).map((look) => {
+        const on = shown.look === look
+        return (
+          <button
+            key={look}
+            type="button"
+            className={
+              on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+            }
+            aria-pressed={on}
+            title={look === 'ring' ? ru.annotations.lookRingHint : ru.annotations.lookTargetHint}
+            data-testid={`look-${look}`}
+            onClick={(e) => {
+              setStyle({ look })
+              e.currentTarget.blur()
+            }}
+          >
+            {look === 'ring' ? ru.annotations.lookRing : ru.annotations.lookTarget}
+          </button>
+        )
+      })}
+      <button
+        type="button"
+        className={
+          pulseOn ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+        }
+        aria-pressed={pulseOn}
+        title={ru.annotations.pulseHint}
+        data-testid="pulse-toggle"
+        onClick={(e) => {
+          setStyle({ pulse: !shown.pulse })
+          e.currentTarget.blur()
+        }}
+      >
+        {ru.annotations.pulse}
+      </button>
+    </>
+  )
+}
+
+/** Сейчас настраивается линия (стрелка, линия, кривая): выбранный рисунок или инструмент. */
+function useLineContext(): boolean {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  return isLineType(selected ? selected.type : tool)
+}
+
+/**
+ * «Проявление» линии и его длительность (малое окно со ползунком 0,2–3 с): у выбранной линии — её значения,
+ * иначе — для новых. Длительность запоминается и пока проявление выключено.
+ */
+function RevealControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  // Рисунок «Только кадр» — стоп-кадр: проявлять нечего, переключатель недоступен.
+  const frameOnly = useAnnotationsStore((s) => selectedAnnotation(s)?.timing.mode === 'frame')
+  const on = shown.reveal !== null && !frameOnly
+  const secs = shown.reveal ?? shown.revealSecs
+
+  // Окно закрывается щелчком вне его и по Esc.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: PointerEvent): void => {
+      if (ref.current && e.target instanceof Node && !ref.current.contains(e.target)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      e.stopPropagation()
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        type="button"
+        className={on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'}
+        aria-pressed={on}
+        disabled={frameOnly}
+        title={frameOnly ? ru.annotations.revealFrameOnly : ru.annotations.revealHint}
+        data-testid="reveal-toggle"
+        onClick={(e) => {
+          setOpen(false)
+          setStyle({ reveal: on ? null : shown.revealSecs, revealSecs: secs })
+          e.currentTarget.blur()
+        }}
+      >
+        {ru.annotations.reveal}
+      </button>
+      {on && (
+        <div className="reveal-menu" ref={ref}>
+          <button
+            type="button"
+            className={
+              open ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+            }
+            aria-pressed={open}
+            aria-haspopup="dialog"
+            title={ru.annotations.revealDuration}
+            data-testid="reveal-duration"
+            onClick={(e) => {
+              setOpen(!open)
+              e.currentTarget.blur()
+            }}
+          >
+            {ru.annotations.revealSeconds(secs)}
+          </button>
+          {open && (
+            <div
+              className="reveal-popover"
+              role="dialog"
+              aria-label={ru.annotations.revealDuration}
+              data-testid="reveal-popover"
+            >
+              <span className="field__label">{ru.annotations.revealDuration}</span>
+              <input
+                type="range"
+                min={MIN_REVEAL * 10}
+                max={MAX_REVEAL * 10}
+                step={1}
+                value={Math.round(secs * 10)}
+                aria-label={ru.annotations.revealDuration}
+                data-testid="reveal-slider"
+                onChange={(e) => {
+                  const v = Number(e.target.value) / 10
+                  setStyle({ reveal: v, revealSecs: v })
+                }}
+                onPointerUp={(e) => e.currentTarget.blur()}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** Сейчас настраивается прожектор (выбранный рисунок или инструмент). */
+function useSpotContext(): boolean {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  const type = selected ? selected.type : tool
+  return type === 'spot' || type === 'pspot'
+}
+
+/** «Овал / Столб» прожектора: у выбранного — его значение, иначе — для новых. */
+function FormControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  return (
+    <>
+      {(['oval', 'pillar'] as const).map((form) => {
+        const on = shown.form === form
+        return (
+          <button
+            key={form}
+            type="button"
+            className={
+              on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+            }
+            aria-pressed={on}
+            title={form === 'oval' ? ru.annotations.formOvalHint : ru.annotations.formPillarHint}
+            data-testid={`form-${form}`}
+            onClick={(e) => {
+              setStyle({ form })
+              e.currentTarget.blur()
+            }}
+          >
+            {form === 'oval' ? ru.annotations.formOval : ru.annotations.formPillar}
+          </button>
+        )
+      })}
+    </>
+  )
+}
+
 export function StyleBar(): React.JSX.Element {
   const shown = useShownStyle()
+  // С плашкой тень не рисуется (плашка сама даёт контраст), поэтому кнопка выключена и показана «не нажатой».
+  const shadowOn = shown.textShadow && !shown.textBackground
   const context = useContextType()
+  // Для кольца/круга вместо кнопок подписи (они ему не нужны) показываются «Кольцо / Мишень» и «Пульс»: панель остаётся в одну строку.
+  const ringContext = useRingContext()
+  const spotContext = useSpotContext()
+  const lineContext = useLineContext()
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()
@@ -242,14 +510,14 @@ export function StyleBar(): React.JSX.Element {
       )}
       <span className="style-bar__gap" />
       <div className="style-bar__group" role="group" aria-label={ru.annotations.dash}>
-        {(['solid', 'dashed'] as const).map((d) => (
+        {(['solid', 'dashed', 'dotted'] as const).map((d) => (
           <button
             key={d}
             type="button"
             className={shown.dash === d ? 'seg-btn seg-btn--active' : 'seg-btn'}
             disabled={context === 'text' || context === 'ruler'}
-            title={d === 'solid' ? ru.annotations.solid : ru.annotations.dashed}
-            aria-label={d === 'solid' ? ru.annotations.solid : ru.annotations.dashed}
+            title={ru.annotations[d]}
+            aria-label={ru.annotations[d]}
             aria-pressed={shown.dash === d}
             data-testid={`dash-${d}`}
             onClick={(e) => {
@@ -257,26 +525,60 @@ export function StyleBar(): React.JSX.Element {
               e.currentTarget.blur()
             }}
           >
-            {d === 'solid' ? <SolidLineIcon size={18} /> : <DashedLineIcon size={18} />}
+            {d === 'solid' ? (
+              <SolidLineIcon size={18} />
+            ) : d === 'dashed' ? (
+              <DashedLineIcon size={18} />
+            ) : (
+              <DottedLineIcon size={18} />
+            )}
           </button>
         ))}
       </div>
-      <button
-        type="button"
-        className={
-          shown.textBackground ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
-        }
-        disabled={context === 'shape' || context === 'ruler'}
-        title={ru.annotations.textBackground}
-        aria-pressed={shown.textBackground}
-        data-testid="text-background"
-        onClick={(e) => {
-          setStyle({ textBackground: !shown.textBackground })
-          e.currentTarget.blur()
-        }}
-      >
-        Aa
-      </button>
+      {!ringContext && !spotContext && !lineContext && (
+        <>
+          <button
+            type="button"
+            className={
+              shown.textBackground
+                ? 'chip-btn chip-btn--sq chip-btn--active'
+                : 'chip-btn chip-btn--sq'
+            }
+            disabled={context === 'shape' || context === 'ruler'}
+            title={ru.annotations.textBackground}
+            aria-pressed={shown.textBackground}
+            data-testid="text-background"
+            onClick={(e) => {
+              setStyle({ textBackground: !shown.textBackground })
+              e.currentTarget.blur()
+            }}
+          >
+            Aa
+          </button>
+          <button
+            type="button"
+            className={
+              shadowOn ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
+            }
+            disabled={context === 'shape' || context === 'ruler' || shown.textBackground}
+            title={
+              shown.textBackground ? ru.annotations.textShadowPlate : ru.annotations.textShadow
+            }
+            aria-pressed={shadowOn}
+            data-testid="text-shadow"
+            onClick={(e) => {
+              setStyle({ textShadow: !shown.textShadow })
+              e.currentTarget.blur()
+            }}
+          >
+            <span style={{ textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>Aa</span>
+          </button>
+        </>
+      )}
+      <GlowToggle shown={shown} />
+      {ringContext && <LookControls shown={shown} />}
+      {spotContext && <FormControls shown={shown} />}
+      {lineContext && <RevealControls shown={shown} />}
       <PitchControls />
       <span className="style-bar__sep" />
       <div className="style-bar__group">

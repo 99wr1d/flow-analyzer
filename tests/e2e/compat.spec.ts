@@ -24,6 +24,8 @@ test('на каждую эпоху формата есть файл', () => {
     'v0.11.0.flowproj',
     'v0.13.0.flowproj',
     'v0.14.0.flowproj',
+    'v0.17.0.flowproj',
+    'v0.18.0.flowproj',
     'v0.6.0.flowproj',
     'v0.9.0.flowproj'
   ])

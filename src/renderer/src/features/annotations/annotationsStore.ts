@@ -31,7 +31,7 @@ import {
   undo,
   type HistoryState
 } from './history'
-import { DEFAULT_STYLE, LEVELS, TEXT_SIZES, type CurrentStyle } from './styles'
+import { DEFAULT_STYLE, LEVELS, TEXT_SIZES, applyFxPatch, type CurrentStyle } from './styles'
 
 export type Tool =
   | 'select'
@@ -106,6 +106,7 @@ const PROP_TO_OPTION: Record<string, keyof ToolOptions> = {
 /** Свойства рисунка, которые можно менять в панели «Рисунок». */
 export type PropPatch = Partial<{
   dim: number
+  dimmed: boolean
   zoom: number
   opacity: number
   showArea: boolean
@@ -205,23 +206,28 @@ function withSelection(s: AnnotationsState, h: HistoryState): Partial<Annotation
 
 function restyle(a: Annotation, patch: Partial<CurrentStyle>): Annotation {
   if (a.type === 'text' || a.type === 'ptext') {
+    const shadow = patch.textShadow ?? a.style.shadow
     return {
       ...a,
       style: {
         color: patch.color ?? a.style.color,
         size: patch.textLevel !== undefined ? TEXT_SIZES[patch.textLevel].size : a.style.size,
-        background: patch.textBackground ?? a.style.background
+        background: patch.textBackground ?? a.style.background,
+        ...(shadow !== undefined ? { shadow } : {})
       }
     } as Annotation
   }
-  return {
-    ...a,
-    style: {
-      color: patch.color ?? a.style.color,
-      width: patch.level !== undefined ? LEVELS[patch.level].width : a.style.width,
-      dash: patch.dash ?? a.style.dash
-    }
-  } as Annotation
+  return applyFxPatch(
+    {
+      ...a,
+      style: {
+        color: patch.color ?? a.style.color,
+        width: patch.level !== undefined ? LEVELS[patch.level].width : a.style.width,
+        dash: patch.dash ?? a.style.dash
+      }
+    } as Annotation,
+    patch
+  )
 }
 
 const initial = (): AnnotationsState => ({
@@ -329,8 +335,22 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
 
   setStyle: (patch) =>
     set((s) => {
-      const style = { ...s.style, ...patch }
       const target = s.items.find((a) => a.id === s.selectedId)
+      // Толщина кольца/круга запоминается отдельно от толщины остальных рисунков.
+      const ringContext = target
+        ? target.type === 'circle' || target.type === 'ring'
+        : s.tool === 'circle'
+      // Цвет подписи запоминается отдельно от цвета остальных рисунков (подпись по умолчанию лайм, стрелки жёлтые).
+      const textContext = target
+        ? target.type === 'text' || target.type === 'ptext'
+        : s.tool === 'text'
+      let style: CurrentStyle =
+        ringContext && patch.level !== undefined
+          ? { ...s.style, ...patch, level: s.style.level, ringLevel: patch.level }
+          : { ...s.style, ...patch }
+      if (textContext && patch.color !== undefined) {
+        style = { ...style, color: s.style.color, textColor: patch.color }
+      }
       if (!target) return { style }
       const key = `style:${Object.keys(patch).join(',')}`
       const items = s.items.map((a) => (a.id === target.id ? restyle(a, patch) : a))

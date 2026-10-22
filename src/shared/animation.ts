@@ -23,6 +23,7 @@ import {
   type Ease,
   type Timing
 } from './annotations'
+import { isTimeVarying } from './styleFx'
 
 export type Geom = Record<string, unknown>
 export interface Keyframe {
@@ -356,11 +357,14 @@ export function removeVertexAllKeys<T extends Annotation>(a: T, index: number): 
 /** Времена ключей рисунка (пусто — рисунок не анимирован). */
 export const keyTimes = (a: object): number[] => keysOf(a).map((k) => k.t)
 
-/** Номера рисунков, которые движутся (для экспорта: у них своя дорожка кадров). */
-export function movingIndices(items: readonly object[]): number[] {
+/**
+ * Номера рисунков, которые меняются от кадра к кадру (для экспорта: у них своя дорожка кадров):
+ * движутся по ключам или зависят от времени (пульс, проявление).
+ */
+export function movingIndices(items: readonly Annotation[]): number[] {
   const out: number[] = []
   items.forEach((a, i) => {
-    if (isMoving(a)) out.push(i)
+    if (isMoving(a) || isTimeVarying(a)) out.push(i)
   })
   return out
 }

@@ -9,6 +9,7 @@ import {
   SHOTS,
   SUFFIX,
   dragOnPicture,
+  stableLayerBox,
   fixture,
   launch,
   makeUserData,
@@ -576,7 +577,7 @@ test.describe('анимация рисунков', () => {
     }
   })
 
-  test('панель стиля: одна строка при ширине окна 1100, 1440 и 1920, скриншоты', async () => {
+  test('панель стиля: элементы не налезают друг на друга при окне 1100, 1440, 1599, 1600 и 1920 для каждого инструмента, скриншоты', async () => {
     const ctx = await launch()
     const { win, app } = ctx
     try {
@@ -588,62 +589,91 @@ test.describe('анимация рисунков', () => {
       const sizes: Array<[number, number]> = [
         [1100, 720],
         [1440, 860],
+        [1599, 860],
+        [1600, 860],
         [1920, 1080]
       ]
       for (const [w, h] of sizes) {
         await app.evaluate(
           ({ BrowserWindow }, [width, height]) => {
-            BrowserWindow.getAllWindows()[0].setSize(width, height)
+            BrowserWindow.getAllWindows()[0].setContentSize(width, height)
           },
           [w, h]
         )
-        await win.waitForFunction((width) => window.innerWidth >= width - 20, w)
         await win.waitForTimeout(400)
-        const bar = win.getByTestId('style-bar')
-        const info = await bar.evaluate((el) => {
-          const box = el.getBoundingClientRect()
-          const kids = [...el.querySelectorAll('button, [data-testid="pitch-active"]')]
-          const tops = kids.map((k) => {
-            const b = k.getBoundingClientRect()
-            return {
-              id: k.getAttribute('data-testid') ?? k.className,
-              top: b.top,
-              bottom: b.bottom,
-              right: b.right,
-              w: b.width
+        // Окно с рамкой шире содержимого на постоянную величину: подгоняем так, чтобы ширина страницы была ровно w
+        // (границы 1599/1600 px важны для раскладки панели); окно не уже своего минимума — считаем по фактической ширине.
+        const measured = await win.evaluate(() => window.innerWidth)
+        if (measured !== w && measured - w < 40) {
+          await app.evaluate(
+            ({ BrowserWindow }, [width, height]) => {
+              BrowserWindow.getAllWindows()[0].setContentSize(width, height)
+            },
+            [w - (measured - w), h]
+          )
+          await win.waitForTimeout(400)
+        }
+        const inner = await win.evaluate(() => window.innerWidth)
+        if (w >= 1440) expect(inner).toBe(w)
+        await win.waitForTimeout(400)
+        let first: { x: number; y: number; width: number; height: number } | null = null
+        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler', 'spot']) {
+          await win.getByTestId(`tool-${tool}`).click()
+          await win.waitForTimeout(100)
+          const info = await win.getByTestId('style-bar').evaluate((el) => {
+            const box = el.getBoundingClientRect()
+            const kids = [...el.querySelectorAll('button, [data-testid="pitch-active"]')]
+              .map((k) => ({
+                id: k.getAttribute('data-testid') ?? k.className,
+                r: k.getBoundingClientRect()
+              }))
+              .filter((k) => k.r.width > 0 && k.r.height > 0)
+            const overlaps: string[] = []
+            for (let i = 0; i < kids.length; i += 1) {
+              for (let j = i + 1; j < kids.length; j += 1) {
+                const p = kids[i].r
+                const q = kids[j].r
+                const dx = Math.min(p.right, q.right) - Math.max(p.left, q.left)
+                const dy = Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top)
+                if (dx > 1 && dy > 1) overlaps.push(`${kids[i].id}|${kids[j].id}`)
+              }
             }
+            const outside = kids
+              .filter(
+                (k) =>
+                  k.r.right > box.right + 0.5 ||
+                  k.r.left < box.left - 0.5 ||
+                  k.r.bottom > box.bottom + 0.5 ||
+                  k.r.top < box.top - 0.5
+              )
+              .map((k) => k.id)
+            // Строки панели: по середине кнопок; середины ближе 14 px — одна строка.
+            const mids = kids.map((k) => k.r.top + k.r.height / 2).sort((a, b) => a - b)
+            const rows = mids.filter((m, i) => i === 0 || m - mids[i - 1] > 14).length
+            return { overlaps, outside, height: box.height, count: kids.length, rows }
           })
-          return {
-            width: box.width,
-            height: box.height,
-            right: box.right,
-            scrollW: el.scrollWidth,
-            clientW: el.clientWidth,
-            tops,
-            innerWidth: window.innerWidth
+          expect(info.count, `${tool} @${w}`).toBeGreaterThan(10)
+          expect(info.overlaps, `наложения: ${tool} @${w}`).toEqual([])
+          expect(info.outside, `за краем панели: ${tool} @${w}`).toEqual([])
+          expect(info.height).toBeLessThanOrEqual(80)
+          // От 1600 px в одну строку; уже — не больше двух (под две строки место занято, третья сдвинула бы картинку).
+          expect(info.rows, `строк панели: ${tool} @${inner}`).toBeLessThanOrEqual(
+            inner >= 1600 ? 1 : 2
+          )
+          // Картинка не прыгает при смене инструмента: высота панели одна и та же.
+          const rect = await stableLayerBox(win)
+          if (!first) first = rect
+          expect(rect, `картинка: ${tool} @${w}`).toEqual(first)
+          if (tool === 'circle') {
+            await win.screenshot({ path: join(SHOTS, `animation-stylebar-${w}${SUFFIX}.png`) })
           }
-        })
-        const centers = info.tops.map((t) => (t.top + t.bottom) / 2)
-        const minTop = Math.min(...centers)
-        const maxTop = Math.max(...centers)
-        console.log(
-          'Панель стиля при окне',
-          info.innerWidth,
-          'px: ширина',
-          info.width.toFixed(0),
-          'высота',
-          info.height.toFixed(0),
-          '; содержимое',
-          info.scrollW,
-          '/',
-          info.clientW,
-          '; разброс по вертикали',
-          (maxTop - minTop).toFixed(1)
-        )
-        expect(info.height).toBeLessThanOrEqual(40)
-        expect(maxTop - minTop).toBeLessThanOrEqual(1.5)
-        expect(info.scrollW).toBeLessThanOrEqual(info.clientW + 1)
-        for (const t of info.tops) expect(t.right).toBeLessThanOrEqual(info.right + 0.5)
+        }
+        // Нарисованный и выбранный круг (панель показывает его значения) картинку тоже не двигает.
+        await win.getByTestId('tool-circle').click()
+        await dragOnPicture(win, [0.55, 0.62], [0.7, 0.72])
+        await win.waitForTimeout(150)
+        expect(await stableLayerBox(win), `картинка с выбранным кругом @${w}`).toEqual(first)
+        await win.keyboard.press('Escape')
         // Все кнопки на месте и видны.
         for (const id of [
           'pitch-calibrate',
@@ -656,7 +686,6 @@ test.describe('анимация рисунков', () => {
           await expect(win.getByTestId(id)).toBeVisible()
         }
         await expect(win.getByTestId('pitch-active')).toBeVisible()
-        await win.screenshot({ path: join(SHOTS, `animation-stylebar-${w}${SUFFIX}.png`) })
       }
       // Окно «Газон» из значка раскрывается и не выходит за окно.
       await app.evaluate(({ BrowserWindow }) => {

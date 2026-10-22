@@ -30,6 +30,26 @@ export const LEGACY_CIRCLE_FILL = 0.16
 export const LEGACY_RING_FILL = 0.18
 const ringFill = z.number().min(0).max(MAX_RING_FILL).optional()
 
+// --- 0.18: стили по образцам. Все поля необязательные: нет поля = вид, как было до 0.18. ---
+
+/** Свечение (ореол того же цвета). Нет поля — без свечения. */
+const glow = z.boolean().optional()
+/** Вид кольца/круга: тонкое кольцо или «мишень» (3 кольца и радиальная заливка). Нет поля — «ring». */
+export const RING_LOOKS = ['ring', 'target'] as const
+export type RingLook = (typeof RING_LOOKS)[number]
+const ringLook = z.enum(RING_LOOKS).optional()
+/** Пульс «мишени»: волна от центра, период PULSE_PERIOD (styleFx) по времени видео. Нет поля — без пульса. */
+const pulse = z.boolean().optional()
+/** Вид прожектора: овал или вертикальный световой столб. Нет поля — «oval». */
+export const SPOT_FORMS = ['oval', 'pillar'] as const
+export type SpotForm = (typeof SPOT_FORMS)[number]
+const spotForm = z.enum(SPOT_FORMS).optional()
+/** Проявление линии: за сколько секунд от начала отрезка она прорисовывается. Нет поля — выключено. */
+export const MIN_REVEAL = 0.2
+export const MAX_REVEAL = 3
+export const DEFAULT_REVEAL = 0.8
+const reveal = z.number().min(MIN_REVEAL).max(MAX_REVEAL).optional()
+
 // --- Этап 16б: ключевые кадры (анимация рисунка) ---
 
 /** Максимум ключей у одного рисунка. */
@@ -105,13 +125,15 @@ export const TimingSchema = z.discriminatedUnion('mode', [
 const ShapeStyleSchema = z.object({
   color,
   width: z.number().min(0.001).max(0.05),
-  dash: z.enum(['solid', 'dashed'])
+  dash: z.enum(['solid', 'dashed', 'dotted'])
 })
 /** Стиль текста: размер — доля высоты видео. */
 const TextStyleSchema = z.object({
   color,
   size: z.number().min(0.01).max(0.3),
-  background: z.boolean()
+  background: z.boolean(),
+  /** Тонкая тёмная тень для читаемости. Нет поля — без тени. */
+  shadow: z.boolean().optional()
 })
 
 const twoPoints = { p1: PointSchema, p2: PointSchema }
@@ -124,6 +146,8 @@ export const ArrowSchema = z.object({
   type: z.literal('arrow'),
   ...twoPoints,
   style: ShapeStyleSchema,
+  glow,
+  reveal,
   underPlayers,
   keyframes: kf(twoPoints),
   timing: TimingSchema
@@ -134,6 +158,8 @@ export const LineSchema = z.object({
   type: z.literal('line'),
   ...twoPoints,
   style: ShapeStyleSchema,
+  glow,
+  reveal,
   underPlayers,
   keyframes: kf(twoPoints),
   timing: TimingSchema
@@ -146,6 +172,9 @@ export const CircleSchema = z.object({
   ...twoPoints,
   style: ShapeStyleSchema,
   fillOpacity: ringFill,
+  glow,
+  look: ringLook,
+  pulse,
   underPlayers,
   keyframes: kf(twoPoints),
   timing: TimingSchema
@@ -185,6 +214,9 @@ export const RingSchema = z.object({
   radius: z.number().min(MIN_RING_RADIUS).max(MAX_RING_RADIUS),
   style: ShapeStyleSchema,
   fillOpacity: ringFill,
+  glow,
+  look: ringLook,
+  pulse,
   underPlayers,
   keyframes: kf({ center: WorldPointSchema, radius: ringRadius }),
   timing: TimingSchema
@@ -195,6 +227,8 @@ export const GroundArrowSchema = z.object({
   type: z.literal('parrow'),
   ...groundTwo,
   style: ShapeStyleSchema,
+  glow,
+  reveal,
   underPlayers,
   keyframes: kf(groundTwo),
   timing: TimingSchema
@@ -204,6 +238,8 @@ export const GroundLineSchema = z.object({
   type: z.literal('pline'),
   ...groundTwo,
   style: ShapeStyleSchema,
+  glow,
+  reveal,
   underPlayers,
   keyframes: kf(groundTwo),
   timing: TimingSchema
@@ -257,6 +293,14 @@ const groundZonePoints = z.array(WorldPointSchema).min(3).max(MAX_ZONE_VERTICES)
 const groundChainPoints = z.array(WorldPointSchema).min(2).max(MAX_CHAIN_NODES)
 
 const dim = z.number().min(MIN_DIM).max(MAX_DIM).default(DEFAULT_DIM)
+/**
+ * Затемнять ли кадр вокруг прожектора. Нет поля — затемняет (как всегда); false — только свет без затемнения (новый «Столб»).
+ * Отдельное поле, а не dim = 0: версии до 0.18 не принимают dim меньше MIN_DIM и не открыли бы весь проект.
+ */
+const dimmed = z.boolean().optional()
+/** Затемнение прожектора с учётом поля dimmed: 0 — не затемняет. */
+export const spotDim = (a: { dim: number; dimmed?: boolean }): number =>
+  a.dimmed === false ? 0 : a.dim
 const zoneOpacity = z
   .number()
   .min(MIN_ZONE_OPACITY)
@@ -274,8 +318,10 @@ export const SpotlightSchema = z.object({
   type: z.literal('spot'),
   ...twoPoints,
   dim,
+  dimmed,
   /** Вертикальный «луч» (как у прожектора на траве); появляется при переводе прожектора с поля для слежения. */
   beam: z.boolean().optional(),
+  form: spotForm,
   style: ShapeStyleSchema,
   keyframes: kf(twoPoints),
   timing: TimingSchema
@@ -288,6 +334,8 @@ export const CurveSchema = z.object({
   ...twoPoints,
   c: ControlPointSchema,
   style: ShapeStyleSchema,
+  glow,
+  reveal,
   underPlayers,
   keyframes: kf({ ...twoPoints, c: ControlPointSchema }),
   timing: TimingSchema
@@ -349,7 +397,9 @@ export const GroundSpotlightSchema = z.object({
   center: WorldPointSchema,
   radius: z.number().min(MIN_SPOT_RADIUS).max(MAX_SPOT_RADIUS),
   dim,
+  dimmed,
   beam: z.boolean().default(true),
+  form: spotForm,
   style: ShapeStyleSchema,
   underPlayers,
   keyframes: kf({ center: WorldPointSchema, radius: spotRadius }),
@@ -362,6 +412,8 @@ export const GroundCurveSchema = z.object({
   ...groundTwo,
   c: WorldPointSchema,
   style: ShapeStyleSchema,
+  glow,
+  reveal,
   underPlayers,
   keyframes: kf({ ...groundTwo, c: WorldPointSchema }),
   timing: TimingSchema

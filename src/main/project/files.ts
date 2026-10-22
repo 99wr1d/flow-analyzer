@@ -5,6 +5,7 @@ import {
   MAX_PROJECT_BYTES,
   PROJECT_EXTENSION,
   parseProjectText,
+  projectToFile,
   type Project,
   type ProjectParse
 } from '../../shared/project'
@@ -91,5 +92,5 @@ export function writeTextAtomic(target: string, data: string): Promise<void> {
 }
 
 export function writeProjectFile(target: string, project: Project): Promise<void> {
-  return writeTextAtomic(target, JSON.stringify(project, null, 2))
+  return writeTextAtomic(target, JSON.stringify(projectToFile(project), null, 2))
 }

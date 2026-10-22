@@ -29,6 +29,7 @@ import {
   resolveAt
 } from '../../../../shared/animation'
 import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
+import { groundEllipseRatio } from '../../../../shared/pitch/ground'
 import {
   handleAnchor,
   moveWorld,
@@ -61,6 +62,7 @@ import { useAnnotationsStore, withUnder } from './annotationsStore'
 import {
   bboxOf,
   clampPoint,
+  groundEllipseBox,
   moveBy,
   moveHandle,
   snapAngle,
@@ -81,7 +83,7 @@ import {
 } from './polyDraft'
 import { LiveHandles, LiveShape, LiveSpotlightDim } from './LiveViews'
 import { HandlesView, ShapeView } from './ShapeView'
-import { shapeStyleOf, textStyleOf } from './styles'
+import { newDrawingFx, shapeStyleOf, textStyleOf } from './styles'
 import { TextEditor } from './TextEditor'
 import { measureTextWidth } from './textMetrics'
 import { usePictureRect } from './usePictureRect'
@@ -95,6 +97,8 @@ const MIN_GROUND_LENGTH = 0.3
 const RING_DRAG_PX = 6
 /** Щелчок без протягивания: прожектор и лупа получают размер по умолчанию. */
 const CLICK_PX = 6
+/** Круги, созданные щелчком (плоский эллипс у ног): не отбрасываются как слишком маленькие. */
+const clickCreated = new WeakSet<object>()
 /** Размеры прожектора по умолчанию (доли высоты кадра): высокий эллипс вокруг игрока. */
 const SPOT_RX = 0.042
 const SPOT_RY = 0.08
@@ -399,7 +403,14 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     const base = { id: crypto.randomUUID(), space: 'screen' as const, timing }
     if (g.tool === 'spot') {
       const box = moved < CLICK_PX ? defaultSpot(g.origin) : { p1: g.origin, p2: clamped }
-      return { ...base, type: 'spot', ...box, dim: options.dim, style: shapeStyleOf(style) }
+      return {
+        ...base,
+        type: 'spot',
+        ...box,
+        dim: options.dim,
+        ...newDrawingFx('spot', style),
+        style: shapeStyleOf(style)
+      }
     }
     if (g.tool === 'loupe') {
       const radius = DEFAULT_LOUPE_RADIUS
@@ -419,6 +430,23 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         style: shapeStyleOf(style)
       }
     }
+    if (g.tool === 'circle' && moved < CLICK_PX) {
+      // Щелчок: плоский эллипс «на траве» у ног (сплющивание — по разметке поля на этом кадре, иначе 0.35).
+      const near = nearestUsable(useCalibrationsStore.getState().items, g.start)
+      const cal =
+        near && isCalibrationFresh(near.calibration, g.start) ? near.calibration : undefined
+      const box = groundEllipseBox(g.origin, groundEllipseRatio(cal, g.origin), size)
+      const made: Annotation = {
+        ...base,
+        type: 'circle',
+        ...box,
+        fillOpacity: options.fillOpacity,
+        ...newDrawingFx('circle', style),
+        style: shapeStyleOf({ ...style, level: style.ringLevel })
+      }
+      clickCreated.add(made)
+      return made
+    }
     let end = clamped
     if (shift)
       end =
@@ -432,6 +460,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         p1: g.origin,
         p2: end,
         c: defaultControl(g.origin, end, CURVE_BEND, size),
+        ...newDrawingFx('curve', style),
         style: shapeStyleOf(style)
       }
     }
@@ -441,7 +470,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       p1: g.origin,
       p2: end,
       ...(g.tool === 'circle' ? { fillOpacity: options.fillOpacity } : {}),
-      style: shapeStyleOf(style)
+      ...newDrawingFx(g.tool, style),
+      style: shapeStyleOf(g.tool === 'circle' ? { ...style, level: style.ringLevel } : style)
     }
   }
 
@@ -479,7 +509,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         center: g.origin,
         radius,
         fillOpacity: options.fillOpacity,
-        style
+        ...newDrawingFx('ring', current),
+        style: shapeStyleOf({ ...current, level: current.ringLevel })
       }
     }
     if (g.tool === 'spot') {
@@ -495,6 +526,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         radius,
         dim: options.dim,
         beam: options.beam,
+        ...newDrawingFx('pspot', current),
         style
       }
     }
@@ -506,11 +538,12 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         p1: g.origin,
         p2: end,
         c: defaultControl(g.origin, end, CURVE_BEND),
+        ...newDrawingFx('pcurve', current),
         style
       }
     }
     const type = g.tool === 'arrow' ? 'parrow' : g.tool === 'line' ? 'pline' : 'ruler'
-    return { ...base, type, p1: g.origin, p2: end, style }
+    return { ...base, type, p1: g.origin, p2: end, ...newDrawingFx(type, current), style }
   }
 
   /** Перо: рисунок по собранным точкам (на экране — доли кадра, на поле — метры). */
@@ -1008,7 +1041,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       const d = draft
       setDraft(null)
       if (!d || d.type === 'text' || isPitchAnnotation(d) || cancelled) return
-      if (d.type === 'spot' || d.type === 'loupe') {
+      // Плоский эллипс, созданный щелчком, мал по высоте, но это не промах: проверка минимального размера его не касается.
+      if (d.type === 'spot' || d.type === 'loupe' || clickCreated.has(d)) {
         store.add(keepInside(d))
         return
       }

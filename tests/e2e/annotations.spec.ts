@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { join } from 'path'
-import { SHOTS, SUFFIX, fixture, launch, stubDialog, videoState } from './helpers'
+import { SHOTS, SUFFIX, fixture, launch, stableLayerBox, stubDialog, videoState } from './helpers'
 
 async function openFixture(name = 'cfr25.mp4') {
   const { app, win } = await launch()
@@ -21,9 +21,7 @@ interface Box {
 }
 
 async function layerBox(win: Page): Promise<Box> {
-  const box = await win.getByTestId('annotation-layer').boundingBox()
-  expect(box).not.toBeNull()
-  return box!
+  return stableLayerBox(win)
 }
 
 /** Перетаскивание мышью в долях картинки (0..1). */
@@ -244,10 +242,17 @@ test.describe('рисунки поверх видео', () => {
   test('круг и текст, выбор, перемещение, ручки, удаление, отмена и повтор, стиль', async () => {
     const { app, win } = await openFixture()
     try {
-      // Короткая тяга: меньше порога — рисунок не создаётся.
+      // Щелчок без тяги: у круга (с 0.18) создаётся кольцо у ног; отмена убирает его.
       await win.keyboard.press('c')
       await dragOnPicture(win, [0.5, 0.5], [0.5, 0.5])
+      await expect(shapes(win)).toHaveCount(1)
+      await win.keyboard.press('Control+z')
       await expect(shapes(win)).toHaveCount(0)
+      // Короткая тяга стрелки: меньше порога — рисунок не создаётся.
+      await win.keyboard.press('a')
+      await dragOnPicture(win, [0.5, 0.5], [0.5, 0.5])
+      await expect(shapes(win)).toHaveCount(0)
+      await win.keyboard.press('c')
 
       // Круг с Shift — идеальный круг (в пикселях).
       await dragOnPicture(win, [0.55, 0.3], [0.85, 0.5], { shift: true })
@@ -268,7 +273,7 @@ test.describe('рисунки поверх видео', () => {
       const text = win.locator('[data-testid="annotation"][data-type="text"]')
       await expect(text).toHaveCount(1)
       await expect(text).toHaveAttribute('data-text', 'Пас в центр')
-      await expect(text.locator('text')).toHaveText('Пас в центр')
+      await expect(text.locator('[data-part="text"]')).toHaveText('Пас в центр')
 
       // Esc отменяет, пустой текст не создаётся.
       await clickPicture(win, [0.1, 0.8])
@@ -466,7 +471,6 @@ test.describe('рисунки поверх видео', () => {
       // Тёмный текст без подложки.
       await win.keyboard.press('t')
       await win.getByTestId('color-111827').click()
-      await win.getByTestId('text-background').click()
       await clickPicture(win, [0.05, 0.2])
       await win.keyboard.type('Свободная зона')
       await win.keyboard.press('Enter')

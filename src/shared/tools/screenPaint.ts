@@ -12,7 +12,16 @@ import {
 } from '../annotations'
 import { beamSilhouette } from '../pitch/pitchTools'
 import { emptyPaint, type PaintSize, type PitchPaint, type PxPt } from '../pitch/shapes'
-import { curveMid, densifyQuad, pointBackFromEnd, polylineLength, trimEnd } from './curve'
+import { pillarFromFooting, pillarPoly } from './pillar'
+import { LINE_GLOW_BOOST, LINE_GLOW_REACH, revealFraction } from '../styleFx'
+import {
+  curveMid,
+  densifyQuad,
+  pointBackFromEnd,
+  polylineLength,
+  polylinePrefix,
+  trimEnd
+} from './curve'
 import { catmullRom } from './simplify'
 
 export type ScreenToolAnnotation = Spotlight | Curve | Pen | Zone | Loupe | Chain
@@ -89,10 +98,18 @@ function nodesOf(points: readonly PxPt[], size: PaintSize): { nodes: PxPt[]; rad
   return { nodes: [...points], radius: Math.max(4, size.h / 110) }
 }
 
-export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): PitchPaint {
+/**
+ * Что нарисовать для рисунка на экране. time — время видео, секунды: по нему проявляется кривая (нет времени — целиком);
+ * нажатие и ручки от времени не зависят.
+ */
+export function paintScreenTool(
+  a: ScreenToolAnnotation,
+  size: PaintSize,
+  time?: number
+): PitchPaint {
   const out = emptyPaint()
   const w = Math.max(1, a.style.width * size.h)
-  const dashed = a.style.dash === 'dashed'
+  const dash = a.style.dash
   const tol = Math.max(w / 2, 2)
 
   if (a.type === 'spot') {
@@ -103,13 +120,26 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
     const rx = Math.max(Math.abs(p2.x - p1.x) / 2, 1)
     const ry = Math.max(Math.abs(p2.y - p1.y) / 2, 1)
     const poly = ellipsePolygon(cx, cy, rx, ry)
-    out.strokes.push({ points: poly, closed: true, widthPx: Math.max(1.5, w * 0.7), dashed: false })
-    // Луч (прожектор, перешедший с поля при слежении): тот же силуэт, что у пятна на траве. Масштаб — как у пятна
-    // стандартного радиуса: высота луча = рост человека на ширине пятна.
-    const beam = a.beam ? beamSilhouette(poly, DEFAULT_SPOT_RADIUS) : null
-    if (beam) out.beam = { poly: beam.poly, top: beam.top, bottom: beam.bottom }
-    out.lit.push(beam ? beam.poly : poly)
-    out.hit = [beam ? beam.poly : poly]
+    // Столб: след — низ овала; затемнение и нажатие — по столбу, обводки овала и луча нет.
+    const pillar = a.form === 'pillar' ? pillarFromFooting({ x: cx, y: cy + ry }, 2 * rx) : null
+    if (pillar) {
+      out.pillar = pillar
+      out.lit.push(pillarPoly(pillar, size.h * 0.1))
+      out.hit = [pillarPoly(pillar, 0, true)]
+    } else {
+      out.strokes.push({
+        points: poly,
+        closed: true,
+        widthPx: Math.max(1.5, w * 0.7),
+        dash: 'solid'
+      })
+      // Луч (прожектор, перешедший с поля при слежении): тот же силуэт, что у пятна на траве. Масштаб — как у пятна
+      // стандартного радиуса: высота луча = рост человека на ширине пятна.
+      const beam = a.beam ? beamSilhouette(poly, DEFAULT_SPOT_RADIUS) : null
+      if (beam) out.beam = { poly: beam.poly, top: beam.top, bottom: beam.bottom }
+      out.lit.push(beam ? beam.poly : poly)
+      out.hit = [beam ? beam.poly : poly]
+    }
     const x0 = Math.min(p1.x, p2.x)
     const x1 = Math.max(p1.x, p2.x)
     const y0 = Math.min(p1.y, p2.y)
@@ -127,8 +157,29 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
     const line = densifyQuad(p1, c, p2, 48)
     const parts = headFor(line, w)
     if (parts) {
-      out.body.push(parts.head)
-      out.strokes.push({ points: parts.shaft, closed: false, widthPx: w, dashed })
+      // Проявление: путь обрезается по длине; наконечник появляется, когда линия дошла до конца.
+      const frac = time === undefined ? 1 : revealFraction(a, time)
+      const shaftLen = polylineLength(parts.shaft)
+      const shown =
+        frac >= 1 ? parts.shaft : polylinePrefix(parts.shaft, frac * shaftLen)
+      if (frac >= 1) out.body.push(parts.head)
+      if (shown.length >= 2) {
+        out.strokes.push({
+          points: shown,
+          closed: false,
+          widthPx: w,
+          dash,
+          layoutLength: shaftLen
+        })
+      }
+      if (a.glow === true) {
+        out.lineGlow = true
+        // Ореол наконечника — вдоль его кромки.
+        if (frac >= 1) {
+          out.glowPx = w * LINE_GLOW_REACH
+          out.glowBoost = LINE_GLOW_BOOST
+        }
+      }
       out.hit = [...lineHit(line, tol), parts.head]
     }
     out.handles = [
@@ -143,13 +194,13 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
     )
     const parts = a.arrow ? headFor(pts, w) : null
     if (parts) out.body.push(parts.head)
-    out.strokes.push({ points: parts ? parts.shaft : pts, closed: false, widthPx: w, dashed })
+    out.strokes.push({ points: parts ? parts.shaft : pts, closed: false, widthPx: w, dash })
     out.hit = [...lineHit(pts, tol), ...(parts ? [parts.head] : [])]
   } else if (a.type === 'zone') {
     const pts = a.points.map((p) => px(p, size))
     out.fills.push(pts)
     out.fillOpacity = a.opacity
-    out.strokes.push({ points: pts, closed: true, widthPx: w, dashed })
+    out.strokes.push({ points: pts, closed: true, widthPx: w, dash })
     out.hit = [pts]
     out.handles = pts.map((p, i) => ({ id: `v${i}`, point: p }))
   } else if (a.type === 'chain') {
@@ -158,7 +209,7 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
       out.fills.push(pts)
       out.fillOpacity = 0.24
     }
-    out.strokes.push({ points: pts, closed: false, widthPx: w, dashed })
+    out.strokes.push({ points: pts, closed: false, widthPx: w, dash })
     const nodes = nodesOf(pts, size)
     out.nodes = nodes.nodes
     out.nodeRadius = nodes.radius

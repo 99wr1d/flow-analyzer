@@ -4,7 +4,7 @@ import {
   type ScreenAnnotation as Annotation
 } from '../../../../shared/annotations'
 import { useAnnotationsStore } from './annotationsStore'
-import { LEVELS } from './styles'
+import { DEFAULT_STYLE, LEVELS } from './styles'
 
 const arrow = (n: number): Annotation => ({
   id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
@@ -319,5 +319,84 @@ describe('0.16.4: подсветки по умолчанию под игрока
     s().setProps(at(1), { fillOpacity: 0.3 })
     expect(s().options.fillOpacity).toBe(0.3)
     expect((s().items[0] as { fillOpacity?: number }).fillOpacity).toBe(0.3)
+  })
+})
+
+describe('правка стиля старого рисунка (0.18)', () => {
+  const label = (): Annotation => ({
+    id: '00000000-0000-4000-8000-0000000000a1',
+    space: 'screen',
+    type: 'text',
+    pos: { x: 0.1, y: 0.1 },
+    text: 'Пас',
+    style: { color: '#ffffff', size: 0.045, background: true },
+    timing: { mode: 'range', start: 1, duration: 3 }
+  })
+  beforeEach(() => {
+    s().reset()
+    s().setTool('select')
+  })
+
+  it('смена цвета старой подписи не добавляет ей тень и не убирает плашку', () => {
+    s().add(label())
+    s().setStyle({ color: '#c6ff3d' })
+    const a = s().items[0]
+    expect(a.type === 'text' && a.style).toEqual({
+      color: '#c6ff3d',
+      size: 0.045,
+      background: true
+    })
+  })
+
+  it('переключатель «тень» меняет только тень', () => {
+    s().add(label())
+    s().setStyle({ textShadow: true })
+    const a = s().items[0]
+    expect(a.type === 'text' && a.style).toEqual({
+      color: '#ffffff',
+      size: 0.045,
+      background: true,
+      shadow: true
+    })
+  })
+
+  it('цвет подписи запоминается отдельно: выбор для подписи не красит остальные рисунки, и наоборот', () => {
+    s().reset()
+    useAnnotationsStore.setState({ style: { ...DEFAULT_STYLE } })
+    expect(s().style.textColor).toBe('#c6ff3d')
+    expect(s().style.color).toBe('#ffd60a')
+    // Инструмент «Подпись»: выбор цвета меняет цвет подписей.
+    s().setTool('text')
+    s().setStyle({ color: '#ffffff' })
+    expect(s().style).toMatchObject({ textColor: '#ffffff', color: '#ffd60a' })
+    // Инструмент «Стрелка»: цвет стрелок, подписи не трогает.
+    s().setTool('arrow')
+    s().setStyle({ color: '#ff3b30' })
+    expect(s().style).toMatchObject({ textColor: '#ffffff', color: '#ff3b30' })
+    // Выбранная подпись: её цвет меняется, запоминается как цвет подписей.
+    s().setTool('select')
+    s().add(label())
+    s().setStyle({ color: '#4cc9f0' })
+    expect(s().style).toMatchObject({ textColor: '#4cc9f0', color: '#ff3b30' })
+    useAnnotationsStore.setState({ style: { ...DEFAULT_STYLE } })
+  })
+
+  it('смена цвета старой стрелки не добавляет новых полей', () => {
+    s().add(arrow(1))
+    s().setStyle({ color: '#2e8bff' })
+    const a = s().items[0] as unknown as Record<string, unknown>
+    for (const k of ['glow', 'reveal', 'look', 'pulse', 'form']) expect(k in a).toBe(false)
+  })
+})
+
+describe('толщина кольца запоминается отдельно', () => {
+  it('с инструментом «Круг» выбор толщины меняет ringLevel, а не толщину остальных рисунков', () => {
+    useAnnotationsStore.setState({ tool: 'circle', selectedId: null })
+    const before = useAnnotationsStore.getState().style.level
+    useAnnotationsStore.getState().setStyle({ level: 2 })
+    const st = useAnnotationsStore.getState().style
+    expect(st.ringLevel).toBe(2)
+    expect(st.level).toBe(before)
+    useAnnotationsStore.getState().setStyle({ ringLevel: 0 })
   })
 })

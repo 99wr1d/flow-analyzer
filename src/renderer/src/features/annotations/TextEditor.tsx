@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { MAX_TEXT_LENGTH, type TextStyle } from '../../../../shared/annotations'
 import { ru } from '../../i18n/ru'
 import { isDarkColor } from './styles'
-import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
+import { TEXT_FONT_FAMILY, measureTextWidth, textFontWeight } from './textMetrics'
 
 interface Props {
   /** Левый верхний угол в пикселях контейнера. */
@@ -79,7 +79,7 @@ export function TextEditor({
         padding: `0 ${pad}px`,
         fontSize: font,
         fontFamily: TEXT_FONT_FAMILY,
-        fontWeight: TEXT_FONT_WEIGHT,
+        fontWeight: textFontWeight(style.shadow),
         color: style.color,
         background: style.background
           ? dark

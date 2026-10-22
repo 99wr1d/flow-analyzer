@@ -88,6 +88,25 @@ export function squareFrom(origin: Point, point: Point, size: Size): Point {
   return { x: origin.x + (sx * side) / size.w, y: origin.y + (sy * side) / size.h }
 }
 
+/** Ширина эллипса «у ног», созданного щелчком, в долях высоты кадра. */
+export const GROUND_ELLIPSE_WIDTH = 0.07
+
+/**
+ * Плоский эллипс «на траве» вокруг точки щелчка: отношение высоты к ширине (в пикселях) — ratio
+ * (groundEllipseRatio: по разметке поля или 0.35). У края кадра сдвигается внутрь, форма не меняется.
+ */
+export function groundEllipseBox(
+  center: Point,
+  ratio: number,
+  size: Size
+): { p1: Point; p2: Point } {
+  const rx = (GROUND_ELLIPSE_WIDTH * size.h) / size.w / 2
+  const ry = (GROUND_ELLIPSE_WIDTH * ratio * size.h) / size.h / 2
+  const cx = Math.min(1 - rx, Math.max(rx, center.x))
+  const cy = Math.min(1 - ry, Math.max(ry, center.y))
+  return { p1: { x: cx - rx, y: cy - ry }, p2: { x: cx + rx, y: cy + ry } }
+}
+
 export interface BBox {
   x0: number
   y0: number

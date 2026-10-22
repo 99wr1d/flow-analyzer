@@ -331,6 +331,57 @@ describe('applyTrackResult: траектория → ключи рисунка',
     expect(Math.max(g.p1.y, g.p2.y)).toBeGreaterThanOrEqual(0.65)
   })
 
+  it('столб: овал заменяется следом под ногами игрока, столб идёт за ним (низ овала = ноги на каждом ключе)', () => {
+    const spot = {
+      id,
+      space: 'screen',
+      type: 'spot',
+      form: 'pillar',
+      p1: { x: 0.1, y: 0.1 },
+      p2: { x: 0.2, y: 0.2 },
+      dim: 0.5,
+      style,
+      timing: range
+    } as Annotation
+    const r = applyTrackResult(spot, run(1, 2), planOf(spot), { fps: FPS, aspect: 16 / 9 })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.annotation.type === 'spot' && r.annotation.form).toBe('pillar')
+    const samples = run(1, 2)
+    for (const t of [1.02, 1.5, 1.98]) {
+      const g = geomAt(r.annotation, t) as {
+        p1: { x: number; y: number }
+        p2: { x: number; y: number }
+      }
+      const sample = samples.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a))
+      // Низ-середина овала — ноги игрока (±0.01 доли кадра), а не центр фигуры.
+      expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(sample.foot.x, 1)
+      expect(Math.max(g.p1.y, g.p2.y)).toBeCloseTo(sample.foot.y, 1)
+    }
+  })
+
+  it('столб, уже стоящий у ног игрока по ширине фигуры, не трогаем', () => {
+    // Ноги на y=0.65, рост 0.3 (aspect 16/9: фигура шириной 0.45·0.3/1.78 ≈ 0.076), столб 1.1·ширина овала ≈ фигуре.
+    const spot = {
+      id,
+      space: 'screen',
+      type: 'spot',
+      form: 'pillar',
+      p1: { x: 0.3, y: 0.62 },
+      p2: { x: 0.3 + 0.0687, y: 0.66 },
+      dim: 0.5,
+      style,
+      timing: range
+    } as Annotation
+    const r = applyTrackResult(spot, run(1, 2), planOf(spot), { fps: FPS, aspect: 16 / 9 })
+    if (!r.ok) throw new Error(r.reason)
+    const g = geomAt(r.annotation, 1.02) as {
+      p1: { x: number; y: number }
+      p2: { x: number; y: number }
+    }
+    expect(g.p1.y).toBeCloseTo(0.62, 6)
+    expect(g.p2.y).toBeCloseTo(0.66, 6)
+  })
+
   it('прожектор, уже накрывающий фигуру, не трогаем', () => {
     const spot = {
       id,
@@ -441,5 +492,80 @@ describe('planSeconds: оценка времени по бэкенду прош�
     rememberBackend('wasm')
     expect(planSeconds(plan, FPS)).toBe(first)
     rememberBackend(null)
+  })
+})
+
+type Gm = { p1: { x: number; y: number }; p2: { x: number; y: number } }
+
+describe('слежение: кольцо охватывает ноги игрока', () => {
+  const firstGeom = (a: Annotation, samples: TrackSample[]): { g: Gm; plan: TrackPlan } => {
+    const plan = planOf(a)
+    const r = applyTrackResult(a, samples, plan, { fps: FPS, aspect: 16 / 9 })
+    if (!r.ok) throw new Error(r.reason)
+    const k = keysOf(r.annotation)[0]
+    return {
+      g: k.geom as { p1: { x: number; y: number }; p2: { x: number; y: number } },
+      plan
+    }
+  }
+  const centre = (g: Gm): { x: number; y: number } => ({
+    x: (g.p1.x + g.p2.x) / 2,
+    y: (g.p1.y + g.p2.y) / 2
+  })
+
+  it('новое кольцо у ног (glow, не больше 1.5 рамки): центр — ноги с подъёмом, ширина 0.72 рамки, сплющивание сохраняется', () => {
+    const a = circle({ glow: true } as Partial<Annotation>)
+    const samples = run(1, 3)
+    const { g, plan } = firstGeom(a, samples)
+    const foot = samples.reduce((b, s) =>
+      Math.abs(s.t - plan.at) < Math.abs(b.t - plan.at) ? s : b
+    )
+    expect(centre(g).x).toBeCloseTo(foot.foot.x, 2)
+    expect(centre(g).y).toBeCloseTo(foot.foot.y - 0.07 * 0.3, 2)
+    const w = (g.p2.x - g.p1.x) * (16 / 9)
+    expect(w).toBeCloseTo(0.72 * 0.3, 2)
+    expect((g.p2.y - g.p1.y) / w).toBeCloseTo(0.5625, 2)
+  })
+
+  it('старый круг (без glow) остаётся как нарисован: смещение и размер', () => {
+    const a = circle()
+    const before = a as unknown as { p1: { x: number }; p2: { x: number } }
+    const { g } = firstGeom(a, run(1, 3))
+    expect(g.p2.x - g.p1.x).toBeCloseTo(before.p2.x - before.p1.x, 3)
+    expect(centre(g).y).toBeCloseTo(0.65, 3)
+  })
+
+  it('большой круг на группу (шире 1.5 рамки) остаётся как нарисован', () => {
+    const a = circle({
+      glow: true,
+      p1: { x: 0.1, y: 0.4 },
+      p2: { x: 0.6, y: 0.9 }
+    } as Partial<Annotation>)
+    const { g } = firstGeom(a, run(1, 3))
+    expect(g.p2.x - g.p1.x).toBeCloseTo(0.5, 3)
+    expect(g.p2.y - g.p1.y).toBeCloseTo(0.5, 3)
+  })
+
+  it('кольцо с поля сохраняет размер из перевода в экран', () => {
+    const cal = sampleCalibration()
+    const ring = {
+      id,
+      space: 'pitch',
+      calibrationId: cal.id,
+      type: 'ring',
+      center: { x: 8, y: 30 },
+      radius: 1.5,
+      glow: true,
+      style,
+      fillOpacity: 0.06,
+      timing: range
+    } as Annotation
+    const plan = planTracking(ring, { now: 1.02, fps: FPS, videoDuration: 10, calibration: cal })
+    if (!plan.ok) throw new Error(plan.reason)
+    const conv = plan.base as unknown as { p1: { x: number }; p2: { x: number } }
+    const r = applyTrackResult(ring, run(1, 3), plan, { fps: FPS, aspect: 16 / 9 })
+    if (!r.ok) throw new Error(r.reason)
+    const g = keysOf(r.annotation)[0].geom as { p1: { x: number }; p2: { x: number } }
+    expect(g.p2.x - g.p1.x).toBeCloseTo(conv.p2.x - conv.p1.x, 3)
   })
 })

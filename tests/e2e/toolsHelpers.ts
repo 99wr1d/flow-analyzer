@@ -3,6 +3,7 @@ import type { Locator, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
+import { stableLayerBox } from './helpers'
 import { frameRgb, pixelAt } from '../../src/main/ffmpeg/ffmpeg.testkit'
 
 export type Frac = [number, number]
@@ -15,9 +16,7 @@ export interface LayerBox {
 }
 
 export async function layerBox(win: Page): Promise<LayerBox> {
-  const b = await win.getByTestId('annotation-layer').boundingBox()
-  expect(b).not.toBeNull()
-  return b!
+  return stableLayerBox(win)
 }
 
 /** Точка картинки (доли кадра) → координаты окна. */

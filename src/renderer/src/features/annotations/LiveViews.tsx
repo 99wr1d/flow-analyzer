@@ -1,13 +1,16 @@
 // Обёртки для движущихся рисунков: геометрия на показанный кадр берётся из часов анимации (animClock). Рисунок без
 // движения возвращается как есть, поэтому для него обёртка ничего не стоит и перерисовок не вызывает.
 import type { ComponentProps } from 'react'
-import { useLive, useLiveList } from './animClock'
+import { isTimeVarying } from '../../../../shared/styleFx'
+import { useClockTime, useLive, useLiveList } from './animClock'
 import { HandlesView, ShapeView } from './ShapeView'
 import { SpotlightDim } from './SpotlightDim'
 
 export function LiveShape(props: ComponentProps<typeof ShapeView>): React.JSX.Element | null {
   const annotation = useLive(props.annotation)
-  return <ShapeView {...props} annotation={annotation} />
+  // Пульс идёт по времени показанного кадра (как в экспорте), а не по часам.
+  const time = useClockTime(isTimeVarying(props.annotation))
+  return <ShapeView {...props} annotation={annotation} time={time} />
 }
 
 export function LiveHandles(props: ComponentProps<typeof HandlesView>): React.JSX.Element | null {

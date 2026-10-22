@@ -149,6 +149,16 @@ export const DashedLineIcon = (p: IconProps): React.JSX.Element => (
   </Svg>
 )
 
+export const DottedLineIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path
+      d="M4 12h.01M9.500 12h.01M15 12h.01M20.500 12h.01"
+      strokeWidth="3"
+      strokeLinecap="round"
+    />
+  </Svg>
+)
+
 export const SolidLineIcon = (p: IconProps): React.JSX.Element => (
   <Svg {...p}>
     <path d="M3 12h18" strokeWidth="2.200" />
