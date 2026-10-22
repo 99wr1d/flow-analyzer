@@ -11,9 +11,11 @@ import {
   pulsePhase,
   WAVE_LINE_SCALE,
   waveOpacity,
-  waveScale
+  waveScale,
+  type DashKind
 } from '../styleFx'
 import type { PillarPaint } from '../tools/pillar'
+import { DOT_STEP, dotsAlong } from '../tools/curve'
 import type { Pt } from './linalg'
 import type { Projector } from './projector'
 
@@ -54,7 +56,7 @@ export interface StrokePaint {
   points: PxPt[]
   closed: boolean
   widthPx: number
-  dashed: boolean
+  dash: DashKind
 }
 
 /** «Луч» над светлым пятном прожектора: силуэт и границы по вертикали (для градиента). */
@@ -166,6 +168,15 @@ export function ribbon(a: Pt, b: Pt, hw: number): Pt[] {
 }
 
 /** Штрихи вдоль отрезка a→b (длины в метрах). Для сплошной линии — один отрезок. */
+/** Точка пунктира «точки» на поле: круг радиуса hw (м) вокруг центра (в перспективе после проекции — эллипс). */
+export const dotDisc = (c: Pt, hw: number): Pt[] =>
+  ccw(Array.from({ length: DOT_SIDES }, (_, i) => onCircle(c, hw, (i * 2 * Math.PI) / DOT_SIDES)))
+const DOT_SIDES = 12
+
+/** Центры точек вдоль ломаной на поле: шаг ≈ 2.5 толщины (w — толщина линии, м). */
+export const worldDots = (line: readonly Pt[], w: number, closed = false): Pt[] =>
+  dotsAlong(line, DOT_STEP * w, closed)
+
 export function dashSegments(a: Pt, b: Pt, dash: number, gap: number): Array<[Pt, Pt]> {
   const len = Math.hypot(b.x - a.x, b.y - a.y)
   if (len === 0) return []
@@ -343,7 +354,11 @@ export function paintPitch(
     const discProj = proj.projectPolygon(ccw(circle(r)))
     if (discProj.length >= 3) out.disc.push(px(discProj))
     out.discOpacity = a.fillOpacity ?? LEGACY_RING_FILL
-    if (a.style.dash === 'dashed' && !isTarget(a)) {
+    if (a.style.dash === 'dotted' && !isTarget(a)) {
+      // Точки по окружности: круглые, поровну.
+      const ring = circle(r)
+      for (const c of worldDots(ring, hw * 2, true)) pushBody(dotDisc(c, hw))
+    } else if (a.style.dash === 'dashed' && !isTarget(a)) {
       // Штрихи по окружности: секторы кольца.
       const circ = 2 * Math.PI * r
       const count = Math.max(6, Math.round(circ / ((DASH_LENGTH + DASH_GAP) * hw * 2)))
@@ -394,11 +409,15 @@ export function paintPitch(
         const half = Math.max(head * 0.5, hw * 1.6)
         const base: Pt = { x: a.p2.x - ux * head, y: a.p2.y - uy * head }
         const shaftEnd: Pt = { x: a.p2.x - ux * head * 0.8, y: a.p2.y - uy * head * 0.8 }
-        const segs =
-          a.style.dash === 'dashed'
-            ? dashSegments(a.p1, shaftEnd, DASH_LENGTH * w, DASH_GAP * w)
-            : [[a.p1, shaftEnd] as [Pt, Pt]]
-        segs.forEach(([s, e]) => pushBody(ribbon(s, e, hw)))
+        if (a.style.dash === 'dotted') {
+          for (const c of worldDots([a.p1, shaftEnd], w)) pushBody(dotDisc(c, hw))
+        } else {
+          const segs =
+            a.style.dash === 'dashed'
+              ? dashSegments(a.p1, shaftEnd, DASH_LENGTH * w, DASH_GAP * w)
+              : [[a.p1, shaftEnd] as [Pt, Pt]]
+          segs.forEach(([s, e]) => pushBody(ribbon(s, e, hw)))
+        }
         pushBody(
           ccw([
             a.p2,
@@ -407,11 +426,15 @@ export function paintPitch(
           ])
         )
       } else {
-        const segs =
-          a.type === 'pline' && a.style.dash === 'dashed'
-            ? dashSegments(a.p1, a.p2, DASH_LENGTH * w, DASH_GAP * w)
-            : [[a.p1, a.p2] as [Pt, Pt]]
-        segs.forEach(([s, e]) => pushBody(ribbon(s, e, hw)))
+        if (a.type === 'pline' && a.style.dash === 'dotted') {
+          for (const c of worldDots([a.p1, a.p2], w)) pushBody(dotDisc(c, hw))
+        } else {
+          const segs =
+            a.type === 'pline' && a.style.dash === 'dashed'
+              ? dashSegments(a.p1, a.p2, DASH_LENGTH * w, DASH_GAP * w)
+              : [[a.p1, a.p2] as [Pt, Pt]]
+          segs.forEach(([s, e]) => pushBody(ribbon(s, e, hw)))
+        }
       }
       if (a.type === 'ruler') {
         for (const end of [a.p1, a.p2]) {

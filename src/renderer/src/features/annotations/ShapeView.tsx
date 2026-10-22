@@ -30,6 +30,7 @@ import {
   TARGET_LINE_SCALE,
   TARGET_RADII,
   TARGET_RING_OPACITY,
+  dashStyle,
   glowStack,
   isTarget,
   pulsePhase,
@@ -42,11 +43,6 @@ import { measureTextWidth } from './textMetrics'
 
 const HALO = 'rgba(43, 214, 123, 0.38)'
 const ACCENT = '#2bd67b'
-
-// «Точки» (0.18) рисуются в задаче про пунктир точками; до неё ведут себя как штрих.
-function dashArray(width: number, dash: 'solid' | 'dashed' | 'dotted'): string | undefined {
-  return dash !== 'solid' ? `${width * 2.4} ${width * 1.8}` : undefined
-}
 
 interface ShapeProps {
   annotation: Annotation
@@ -193,8 +189,10 @@ function ShapeBody({
   const p1 = toPx(a.p1, size)
   const p2 = toPx(a.p2, size)
   const w = Math.max(1, a.style.width * size.h)
-  const dash = dashArray(w, a.style.dash)
+  const ellipseLen = (rx: number, ry: number): number =>
+    Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry)))
   const color = a.style.color
+  const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y)
 
   if (a.type === 'circle') {
     const cx = (p1.x + p2.x) / 2
@@ -273,6 +271,7 @@ function ShapeBody({
       a.pulse === true && a.timing.mode === 'range' && time !== undefined
         ? pulsePhase(time)
         : undefined
+    const ds = dashStyle(a.style.dash, w, ellipseLen(rx, ry), true)
     return (
       <>
         {selected && (
@@ -291,7 +290,8 @@ function ShapeBody({
               stroke={color}
               strokeOpacity={l.opacity}
               strokeWidth={l.width}
-              strokeDasharray={dash}
+              strokeDasharray={ds.array}
+              strokeLinecap={ds.cap}
             />
           ))}
         <ellipse
@@ -304,7 +304,7 @@ function ShapeBody({
           fillOpacity={a.fillOpacity ?? LEGACY_CIRCLE_FILL}
           stroke={color}
           strokeWidth={w}
-          strokeDasharray={dash}
+          strokeDasharray={ds.array}
           strokeLinecap="round"
         />
         {phase !== undefined && (
@@ -315,6 +315,7 @@ function ShapeBody({
   }
 
   if (a.type === 'line') {
+    const ds = dashStyle(a.style.dash, w, segLen)
     return (
       <>
         {selected && (
@@ -335,14 +336,15 @@ function ShapeBody({
           y2={p2.y}
           stroke={color}
           strokeWidth={w}
-          strokeDasharray={dash}
-          strokeLinecap={a.style.dash === 'dashed' ? 'butt' : 'round'}
+          strokeDasharray={ds.array}
+          strokeLinecap={ds.cap}
         />
       </>
     )
   }
 
   const arrow = arrowShape(p1, p2, w)
+  const ds = dashStyle(a.style.dash, w, Math.hypot(arrow.lineEnd.x - p1.x, arrow.lineEnd.y - p1.y))
   const points = arrow.head.map((p) => `${p.x},${p.y}`).join(' ')
   return (
     <>
@@ -366,8 +368,8 @@ function ShapeBody({
         y2={arrow.lineEnd.y}
         stroke={color}
         strokeWidth={w}
-        strokeDasharray={dash}
-        strokeLinecap={a.style.dash === 'dashed' ? 'butt' : 'round'}
+        strokeDasharray={ds.array}
+        strokeLinecap={ds.cap}
       />
       <polygon
         points={points}

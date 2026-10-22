@@ -5,6 +5,7 @@ import {
   GLOW_LAYERS,
   GLOW_REACH,
   PULSE_PERIOD,
+  dashStyle,
   glowStack,
   isTimeVarying,
   pulsePhase,
@@ -122,5 +123,34 @@ describe('textShadowLayers: тонкая тень подписи без плаш
     expect([...widths].sort((a, b) => b - a)).toEqual(widths)
     expect(l.every((x) => x.dy > 0 && x.opacity > 0 && x.opacity <= 0.6)).toBe(true)
     expect(widths[0]).toBeLessThan(20 * 0.3)
+  })
+})
+
+describe('dashStyle: точки', () => {
+  it('сплошная — без штриховки; штрих — как раньше', () => {
+    expect(dashStyle('solid', 4, 100).array).toBeUndefined()
+    expect(dashStyle('dashed', 4, 100)).toEqual({ array: '9.6 7.2', cap: 'butt' })
+  })
+
+  it('точки: круглые концы, шаг ≈ 2.5 толщины, точка на обоих концах', () => {
+    const s = dashStyle('dotted', 4, 100)
+    expect(s.cap).toBe('round')
+    const [dash, gap] = s.array!.split(' ').map(Number)
+    expect(dash).toBeLessThan(0.01)
+    expect(dash + gap).toBeGreaterThan(9)
+    expect(dash + gap).toBeLessThan(11)
+    // Последняя точка лежит на линии, а не за её концом.
+    const dots = Math.floor((100 - 0.001) / (dash + gap)) + 1
+    expect(dots).toBe(11)
+  })
+
+  it('короткая линия — хотя бы две точки', () => {
+    const [dash, gap] = dashStyle('dotted', 6, 5).array!.split(' ').map(Number)
+    expect(Math.floor(5 / (dash + gap)) + 1).toBeGreaterThanOrEqual(2)
+  })
+
+  it('замкнутая: шаг делит периметр поровну', () => {
+    const [dash, gap] = dashStyle('dotted', 4, 100, true).array!.split(' ').map(Number)
+    expect(100 / (dash + gap)).toBeCloseTo(10, 6)
   })
 })

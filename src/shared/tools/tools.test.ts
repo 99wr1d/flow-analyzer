@@ -7,6 +7,8 @@ import {
   curveExtent,
   curveMid,
   dashPolyline,
+  dotsAlong,
+  MAX_DOTS,
   defaultControl,
   densifyQuad,
   pointBackFromEnd,
@@ -563,5 +565,60 @@ describe('точки рисунков', () => {
     }
     expect(toolPointsOf(arrow)).toEqual([])
     expect(mapToolPoints(arrow, (p) => ({ x: p.x + 1, y: p.y }))).toBe(arrow)
+  })
+})
+
+describe('точки вдоль линии', () => {
+  it('ложатся поровну на оба конца, шаг ≈ заданному', () => {
+    const dots = dotsAlong(
+      [
+        { x: 0, y: 0 },
+        { x: 100, y: 0 }
+      ],
+      10
+    )
+    expect(dots).toHaveLength(11)
+    expect(dots[0].x).toBe(0)
+    expect(dots[10].x).toBeCloseTo(100, 9)
+    expect(dots[1].x).toBeCloseTo(10, 9)
+  })
+
+  it('короткая линия — хотя бы две точки; нулевая — ни одной', () => {
+    expect(
+      dotsAlong(
+        [
+          { x: 0, y: 0 },
+          { x: 1, y: 0 }
+        ],
+        10
+      )
+    ).toHaveLength(2)
+    expect(
+      dotsAlong(
+        [
+          { x: 0, y: 0 },
+          { x: 0, y: 0 }
+        ],
+        10
+      )
+    ).toHaveLength(0)
+  })
+
+  it('идут по изгибам ломаной, замкнутая не повторяет первую точку', () => {
+    const sq = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 10, y: 10 },
+      { x: 0, y: 10 }
+    ]
+    const dots = dotsAlong(sq, 5, true)
+    expect(dots).toHaveLength(8)
+    expect(dots[2]).toEqual({ x: 10, y: 0 })
+    expect(dots[3].y).toBeCloseTo(5, 9)
+  })
+
+  it('огромное перо не даёт больше MAX_DOTS точек', () => {
+    const long = Array.from({ length: 5000 }, (_, i) => ({ x: i, y: (i % 7) * 3 }))
+    expect(dotsAlong(long, 0.5).length).toBeLessThanOrEqual(MAX_DOTS + 1)
   })
 })

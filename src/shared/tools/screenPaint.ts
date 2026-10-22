@@ -93,7 +93,7 @@ function nodesOf(points: readonly PxPt[], size: PaintSize): { nodes: PxPt[]; rad
 export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): PitchPaint {
   const out = emptyPaint()
   const w = Math.max(1, a.style.width * size.h)
-  const dashed = a.style.dash === 'dashed'
+  const dash = a.style.dash
   const tol = Math.max(w / 2, 2)
 
   if (a.type === 'spot') {
@@ -115,7 +115,7 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
         points: poly,
         closed: true,
         widthPx: Math.max(1.5, w * 0.7),
-        dashed: false
+        dash: 'solid'
       })
       // Луч (прожектор, перешедший с поля при слежении): тот же силуэт, что у пятна на траве. Масштаб — как у пятна
       // стандартного радиуса: высота луча = рост человека на ширине пятна.
@@ -142,7 +142,7 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
     const parts = headFor(line, w)
     if (parts) {
       out.body.push(parts.head)
-      out.strokes.push({ points: parts.shaft, closed: false, widthPx: w, dashed })
+      out.strokes.push({ points: parts.shaft, closed: false, widthPx: w, dash })
       out.hit = [...lineHit(line, tol), parts.head]
     }
     out.handles = [
@@ -157,13 +157,13 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
     )
     const parts = a.arrow ? headFor(pts, w) : null
     if (parts) out.body.push(parts.head)
-    out.strokes.push({ points: parts ? parts.shaft : pts, closed: false, widthPx: w, dashed })
+    out.strokes.push({ points: parts ? parts.shaft : pts, closed: false, widthPx: w, dash })
     out.hit = [...lineHit(pts, tol), ...(parts ? [parts.head] : [])]
   } else if (a.type === 'zone') {
     const pts = a.points.map((p) => px(p, size))
     out.fills.push(pts)
     out.fillOpacity = a.opacity
-    out.strokes.push({ points: pts, closed: true, widthPx: w, dashed })
+    out.strokes.push({ points: pts, closed: true, widthPx: w, dash })
     out.hit = [pts]
     out.handles = pts.map((p, i) => ({ id: `v${i}`, point: p }))
   } else if (a.type === 'chain') {
@@ -172,7 +172,7 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
       out.fills.push(pts)
       out.fillOpacity = 0.24
     }
-    out.strokes.push({ points: pts, closed: false, widthPx: w, dashed })
+    out.strokes.push({ points: pts, closed: false, widthPx: w, dash })
     const nodes = nodesOf(pts, size)
     out.nodes = nodes.nodes
     out.nodeRadius = nodes.radius

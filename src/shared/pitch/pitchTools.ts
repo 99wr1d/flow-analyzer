@@ -17,6 +17,7 @@ import {
   polylineLength,
   trimEnd
 } from '../tools/curve'
+import type { DashKind } from '../styleFx'
 import { pillarFromFooting, pillarPoly } from '../tools/pillar'
 import { interiorPoint, polygonArea } from '../tools/polygon'
 import { catmullRom } from '../tools/simplify'
@@ -29,6 +30,7 @@ import {
   ccw,
   circleAngles,
   dashSegments,
+  dotDisc,
   emptyPaint,
   formatMeters,
   labelBox,
@@ -41,7 +43,8 @@ import {
   type Measure,
   type PaintSize,
   type PitchPaint,
-  type PxPt
+  type PxPt,
+  worldDots
 } from './shapes'
 
 export type ToolPitchAnnotation =
@@ -166,8 +169,13 @@ export function paintPitchTool(
   const hw = w / 2
 
   /** Ленты вдоль ломаной с учётом пунктира. */
-  const strokeWorld = (line: readonly Pt[], dashed: boolean, dashLen = DASH_LENGTH * w): void => {
-    const pieces = dashed ? dashPolyline(line, dashLen, DASH_GAP * w) : [line]
+  const strokeWorld = (line: readonly Pt[], dash: DashKind, closed = false): void => {
+    if (dash === 'dotted') {
+      // Точки: круглые, поровну, на обоих концах (замкнутая — без повтора первой).
+      for (const c of worldDots(line, w, closed)) pushBody(dotDisc(c, hw))
+      return
+    }
+    const pieces = dash === 'dashed' ? dashPolyline(line, DASH_LENGTH * w, DASH_GAP * w) : [line]
     for (const piece of pieces) {
       for (const r of polylineRibbons(piece, hw)) pushBody(r)
     }
@@ -245,7 +253,7 @@ export function paintPitchTool(
     const len = polylineLength(line)
     if (len > 0) {
       const shaft = arrowHead(line)
-      strokeWorld(shaft, a.style.dash === 'dashed')
+      strokeWorld(shaft, a.style.dash)
       out.hit = out.body.slice()
     }
     handle('p1', a.p1)
@@ -255,7 +263,7 @@ export function paintPitchTool(
     const line = catmullRom(a.points, 6)
     if (polylineLength(line) > 0) {
       const shaft = a.arrow ? arrowHead(line) : line
-      strokeWorld(shaft, a.style.dash === 'dashed')
+      strokeWorld(shaft, a.style.dash)
       out.hit = out.body.slice()
     }
   } else if (a.type === 'pzone') {
@@ -264,7 +272,11 @@ export function paintPitchTool(
       out.fills.push(px(fill))
       out.fillOpacity = a.opacity
     }
-    strokeWorld([...a.points, a.points[0]], a.style.dash === 'dashed')
+    strokeWorld(
+      a.style.dash === 'dotted' ? a.points : [...a.points, a.points[0]],
+      a.style.dash,
+      true
+    )
     out.hit = [...out.fills, ...out.body]
     a.points.forEach((p, i) => handle(`v${i}`, p))
     if (a.showArea) {
@@ -292,7 +304,7 @@ export function paintPitchTool(
         out.fillOpacity = 0.24
       }
     }
-    strokeWorld(pts, a.style.dash === 'dashed')
+    strokeWorld(pts, a.style.dash)
     // Узлы — кольца на траве вокруг ног игроков (в перспективе — эллипсы).
     for (const p of pts) {
       const ring = (r: number): Pt[] =>

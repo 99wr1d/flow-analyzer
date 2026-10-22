@@ -417,3 +417,60 @@ describe('вспомогательное', () => {
     expect(ribbons).toHaveLength(2)
   })
 })
+
+describe('пунктир точками на поле', () => {
+  const dotted = { color: '#ffffff', width: 0.011, dash: 'dotted' as const }
+  const diam = (poly: Array<{ x: number; y: number }>): number =>
+    Math.max(...poly.map((p) => Math.hypot(p.x - poly[0].x, p.y - poly[0].y)))
+
+  it('кривая: отдельные круглые точки (12-угольники), заметно больше одной, без сплошной ленты', () => {
+    const paint = paintPitch({ ...curve, style: dotted }, proj, SIZE, measure)
+    const dots = paint.body.filter((p) => p.length === 12)
+    expect(dots.length).toBeGreaterThan(8)
+    // Всё, кроме точек, — только наконечник.
+    expect(paint.body.length - dots.length).toBe(1)
+  })
+
+  it('перо и связь: точки есть, у короткой линии — хотя бы две', () => {
+    const pen: GroundPen = {
+      ...base,
+      style: dotted,
+      id: id(7),
+      type: 'ppen',
+      points: [
+        { x: 4, y: 20 },
+        { x: 4.2, y: 20 }
+      ],
+      arrow: false
+    }
+    expect(paintPitch(pen, proj, SIZE, measure).body.length).toBeGreaterThanOrEqual(2)
+    const chain: GroundChain = {
+      ...base,
+      style: dotted,
+      id: id(8),
+      type: 'pchain',
+      points: [
+        { x: 4, y: 20 },
+        { x: 9, y: 26 },
+        { x: 14, y: 22 }
+      ],
+      fill: false,
+      labels: false
+    }
+    const dots = paintPitch(chain, proj, SIZE, measure).body.filter((p) => p.length === 12)
+    expect(dots.length).toBeGreaterThan(6)
+    expect(diam(dots[0])).toBeGreaterThan(0)
+  })
+
+  it('перо из сотен точек строится быстро', () => {
+    const points = Array.from({ length: 600 }, (_, i) => ({
+      x: 4 + (i / 600) * 20,
+      y: 20 + Math.sin(i / 15) * 6
+    }))
+    const pen: GroundPen = { ...base, style: dotted, id: id(9), type: 'ppen', points, arrow: false }
+    paintPitch(pen, proj, SIZE, measure)
+    const t0 = performance.now()
+    paintPitch(pen, proj, SIZE, measure)
+    expect(performance.now() - t0).toBeLessThan(50)
+  })
+})

@@ -581,3 +581,136 @@ describe('пульс у рисунка «только кадр»: волны н�
     expect(phaseKeyOf([rangePulse], 0.3)).not.toBe(phaseKeyOf([rangePulse], 0.9))
   })
 })
+
+describe('пунктир точками (экран и экспорт)', () => {
+  const dotted = { color: '#ffffff', width: 0.01, dash: 'dotted' as const }
+  const uid = (n: number): string =>
+    `3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4e${String(n).padStart(2, '0')}`
+  const shapes: Array<[string, object]> = [
+    ['arrow', { type: 'arrow', p1: { x: 0.1, y: 0.2 }, p2: { x: 0.6, y: 0.4 } }],
+    ['line', { type: 'line', p1: { x: 0.1, y: 0.2 }, p2: { x: 0.6, y: 0.4 } }],
+    [
+      'curve',
+      { type: 'curve', p1: { x: 0.1, y: 0.8 }, p2: { x: 0.5, y: 0.8 }, c: { x: 0.3, y: 0.4 } }
+    ],
+    [
+      'pen',
+      {
+        type: 'pen',
+        arrow: false,
+        points: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.2, y: 0.3 },
+          { x: 0.4, y: 0.2 }
+        ]
+      }
+    ],
+    [
+      'chain',
+      {
+        type: 'chain',
+        fill: false,
+        labels: false,
+        points: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.3, y: 0.4 },
+          { x: 0.5, y: 0.2 }
+        ]
+      }
+    ]
+  ]
+
+  it.each(shapes)(
+    '%s: круглые точки (нулевой штрих, круглые концы), шаг ≈ 2.5 толщины',
+    (_n, g) => {
+      const svg = buildOverlaySvg(
+        [{ id: uid(1), space: 'screen', style: dotted, timing, ...g } as Annotation],
+        1000,
+        500
+      )
+      const tag = svg.match(/<(?:line|path)[^>]*stroke-dasharray="0\.001 ([\d.]+)"[^>]*>/)
+      expect(tag).not.toBeNull()
+      expect(tag![0]).toContain('stroke-linecap="round"')
+      const step = Number(tag![1]) + 0.001
+      const w = 0.01 * 500
+      expect(step).toBeGreaterThan(w * 2)
+      expect(step).toBeLessThan(w * 3.2)
+    }
+  )
+
+  it('стрелка: наконечник остаётся сплошным', () => {
+    const svg = buildOverlaySvg(
+      [{ id: uid(2), space: 'screen', style: dotted, timing, ...shapes[0][1] } as Annotation],
+      1000,
+      500
+    )
+    expect(svg.match(/<polygon[^>]*>/)![0]).not.toContain('stroke-dasharray')
+  })
+
+  it('короткая линия — хотя бы две точки', () => {
+    const svg = buildOverlaySvg(
+      [
+        {
+          id: uid(3),
+          space: 'screen',
+          type: 'line',
+          p1: { x: 0.5, y: 0.5 },
+          p2: { x: 0.508, y: 0.5 },
+          style: dotted,
+          timing
+        } as Annotation
+      ],
+      1000,
+      500
+    )
+    const [dash, gap] = svg
+      .match(/stroke-dasharray="([\d. ]+)"/)![1]
+      .split(' ')
+      .map(Number)
+    const len = 0.008 * 1000
+    expect(Math.floor(len / (dash + gap)) + 1).toBeGreaterThanOrEqual(2)
+  })
+
+  it('свечение круга с точками повторяет штриховку и круглые концы', () => {
+    const svg = buildOverlaySvg(
+      [
+        {
+          id: uid(4),
+          space: 'screen',
+          type: 'circle',
+          p1: { x: 0.4, y: 0.5 },
+          p2: { x: 0.5, y: 0.6 },
+          style: dotted,
+          fillOpacity: 0,
+          glow: true,
+          timing
+        } as Annotation
+      ],
+      1000,
+      500
+    )
+    const layer = svg.match(/<ellipse[^>]*data-part="glow"[^>]*>/)![0]
+    expect(layer).toContain('stroke-dasharray="0.001')
+    expect(layer).toContain('stroke-linecap="round"')
+  })
+
+  it('перо из тысяч точек рисуется быстро', () => {
+    const points = Array.from({ length: 1500 }, (_, i) => ({
+      x: 0.05 + (i / 1500) * 0.9,
+      y: 0.5 + Math.sin(i / 20) * 0.2
+    }))
+    const pen = {
+      id: uid(5),
+      space: 'screen',
+      type: 'pen',
+      arrow: false,
+      points,
+      style: dotted,
+      timing
+    } as Annotation
+    buildOverlaySvg([pen], 1280, 720)
+    const t0 = performance.now()
+    buildOverlaySvg([pen], 1280, 720)
+    expect(performance.now() - t0).toBeLessThan(50)
+  })
+})

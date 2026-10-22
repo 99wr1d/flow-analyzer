@@ -6,6 +6,7 @@ import { useKeyHint } from '../commands/useKeys'
 import { redoAny, undoAny, useCanRedo, useCanUndo } from '../history/unified'
 import {
   DashedLineIcon,
+  DottedLineIcon,
   PitchIcon,
   RedoIcon,
   SolidLineIcon,
@@ -382,14 +383,14 @@ export function StyleBar(): React.JSX.Element {
       )}
       <span className="style-bar__gap" />
       <div className="style-bar__group" role="group" aria-label={ru.annotations.dash}>
-        {(['solid', 'dashed'] as const).map((d) => (
+        {(['solid', 'dashed', 'dotted'] as const).map((d) => (
           <button
             key={d}
             type="button"
             className={shown.dash === d ? 'seg-btn seg-btn--active' : 'seg-btn'}
             disabled={context === 'text' || context === 'ruler'}
-            title={d === 'solid' ? ru.annotations.solid : ru.annotations.dashed}
-            aria-label={d === 'solid' ? ru.annotations.solid : ru.annotations.dashed}
+            title={ru.annotations[d]}
+            aria-label={ru.annotations[d]}
             aria-pressed={shown.dash === d}
             data-testid={`dash-${d}`}
             onClick={(e) => {
@@ -397,7 +398,13 @@ export function StyleBar(): React.JSX.Element {
               e.currentTarget.blur()
             }}
           >
-            {d === 'solid' ? <SolidLineIcon size={18} /> : <DashedLineIcon size={18} />}
+            {d === 'solid' ? (
+              <SolidLineIcon size={18} />
+            ) : d === 'dashed' ? (
+              <DashedLineIcon size={18} />
+            ) : (
+              <DottedLineIcon size={18} />
+            )}
           </button>
         ))}
       </div>

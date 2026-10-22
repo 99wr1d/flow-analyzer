@@ -141,3 +141,52 @@ export function dashPolyline(points: readonly Pt2[], dash: number, gap: number):
   if (drawing && current.length >= 2) out.push(current)
   return out
 }
+
+/** Шаг между центрами точек пунктира «точки», в толщинах линии. */
+export const DOT_STEP = 2.5
+/** Предел числа точек на одном рисунке: огромное перо не должно подвесить отрисовку. */
+export const MAX_DOTS = 800
+
+/**
+ * Раскладка точек по линии длины length: сколько промежутков и какой между ними шаг.
+ * Точки ложатся поровну и всегда на оба конца (замкнутая — без повтора первой), поэтому даже у самой короткой линии их хотя бы две.
+ */
+export function dotLayout(
+  length: number,
+  step: number,
+  closed = false
+): { gaps: number; spacing: number } {
+  if (!(length > 0) || !(step > 0)) return { gaps: 1, spacing: 0 }
+  const want = Math.round(length / step)
+  const gaps = Math.min(MAX_DOTS, closed ? Math.max(3, want) : Math.max(1, want))
+  return { gaps, spacing: length / gaps }
+}
+
+/** Центры точек вдоль ломаной (для рисунков, где точки — отдельные многоугольники, например на поле). */
+export function dotsAlong(points: readonly Pt2[], step: number, closed = false): Pt2[] {
+  const line = closed && points.length > 0 ? [...points, points[0]] : points
+  let total = 0
+  for (let i = 1; i < line.length; i += 1)
+    total += Math.hypot(line[i].x - line[i - 1].x, line[i].y - line[i - 1].y)
+  if (!(total > 0)) return []
+  const { gaps, spacing } = dotLayout(total, step, closed)
+  const count = closed ? gaps : gaps + 1
+  const out: Pt2[] = []
+  let seg = 1
+  let walked = 0 // длина до начала звена seg - 1
+  for (let k = 0; k < count; k += 1) {
+    const target = Math.min(k * spacing, total)
+    while (seg < line.length - 1) {
+      const len = Math.hypot(line[seg].x - line[seg - 1].x, line[seg].y - line[seg - 1].y)
+      if (walked + len >= target) break
+      walked += len
+      seg += 1
+    }
+    const a = line[seg - 1]
+    const b = line[seg]
+    const len = Math.hypot(b.x - a.x, b.y - a.y)
+    const t = len === 0 ? 0 : Math.min(1, Math.max(0, (target - walked) / len))
+    out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+  }
+  return out
+}

@@ -5,7 +5,12 @@ import type { PitchAnnotation } from '../../../../shared/annotations'
 import { shiftLabel, type LabelShift } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
 import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared/pitch/shapes'
-import { TARGET_FILL_STOPS, TARGET_RING_OPACITY, glowStack } from '../../../../shared/styleFx'
+import {
+  TARGET_FILL_STOPS,
+  TARGET_RING_OPACITY,
+  dashStyle,
+  glowStack
+} from '../../../../shared/styleFx'
 import {
   PILLAR_LAYERS,
   PILLAR_VERTICAL_STOPS,
@@ -161,6 +166,16 @@ export function Pillar({
       />
     </g>
   )
+}
+
+/** Длина линии в пикселях (замкнутая — с замыкающим звеном): нужна точкам, чтобы лечь поровну. */
+const strokeLength = (pts: readonly { x: number; y: number }[], closed: boolean): number => {
+  let len = 0
+  for (let i = 1; i < pts.length; i += 1)
+    len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y)
+  if (closed && pts.length > 1)
+    len += Math.hypot(pts[0].x - pts[pts.length - 1].x, pts[0].y - pts[pts.length - 1].y)
+  return len
 }
 
 const pointsAttr = (poly: readonly { x: number; y: number }[]): string =>
@@ -335,19 +350,22 @@ export function PaintParts({
         />
       )}
       {ground &&
-        paint.strokes.map((s, i) => (
-          <path
-            key={`stroke-${i}`}
-            data-part="stroke"
-            d={pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')}
-            fill="none"
-            stroke={color}
-            strokeWidth={s.widthPx}
-            strokeLinejoin="round"
-            strokeLinecap={s.dashed ? 'butt' : 'round'}
-            strokeDasharray={s.dashed ? `${s.widthPx * 2.4} ${s.widthPx * 1.8}` : undefined}
-          />
-        ))}
+        paint.strokes.map((s, i) => {
+          const ds = dashStyle(s.dash, s.widthPx, strokeLength(s.points, s.closed), s.closed)
+          return (
+            <path
+              key={`stroke-${i}`}
+              data-part="stroke"
+              d={pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')}
+              fill="none"
+              stroke={color}
+              strokeWidth={s.widthPx}
+              strokeLinejoin="round"
+              strokeLinecap={ds.cap}
+              strokeDasharray={ds.array}
+            />
+          )
+        })}
       {ground && paint.wave && paint.wave.body.length > 0 && (
         <path
           data-part="wave"
