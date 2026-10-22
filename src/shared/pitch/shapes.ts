@@ -368,7 +368,7 @@ export function paintPitch(
     } else {
       pushBand(r, hw, out.body)
     }
-    if (time !== undefined && a.pulse === true) {
+    if (time !== undefined && a.pulse === true && a.timing.mode === 'range') {
       // Пульс: волна от центра наружу, по времени видео.
       const phase = pulsePhase(time)
       const wave: PxPt[][] = []

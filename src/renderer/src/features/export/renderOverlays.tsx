@@ -245,7 +245,8 @@ export class BoundedCache<V> {
 export function phaseKeyOf(items: readonly Annotation[], time: number): string | null {
   if (items.some(isMoving)) return null
   const parts = items.map((a) => {
-    const phase = (a.type === 'circle' || a.type === 'ring') && a.pulse === true
+    const phase =
+      (a.type === 'circle' || a.type === 'ring') && a.pulse === true && a.timing.mode === 'range'
     const reveal = 'reveal' in a && a.reveal !== undefined
     return `${phase ? Math.round(pulsePhase(time) * 1e6) : ''}/${reveal ? Math.round(revealFraction(a, time) * 1e6) : ''}`
   })

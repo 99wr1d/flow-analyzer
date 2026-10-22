@@ -2,7 +2,7 @@
 import { expect, test } from '@playwright/test'
 import type { Locator, Page } from '@playwright/test'
 import { join } from 'path'
-import { SHOTS, SUFFIX, fixture, launch, stubDialog, videoState } from './helpers'
+import { SHOTS, SUFFIX, fixture, launch, stableLayerBox, stubDialog, videoState } from './helpers'
 
 async function openFixture(name = 'cfr25.mp4') {
   const { app, win } = await launch()
@@ -21,9 +21,7 @@ interface Box {
 }
 
 async function layerBox(win: Page): Promise<Box> {
-  const box = await win.getByTestId('annotation-layer').boundingBox()
-  expect(box).not.toBeNull()
-  return box!
+  return stableLayerBox(win)
 }
 
 /** Перетаскивание мышью в долях картинки (0..1). */

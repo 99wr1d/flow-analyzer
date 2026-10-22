@@ -203,7 +203,10 @@ function ShapeBody({
     const ry = Math.abs(p2.y - p1.y) / 2
     if (isTarget(a)) {
       // «Мишень»: три кольца (1, 0.66, 0.33), радиальная заливка от центра к краю, волна пульса.
-      const phase = a.pulse === true && time !== undefined ? pulsePhase(time) : undefined
+      const phase =
+        a.pulse === true && a.timing.mode === 'range' && time !== undefined
+          ? pulsePhase(time)
+          : undefined
       return (
         <>
           {selected && (
@@ -266,7 +269,10 @@ function ShapeBody({
         </>
       )
     }
-    const phase = a.pulse === true && time !== undefined ? pulsePhase(time) : undefined
+    const phase =
+      a.pulse === true && a.timing.mode === 'range' && time !== undefined
+        ? pulsePhase(time)
+        : undefined
     return (
       <>
         {selected && (

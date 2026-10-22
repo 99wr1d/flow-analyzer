@@ -178,13 +178,35 @@ interface Box {
   height: number
 }
 
+/** Рамка слоя рисунков, когда она перестала меняться (две подряд одинаковые на соседних кадрах анимации): раскладка устоялась. */
+export async function stableLayerBox(win: Page): Promise<Box> {
+  const rect = await win.getByTestId('annotation-layer').evaluate(async (el) => {
+    const read = (): string => {
+      const r = el.getBoundingClientRect()
+      return [r.x, r.y, r.width, r.height].join(',')
+    }
+    const frame = (): Promise<void> => new Promise((res) => requestAnimationFrame(() => res()))
+    let prev = read()
+    for (let i = 0; i < 40; i += 1) {
+      await frame()
+      await frame()
+      const now = read()
+      if (now === prev) break
+      prev = now
+    }
+    const [x, y, width, height] = prev.split(',').map(Number)
+    return { x, y, width, height }
+  })
+  return rect as Box
+}
+
 /** Перетаскивание мышью по картинке в долях кадра (0..1). */
 export async function dragOnPicture(
   win: Page,
   from: [number, number],
   to: [number, number]
 ): Promise<void> {
-  const b = (await win.getByTestId('annotation-layer').boundingBox()) as Box
+  const b = await stableLayerBox(win)
   const at = ([fx, fy]: [number, number]): [number, number] => [
     b.x + fx * b.width,
     b.y + fy * b.height

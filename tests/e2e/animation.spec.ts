@@ -9,6 +9,7 @@ import {
   SHOTS,
   SUFFIX,
   dragOnPicture,
+  stableLayerBox,
   fixture,
   launch,
   makeUserData,
@@ -599,6 +600,7 @@ test.describe('анимация рисунков', () => {
         )
         await win.waitForFunction((width) => window.innerWidth >= width - 20, w)
         await win.waitForTimeout(400)
+        let first: { x: number; y: number; width: number; height: number } | null = null
         for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler']) {
           await win.getByTestId(`tool-${tool}`).click()
           await win.waitForTimeout(100)
@@ -635,11 +637,20 @@ test.describe('анимация рисунков', () => {
           expect(info.overlaps, `наложения: ${tool} @${w}`).toEqual([])
           expect(info.outside, `за краем панели: ${tool} @${w}`).toEqual([])
           expect(info.height).toBeLessThanOrEqual(80)
+          // Картинка не прыгает при смене инструмента: высота панели одна и та же.
+          const rect = await stableLayerBox(win)
+          if (!first) first = rect
+          expect(rect, `картинка: ${tool} @${w}`).toEqual(first)
           if (tool === 'circle') {
             await win.screenshot({ path: join(SHOTS, `animation-stylebar-${w}${SUFFIX}.png`) })
           }
         }
+        // Нарисованный и выбранный круг (панель показывает его значения) картинку тоже не двигает.
         await win.getByTestId('tool-circle').click()
+        await dragOnPicture(win, [0.55, 0.62], [0.7, 0.72])
+        await win.waitForTimeout(150)
+        expect(await stableLayerBox(win), `картинка с выбранным кругом @${w}`).toEqual(first)
+        await win.keyboard.press('Escape')
         // Все кнопки на месте и видны.
         for (const id of [
           'pitch-calibrate',

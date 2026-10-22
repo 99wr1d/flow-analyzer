@@ -543,3 +543,41 @@ describe('BoundedCache', () => {
     expect(c.get('k7')).toBe(7)
   })
 })
+
+describe('пульс у рисунка «только кадр»: волны нет, даже рядом с другими движущимися', () => {
+  const cal = sampleCalibration()
+  const frameTiming = { mode: 'frame', start: 1, freezeSeconds: 2 }
+  const circle = {
+    id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4f11',
+    space: 'screen',
+    type: 'circle',
+    p1: { x: 0.4, y: 0.5 },
+    p2: { x: 0.5, y: 0.6 },
+    style: { color: '#ff5a1f', width: 0.004, dash: 'solid' },
+    pulse: true,
+    timing: frameTiming
+  } as Annotation
+  const ring = {
+    id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4f12',
+    space: 'pitch',
+    calibrationId: cal.id,
+    type: 'ring',
+    center: { x: 8, y: 34 },
+    radius: 1.5,
+    style: { color: '#ff5a1f', width: 0.004, dash: 'solid' },
+    pulse: true,
+    timing: frameTiming
+  } as Annotation
+  const rangePulse = { ...circle, id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4f13', timing } as Annotation
+  const waves = (svg: string): number => (svg.match(/data-part="wave"/g) ?? []).length
+
+  it('в общем кадре с пульсирующим отрезком волна только у отрезка', () => {
+    const svg = buildOverlaySvg([circle, ring, rangePulse], 1280, 720, [cal], { time: 0.4 })
+    expect(waves(svg)).toBe(1)
+  })
+
+  it('ключ кадра у «только кадр» не зависит от времени', () => {
+    expect(phaseKeyOf([circle], 0.3)).toBe(phaseKeyOf([circle], 0.9))
+    expect(phaseKeyOf([rangePulse], 0.3)).not.toBe(phaseKeyOf([rangePulse], 0.9))
+  })
+})
