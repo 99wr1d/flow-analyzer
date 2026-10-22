@@ -387,7 +387,7 @@ test.describe('подписи без плашки', () => {
       }))
       expect(parts.plate).toBe(0)
       expect(parts.shadows).toBeGreaterThanOrEqual(2)
-      expect(parts.weight).toBeGreaterThanOrEqual(700)
+      expect(parts.weight).toBe(600)
 
       await win.keyboard.press('Escape')
       await win.getByTestId('tool-select').click()
@@ -481,7 +481,9 @@ test.describe('подписи без плашки', () => {
       await clickAt(win, (await labelBox(win, 0)).f)
       await expect(labels.first()).toHaveAttribute('data-selected', 'true')
       await expect(bg).toHaveAttribute('aria-pressed', 'true')
-      await expect(sh).toHaveAttribute('aria-pressed', 'true')
+      // С плашкой тень не рисуется: кнопка выключена и показана «не нажатой».
+      await expect(sh).toBeDisabled()
+      await expect(sh).toHaveAttribute('aria-pressed', 'false')
     } finally {
       await ctx.app.close()
     }
@@ -526,6 +528,63 @@ test.describe('мишень и пульс', () => {
     await win.keyboard.press('Escape')
     return ellipseOf(win)
   }
+
+  test('умолчания: новая подпись лайм и мелкая, цвет подписей запоминается отдельно от цвета стрелок', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Умолчания подписи')
+      await typeLabel(win, [0.3, 0.3], 'LW')
+      const label = shapes(win, 'text').first()
+      await expect(label).toHaveAttribute('data-color', '#c6ff3d')
+      await expect(label.locator('[data-part="text"]')).toHaveAttribute('font-weight', '600')
+      await win.keyboard.press('Escape')
+      // Стрелка по умолчанию — прежнего жёлтого цвета, а не лайма.
+      await win.getByTestId('tool-arrow').click()
+      await expect(win.getByTestId('color-ffd60a')).toHaveAttribute('aria-pressed', 'true')
+      // Белый для подписи не красит стрелки.
+      await win.keyboard.press('t')
+      await win.getByTestId('color-ffffff').click()
+      await win.getByTestId('tool-arrow').click()
+      await expect(win.getByTestId('color-ffd60a')).toHaveAttribute('aria-pressed', 'true')
+      await win.keyboard.press('t')
+      await expect(win.getByTestId('color-ffffff')).toHaveAttribute('aria-pressed', 'true')
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('«Тень» недоступна при включённой плашке, «Проявление» недоступно у рисунка «Только кадр»', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Недоступные кнопки')
+      await win.keyboard.press('t')
+      const sh = win.getByTestId('text-shadow')
+      await expect(sh).toBeEnabled()
+      await win.getByTestId('text-background').click()
+      await expect(sh).toBeDisabled()
+      await expect(sh).toHaveAttribute('aria-pressed', 'false')
+      await win.getByTestId('text-background').click()
+      await expect(sh).toBeEnabled()
+      await win.keyboard.press('Escape')
+      // Стрелка с режимом «Только кадр»: переключатель проявления выключен, с подсказкой.
+      await win.getByTestId('tool-arrow').click()
+      await dragPath(win, [
+        [0.2, 0.3],
+        [0.5, 0.3]
+      ])
+      await expect(win.getByTestId('reveal-toggle')).toBeEnabled()
+      await win.getByTestId('mode-frame').click()
+      await expect(win.getByTestId('reveal-toggle')).toBeDisabled()
+      await expect(win.getByTestId('reveal-toggle')).toHaveAttribute(
+        'title',
+        'Проявление работает у рисунков с отрезком времени'
+      )
+    } finally {
+      await ctx.app.close()
+    }
+  })
 
   test('панель: «Кольцо / Мишень» и «Пульс» показывают значения выбранного рисунка', async () => {
     const ctx = await launch()
@@ -645,7 +704,8 @@ test.describe('мишень и пульс', () => {
       await waitUnderDrawn(win)
       // Кадры 6 и 20: фаза 0.173 и 0.547 (период 1.5 с, 25 к/с).
       const [a, b] = [6, 20]
-      const phase = (n: number): number => (((n + 0.5) / 25) % 1.5) / 1.5
+      // Фаза ступенчатая (40 ступеней за период).
+      const phase = (n: number): number => Math.floor(((((n + 0.5) / 25) % 1.5) / 1.5) * 40) / 40
       const wave = (n: number): Frac => [(e.cx + e.rx * phase(n)) / W, e.cy / H]
       const screenAt = (f: Frac): [number, number] => [
         layer.x + f[0] * layer.width,
@@ -693,7 +753,7 @@ test.describe('световой столб', () => {
     await win.getByTestId('duration-input').fill('3')
   }
 
-  test('столб: вертикаль от верха кадра до ног, затемнение вокруг, на экране и в готовом видео', async () => {
+  test('столб: вертикаль от верха кадра до ног, без затемнения кадра (включается вручную), на экране и в готовом видео', async () => {
     const ctx = await launch()
     const { win } = ctx
     try {
@@ -701,12 +761,19 @@ test.describe('световой столб', () => {
       await seekVideo(win, 41.5 / 25)
       const layer = await layerBox(win)
       const base = await png(win, 'pillar-base')
-      // Овал 0.08 × 0.08 кадра: низ-середина (0.56, 0.80) — ноги; ширина столба = 0.6 ширины овала.
+      // Овал 0.08 × 0.08 кадра: низ-середина (0.56, 0.80) — ноги; ширина столба = 1.1 ширины овала.
       await drawPillar(win, [0.52, 0.72], [0.6, 0.8])
       const spot = shapes(win, 'spot')
       await expect(spot).toHaveAttribute('data-form', 'pillar')
       await expect(spot.locator('[data-part="pillar"]')).toHaveCount(1)
       await expect(spot.locator('[data-part="beam"]')).toHaveCount(0)
+      // По умолчанию кадр вокруг столба не затемняется; затемнение включается галочкой в «Свойствах».
+      await expect(win.getByTestId('spotlight-dim')).toHaveCount(0)
+      await expect(win.getByTestId('prop-dimmed')).not.toBeChecked()
+      await win.getByTestId('prop-dimmed').check()
+      await expect(win.getByTestId('spotlight-dim')).toHaveCount(1)
+      await win.getByTestId('prop-dimmed').uncheck()
+      await expect(win.getByTestId('spotlight-dim')).toHaveCount(0)
       await win.keyboard.press('Escape')
       await win.getByTestId('tool-select').click()
       await win.keyboard.press('Escape')

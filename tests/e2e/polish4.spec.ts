@@ -130,10 +130,10 @@ test.describe('0.16.4: подсветки не закрывают игрока',
       await win.getByTestId('tool-arrow').click()
       await expect(win.getByTestId('under-toggle')).toHaveAttribute('aria-pressed', 'false')
 
-      // Размеры текста: пять ступеней, по умолчанию третья (прежнего «среднего» шага вниз).
+      // Размеры текста: пять ступеней, по умолчанию вторая («Мелкий», как у образца).
       await win.getByTestId('tool-text').click()
       await expect(win.locator('[data-testid^="text-size-"]')).toHaveCount(5)
-      await expect(win.getByTestId('text-size-2')).toHaveAttribute('aria-pressed', 'true')
+      await expect(win.getByTestId('text-size-1')).toHaveAttribute('aria-pressed', 'true')
       await win.getByTestId('text-size-0').click()
       await expect(win.getByTestId('text-size-0')).toHaveAttribute('aria-pressed', 'true')
     } finally {

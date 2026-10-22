@@ -4,7 +4,7 @@ import {
   type ScreenAnnotation as Annotation
 } from '../../../../shared/annotations'
 import { useAnnotationsStore } from './annotationsStore'
-import { LEVELS } from './styles'
+import { DEFAULT_STYLE, LEVELS } from './styles'
 
 const arrow = (n: number): Annotation => ({
   id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
@@ -358,6 +358,27 @@ describe('правка стиля старого рисунка (0.18)', () => {
       background: true,
       shadow: true
     })
+  })
+
+  it('цвет подписи запоминается отдельно: выбор для подписи не красит остальные рисунки, и наоборот', () => {
+    s().reset()
+    useAnnotationsStore.setState({ style: { ...DEFAULT_STYLE } })
+    expect(s().style.textColor).toBe('#c6ff3d')
+    expect(s().style.color).toBe('#ffd60a')
+    // Инструмент «Подпись»: выбор цвета меняет цвет подписей.
+    s().setTool('text')
+    s().setStyle({ color: '#ffffff' })
+    expect(s().style).toMatchObject({ textColor: '#ffffff', color: '#ffd60a' })
+    // Инструмент «Стрелка»: цвет стрелок, подписи не трогает.
+    s().setTool('arrow')
+    s().setStyle({ color: '#ff3b30' })
+    expect(s().style).toMatchObject({ textColor: '#ffffff', color: '#ff3b30' })
+    // Выбранная подпись: её цвет меняется, запоминается как цвет подписей.
+    s().setTool('select')
+    s().add(label())
+    s().setStyle({ color: '#4cc9f0' })
+    expect(s().style).toMatchObject({ textColor: '#4cc9f0', color: '#ff3b30' })
+    useAnnotationsStore.setState({ style: { ...DEFAULT_STYLE } })
   })
 
   it('смена цвета старой стрелки не добавляет новых полей', () => {

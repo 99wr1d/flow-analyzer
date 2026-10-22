@@ -293,6 +293,14 @@ const groundZonePoints = z.array(WorldPointSchema).min(3).max(MAX_ZONE_VERTICES)
 const groundChainPoints = z.array(WorldPointSchema).min(2).max(MAX_CHAIN_NODES)
 
 const dim = z.number().min(MIN_DIM).max(MAX_DIM).default(DEFAULT_DIM)
+/**
+ * Затемнять ли кадр вокруг прожектора. Нет поля — затемняет (как всегда); false — только свет без затемнения (новый «Столб»).
+ * Отдельное поле, а не dim = 0: версии до 0.18 не принимают dim меньше MIN_DIM и не открыли бы весь проект.
+ */
+const dimmed = z.boolean().optional()
+/** Затемнение прожектора с учётом поля dimmed: 0 — не затемняет. */
+export const spotDim = (a: { dim: number; dimmed?: boolean }): number =>
+  a.dimmed === false ? 0 : a.dim
 const zoneOpacity = z
   .number()
   .min(MIN_ZONE_OPACITY)
@@ -310,6 +318,7 @@ export const SpotlightSchema = z.object({
   type: z.literal('spot'),
   ...twoPoints,
   dim,
+  dimmed,
   /** Вертикальный «луч» (как у прожектора на траве); появляется при переводе прожектора с поля для слежения. */
   beam: z.boolean().optional(),
   form: spotForm,
@@ -388,6 +397,7 @@ export const GroundSpotlightSchema = z.object({
   center: WorldPointSchema,
   radius: z.number().min(MIN_SPOT_RADIUS).max(MAX_SPOT_RADIUS),
   dim,
+  dimmed,
   beam: z.boolean().default(true),
   form: spotForm,
   style: ShapeStyleSchema,

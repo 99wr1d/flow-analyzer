@@ -1,10 +1,11 @@
 // Палитра и размеры рисунков.
-import type {
-  Annotation,
-  RingLook,
-  ShapeStyle,
-  SpotForm,
-  TextStyle
+import {
+  DEFAULT_REVEAL,
+  type Annotation,
+  type RingLook,
+  type ShapeStyle,
+  type SpotForm,
+  type TextStyle
 } from '../../../../shared/annotations'
 
 export interface PaletteColor {
@@ -46,16 +47,18 @@ export const TEXT_SIZES = [
   { label: 'Крупный', size: 0.09 }
 ] as const
 export type TextLevel = 0 | 1 | 2 | 3 | 4
-/** Размер новой подписи по умолчанию: на шаг меньше прежнего (был 0.065, стало 0.045). */
-export const DEFAULT_TEXT_LEVEL: TextLevel = 2
+/** Размер новой подписи по умолчанию: «Мелкий» (0.032) — как у образца; до 0.18 был 0.065, в первой сборке 0.18 — 0.045. */
+export const DEFAULT_TEXT_LEVEL: TextLevel = 1
+/** Цвет новых подписей по умолчанию: лайм, читается на траве. Остальные рисунки по умолчанию жёлтые. */
+export const DEFAULT_TEXT_COLOR = '#c6ff3d'
 
-/** Время проявления линии по умолчанию, секунды; пределы — 0.2–3. */
-export const DEFAULT_REVEAL = 0.8
-export const MIN_REVEAL = 0.2
-export const MAX_REVEAL = 3
+// Время проявления линии по умолчанию и пределы (секунды) определены вместе со схемой файла.
+export { DEFAULT_REVEAL, MAX_REVEAL, MIN_REVEAL } from '../../../../shared/annotations'
 
 export interface CurrentStyle {
   color: string
+  /** Цвет подписей: запоминается отдельно, чтобы подпись цвета лайм не красила в лайм стрелки и кольца. */
+  textColor: string
   level: Level
   /** Размер текста: индекс в TEXT_SIZES. */
   textLevel: TextLevel
@@ -83,6 +86,7 @@ export interface CurrentStyle {
 
 export const DEFAULT_STYLE: CurrentStyle = {
   color: '#ffd60a',
+  textColor: DEFAULT_TEXT_COLOR,
   level: 1,
   textLevel: DEFAULT_TEXT_LEVEL,
   dash: 'solid',
@@ -105,7 +109,7 @@ export function shapeStyleOf(s: CurrentStyle): ShapeStyle {
 
 export function textStyleOf(s: CurrentStyle): TextStyle {
   return {
-    color: s.color,
+    color: s.textColor,
     size: TEXT_SIZES[s.textLevel].size,
     background: s.textBackground,
     shadow: s.textShadow
@@ -131,7 +135,10 @@ export const isLineType = (type: string): boolean => LINE_TYPES.has(type)
  */
 export function newDrawingFx(type: string, s: CurrentStyle): Record<string, unknown> {
   if (type === 'circle' || type === 'ring') return { glow: s.glow, look: s.look, pulse: s.pulse }
-  if (type === 'spot' || type === 'pspot') return { form: s.form }
+  // «Столб» по умолчанию без затемнения кадра (затемнение включается вручную, в панели «Рисунок»).
+  if (type === 'spot' || type === 'pspot') {
+    return { form: s.form, ...(s.form === 'pillar' ? { dimmed: false } : {}) }
+  }
   if (LINE_TYPES.has(type)) {
     return { glow: s.lineGlow, ...(s.reveal !== null ? { reveal: s.reveal } : {}) }
   }

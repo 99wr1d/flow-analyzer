@@ -3,7 +3,7 @@ import type { PxPt } from '../pitch/shapes'
 import { signedArea } from './polygon'
 
 export interface SpotInput {
-  /** Сила затемнения этого прожектора, 0..1. */
+  /** Сила затемнения этого прожектора, 0..1 (0 — не затемняет). */
   dim: number
   /** Освещённые области (многоугольники в пикселях кадра). */
   lit: readonly (readonly PxPt[])[]
@@ -18,7 +18,8 @@ export interface SpotMask {
 
 /** Общая маска: затемнение — максимум из заданных, дыры — все освещённые области. null — прожекторов нет. */
 export function composeSpotlights(list: readonly SpotInput[]): SpotMask | null {
-  const used = list.filter((s) => s.lit.length > 0)
+  // Прожектор без затемнения (dim = 0) маски не даёт: светит только сам рисунок.
+  const used = list.filter((s) => s.lit.length > 0 && s.dim > 0)
   if (used.length === 0) return null
   return {
     dim: Math.max(...used.map((s) => s.dim)),

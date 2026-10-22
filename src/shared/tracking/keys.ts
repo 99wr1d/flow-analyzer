@@ -252,6 +252,7 @@ export function pitchToScreenForTracking(a: Annotation, cal: Calibration, t: num
     p1,
     p2,
     dim: a.dim,
+    ...(a.dimmed !== undefined ? { dimmed: a.dimmed } : {}),
     beam: a.beam,
     ...(a.form !== undefined ? { form: a.form } : {}),
     style: a.style,

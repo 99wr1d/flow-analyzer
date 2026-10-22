@@ -241,7 +241,14 @@ function ToolProps({ annotation: a }: { annotation: Annotation }): React.JSX.Ele
           value={a.dim}
           min={MIN_DIM}
           max={MAX_DIM}
-          onChange={(dim) => setProps(a.id, { dim })}
+          // Двигаете ползунок у прожектора без затемнения — затемнение включается с этой силой.
+          onChange={(dim) => setProps(a.id, a.dimmed === false ? { dim, dimmed: true } : { dim })}
+        />
+        <CheckField
+          label={ru.annotations.dimmed}
+          testId="prop-dimmed"
+          checked={a.dimmed !== false}
+          onChange={(dimmed) => setProps(a.id, { dimmed })}
         />
         {a.type === 'pspot' && (
           <CheckField

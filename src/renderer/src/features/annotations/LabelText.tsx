@@ -1,7 +1,7 @@
 // Буквы подписи: текст рисунка на экране и на поле. Один код для обоих и для экспорта.
 import { textShadowLayers } from '../../../../shared/styleFx'
 import { isDarkColor } from './styles'
-import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT } from './textMetrics'
+import { TEXT_FONT_FAMILY, textFontWeight } from './textMetrics'
 
 interface LabelTextProps {
   text: string
@@ -17,10 +17,14 @@ interface LabelTextProps {
 }
 
 /** Общие свойства текста подписи. */
-const common = (fontPx: number, anchor: 'start' | 'middle'): React.SVGProps<SVGTextElement> => ({
+const common = (
+  fontPx: number,
+  anchor: 'start' | 'middle',
+  weight: number
+): React.SVGProps<SVGTextElement> => ({
   fontSize: fontPx,
   fontFamily: TEXT_FONT_FAMILY,
-  fontWeight: TEXT_FONT_WEIGHT,
+  fontWeight: weight,
   dominantBaseline: 'central',
   textAnchor: anchor
 })
@@ -36,7 +40,7 @@ export function LabelText({
   anchor = 'start'
 }: LabelTextProps): React.JSX.Element {
   const dark = isDarkColor(color)
-  const props = common(fontPx, anchor)
+  const props = common(fontPx, anchor, textFontWeight(shadow))
   if (!plate && shadow === true) {
     // Без плашки: подпись читается на траве благодаря тонкой тени под буквами (светлому тексту — тёмной, тёмному — светлой).
     const ink = dark ? '255,255,255' : '0,0,0'

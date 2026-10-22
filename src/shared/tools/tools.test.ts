@@ -444,6 +444,16 @@ describe('прожекторы: общая маска', () => {
     expect(composeSpotlights([{ dim: 0.5, lit: [] }])).toBeNull()
   })
 
+  it('прожектор без затемнения (dim 0) маски не даёт и дыр не делает', () => {
+    expect(composeSpotlights([{ dim: 0, lit: [circleA] }])).toBeNull()
+    const mask = composeSpotlights([
+      { dim: 0, lit: [circleA] },
+      { dim: 0.5, lit: [circleA] }
+    ])
+    expect(mask).not.toBeNull()
+    expect(mask!.holes).toHaveLength(1)
+  })
+
   it('затемнение — самое сильное, дыры собираются со всех прожекторов', () => {
     const mask = composeSpotlights([
       { dim: 0.4, lit: [circleA] },

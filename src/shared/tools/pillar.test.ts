@@ -18,6 +18,11 @@ const spot = (form?: 'oval' | 'pillar', beam?: boolean): Spotlight => ({
 const SIZE = { w: 1000, h: 500 }
 
 describe('световой столб: геометрия', () => {
+  it('столб широкий: ширина больше прежних 0.6 доли следа', () => {
+    expect(PILLAR_WIDTH_SHARE).toBeGreaterThanOrEqual(0.6 * 1.6)
+    expect(PILLAR_WIDTH_SHARE).toBeLessThanOrEqual(0.6 * 2)
+  })
+
   it('вертикаль по экрану от верха кадра до низа-середины следа, ширина — доля ширины следа', () => {
     const p = pillarFromFooting({ x: 450, y: 350 }, 100)!
     expect(p.x).toBe(450)

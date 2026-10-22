@@ -106,6 +106,7 @@ const PROP_TO_OPTION: Record<string, keyof ToolOptions> = {
 /** Свойства рисунка, которые можно менять в панели «Рисунок». */
 export type PropPatch = Partial<{
   dim: number
+  dimmed: boolean
   zoom: number
   opacity: number
   showArea: boolean
@@ -339,10 +340,17 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
       const ringContext = target
         ? target.type === 'circle' || target.type === 'ring'
         : s.tool === 'circle'
-      const style =
+      // Цвет подписи запоминается отдельно от цвета остальных рисунков (подпись по умолчанию лайм, стрелки жёлтые).
+      const textContext = target
+        ? target.type === 'text' || target.type === 'ptext'
+        : s.tool === 'text'
+      let style: CurrentStyle =
         ringContext && patch.level !== undefined
           ? { ...s.style, ...patch, level: s.style.level, ringLevel: patch.level }
           : { ...s.style, ...patch }
+      if (textContext && patch.color !== undefined) {
+        style = { ...style, color: s.style.color, textColor: patch.color }
+      }
       if (!target) return { style }
       const key = `style:${Object.keys(patch).join(',')}`
       const items = s.items.map((a) => (a.id === target.id ? restyle(a, patch) : a))

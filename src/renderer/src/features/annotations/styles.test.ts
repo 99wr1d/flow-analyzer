@@ -37,9 +37,14 @@ describe('размеры текста (0.16.4)', () => {
     }
   })
 
-  it('новая подпись по умолчанию на шаг мельче прежней (0.065 → 0.045)', () => {
-    expect(textStyleOf(DEFAULT_STYLE).size).toBe(0.045)
-    expect(TEXT_SIZES[DEFAULT_STYLE.textLevel].size).toBe(0.045)
+  it('новая подпись по умолчанию мелкая, как у образца (0.032; прежняя была 0.065)', () => {
+    expect(textStyleOf(DEFAULT_STYLE).size).toBe(0.032)
+    expect(TEXT_SIZES[DEFAULT_STYLE.textLevel].size).toBe(0.032)
+  })
+
+  it('новая подпись по умолчанию лайм, остальные рисунки — прежний жёлтый', () => {
+    expect(textStyleOf(DEFAULT_STYLE).color).toBe('#c6ff3d')
+    expect(shapeStyleOf(DEFAULT_STYLE).color).toBe('#ffd60a')
   })
 
   it('сохранённый размер старого проекта попадает в тот же шаг и рисуется тем же размером', () => {
@@ -121,7 +126,9 @@ describe('новые стили 0.18: палитра и умолчания', () 
       textShadow: false
     }
     expect(newDrawingFx('ring', s)).toEqual({ glow: false, look: 'target', pulse: true })
-    expect(newDrawingFx('pspot', s)).toEqual({ form: 'pillar' })
+    // «Столб» по умолчанию без затемнения кадра.
+    expect(newDrawingFx('pspot', s)).toEqual({ form: 'pillar', dimmed: false })
+    expect(newDrawingFx('spot', { ...s, form: 'oval' })).toEqual({ form: 'oval' })
     expect(newDrawingFx('arrow', s)).toEqual({ glow: true, reveal: 1.5 })
     expect(shapeStyleOf(s).dash).toBe('dotted')
     expect(textStyleOf(s)).toMatchObject({ background: true, shadow: false })

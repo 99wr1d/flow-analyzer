@@ -358,6 +358,21 @@ describe('свечение пунктирного круга', () => {
   })
 })
 
+describe('buildOverlaySvg: жирность подписи', () => {
+  const lbl = (style: object): Annotation =>
+    ({ ...text, text: 'LW', style: { color: '#ffffff', size: 0.05, ...style } }) as Annotation
+  it('старая подпись (с плашкой и без поля shadow) — 700, новая (поле shadow) — 600, с плашкой тоже', () => {
+    expect(buildOverlaySvg([lbl({ background: true })], 1280, 720)).toContain('font-weight="700"')
+    expect(buildOverlaySvg([lbl({ background: false })], 1280, 720)).toContain('font-weight="700"')
+    expect(buildOverlaySvg([lbl({ background: true, shadow: true })], 1280, 720)).toContain(
+      'font-weight="600"'
+    )
+    expect(buildOverlaySvg([lbl({ background: false, shadow: false })], 1280, 720)).toContain(
+      'font-weight="600"'
+    )
+  })
+})
+
 describe('buildOverlaySvg: подписи без плашки', () => {
   const label = (style: object): Annotation =>
     ({ ...text, text: 'LW', style: { color: '#c6ff3d', size: 0.05, ...style } }) as Annotation
@@ -366,7 +381,9 @@ describe('buildOverlaySvg: подписи без плашки', () => {
     const svg = buildOverlaySvg([label({ background: false, shadow: true })], 1280, 720)
     expect(svg).not.toContain('<rect')
     expect(svg.match(/data-part="text-shadow"/g)!.length).toBeGreaterThanOrEqual(2)
-    expect(svg).toContain('font-weight="700"')
+    // Новая подпись легче прежней (600), старая (без поля shadow) осталась 700.
+    expect(svg).toContain('font-weight="600"')
+    expect(svg).not.toContain('font-weight="700"')
     expect(svg).not.toContain('paint-order')
     expect(svg).not.toContain('class="anno-shape')
   })

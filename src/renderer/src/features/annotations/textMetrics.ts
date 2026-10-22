@@ -1,6 +1,12 @@
 // Ширина текста в пикселях для заданного размера шрифта: через canvas, а если его нет (тесты) — оценка.
 export const TEXT_FONT_FAMILY = "'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif"
+/** Жирность подписей, нарисованных до 0.18 (и подписей линеек): их вид не меняется. */
 export const TEXT_FONT_WEIGHT = 700
+/** Жирность новых подписей 0.18 (у них записана «тень»): легче прежней, как у образца. */
+export const LABEL_FONT_WEIGHT = 600
+/** Жирность подписи по полю shadow её стиля: оно есть только у подписей 0.18. */
+export const textFontWeight = (shadow: boolean | undefined): number =>
+  shadow === undefined ? TEXT_FONT_WEIGHT : LABEL_FONT_WEIGHT
 
 let ctx: CanvasRenderingContext2D | null | undefined
 const cache = new Map<string, number>()
