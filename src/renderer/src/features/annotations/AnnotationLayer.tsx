@@ -97,6 +97,8 @@ const MIN_GROUND_LENGTH = 0.3
 const RING_DRAG_PX = 6
 /** Щелчок без протягивания: прожектор и лупа получают размер по умолчанию. */
 const CLICK_PX = 6
+/** Круги, созданные щелчком (плоский эллипс у ног): не отбрасываются как слишком маленькие. */
+const clickCreated = new WeakSet<object>()
 /** Размеры прожектора по умолчанию (доли высоты кадра): высокий эллипс вокруг игрока. */
 const SPOT_RX = 0.042
 const SPOT_RY = 0.08
@@ -434,7 +436,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       const cal =
         near && isCalibrationFresh(near.calibration, g.start) ? near.calibration : undefined
       const box = groundEllipseBox(g.origin, groundEllipseRatio(cal, g.origin), size)
-      return {
+      const made: Annotation = {
         ...base,
         type: 'circle',
         ...box,
@@ -442,6 +444,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         ...newDrawingFx('circle', style),
         style: shapeStyleOf({ ...style, level: style.ringLevel })
       }
+      clickCreated.add(made)
+      return made
     }
     let end = clamped
     if (shift)
@@ -1037,7 +1041,8 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       const d = draft
       setDraft(null)
       if (!d || d.type === 'text' || isPitchAnnotation(d) || cancelled) return
-      if (d.type === 'spot' || d.type === 'loupe') {
+      // Плоский эллипс, созданный щелчком, мал по высоте, но это не промах: проверка минимального размера его не касается.
+      if (d.type === 'spot' || d.type === 'loupe' || clickCreated.has(d)) {
         store.add(keepInside(d))
         return
       }

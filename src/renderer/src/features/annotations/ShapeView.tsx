@@ -186,6 +186,7 @@ function ShapeBody({
               stroke={color}
               strokeOpacity={l.opacity}
               strokeWidth={l.width}
+              strokeDasharray={dash}
             />
           ))}
         <ellipse

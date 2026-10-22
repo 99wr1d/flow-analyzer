@@ -483,6 +483,8 @@ test.describe('время ключей слежения и кадры', () => {
         const red = await redCentre(win)
         expect(red).toBeGreaterThan(0)
         const ring = await ringCenter(win)
+        // Допуск 3.5 px, а не 2.5: кольцо встаёт на точку ног = центр рамки заглушки, а «red» — центр масс красных пикселей; их разница
+        // (≈2.5 px, только по x; RING_LIFT и округление тут ни при чём — они сдвигают лишь y) раньше гасилась смещением 0.005 от ручной отрисовки.
         expect(Math.abs(ring.x - red) * W).toBeLessThan(3.5)
       }
     } finally {

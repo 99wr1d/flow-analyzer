@@ -301,4 +301,24 @@ test.describe('кольцо «как в образце»', () => {
       await ctx.app.close()
     }
   })
+
+  test('щелчок в маленьком окне: плоский эллипс не отбрасывается как слишком маленький', async () => {
+    const ctx = await launch()
+    const { win, app } = ctx
+    try {
+      await app.evaluate(({ BrowserWindow }) => {
+        BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1.6)
+      })
+      await playersProject(ctx, 'Маленькое окно')
+      await win.waitForTimeout(400)
+      const layer = await layerBox(win)
+      // Высота эллипса 0.07 · 0.35 · высота кадра меньше 8 px, если картинка ниже ~327 px.
+      expect(layer.height).toBeLessThan(327)
+      await win.getByTestId('tool-circle').click()
+      await clickAt(win, [0.5, 0.7])
+      await expect(shapes(win, 'circle')).toHaveCount(1)
+    } finally {
+      await app.close()
+    }
+  })
 })

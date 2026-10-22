@@ -327,3 +327,27 @@ describe('свечение кольца', () => {
     expect(glowCount(over)).toBe(0)
   })
 })
+
+describe('свечение пунктирного круга', () => {
+  it('слои ореола повторяют пунктир обводки', () => {
+    const svg = buildOverlaySvg(
+      [
+        {
+          id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4d91',
+          space: 'screen',
+          type: 'circle',
+          p1: { x: 0.4, y: 0.5 },
+          p2: { x: 0.5, y: 0.55 },
+          style: { color: '#2e8bff', width: 0.006, dash: 'dashed' },
+          fillOpacity: 0,
+          glow: true,
+          timing
+        } as Annotation
+      ],
+      1280,
+      720
+    )
+    const layer = svg.match(/<ellipse[^>]*data-part="glow"[^>]*>/)![0]
+    expect(layer).toContain('stroke-dasharray=')
+  })
+})
