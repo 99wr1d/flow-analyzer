@@ -9,7 +9,7 @@ import {
   type Annotation
 } from '../../../../shared/annotations'
 import { isMoving, resolveAt } from '../../../../shared/animation'
-import { PULSE_PERIOD, pulsePhase, revealFraction } from '../../../../shared/styleFx'
+import { PULSE_STEPS, pulseActive, pulsePhase, revealFraction } from '../../../../shared/styleFx'
 import { OVERLAY_LIMITS, type OverlayLayer } from '../../../../shared/export'
 import { frameTime, parseKey, type AnimFrame } from '../../../../shared/exportOverlays'
 import {
@@ -253,8 +253,7 @@ export function phaseKeyOf(
   const parts = items.map((a) => {
     // Рисунок, не попадающий в этот слой, на его картинку не влияет: его фаза в ключ не входит.
     if (layer !== undefined && !layersFor([a])[layer]) return '/'
-    const phase =
-      (a.type === 'circle' || a.type === 'ring') && a.pulse === true && a.timing.mode === 'range'
+    const phase = pulseActive(a)
     const reveal = 'reveal' in a && a.reveal !== undefined
     return `${phase ? Math.round(pulsePhase(time) * 1e6) : ''}/${reveal ? Math.round(revealFraction(a, time) * 1e6) : ''}`
   })
@@ -312,10 +311,9 @@ export async function renderAnimationFrames(opts: {
   canvas.height = height
   const blank = await svgToPng(buildOverlaySvg([], width, height), canvas, width, height)
   // Картинки кадров, где рисунки не движутся и зависят лишь от времени (пульс): та же фаза — та же картинка (период 1,5 с).
-  // Не больше двух периодов пульса на слой: при дробной частоте кадров фазы почти не повторяются, а кэш не должен расти.
-  const phaseCache = new BoundedCache<Uint8Array<ArrayBuffer>>(
-    Math.ceil(PULSE_PERIOD * fps) * 2 * 2
-  )
+  // Фаза пульса ступенчатая (PULSE_STEPS за период): на слой не больше PULSE_STEPS картинок при любой частоте кадров
+  // (и 29,97, и 59,94); запас — на два слоя и соседние группы рисунков.
+  const phaseCache = new BoundedCache<Uint8Array<ArrayBuffer>>(PULSE_STEPS * 2 * 2)
   const pending: Record<OverlayLayer, AnimFrameData[]> = { over: [], under: [] }
   const bytes: Record<OverlayLayer, number> = { over: 0, under: 0 }
   const drain = async (layer: OverlayLayer): Promise<void> => {

@@ -8,11 +8,14 @@ export const PULSE_PERIOD = 1.5
 /** Если отрезок короче времени проявления, линия прорисовывается за эту долю отрезка. */
 export const REVEAL_MAX_SHARE = 0.8
 
+/** Рисунок с пульсом: кольцо/круг, у которых пульс включён и есть отрезок показа («только кадр» — стоп-кадр без волны). */
+export function pulseActive(a: Annotation): boolean {
+  return (a.type === 'circle' || a.type === 'ring') && a.pulse === true && a.timing.mode === 'range'
+}
+
 /** Рисунок меняется со временем без ключей: пульсирует или проявляется (экспорт рисует такие покадрово). */
 export function isTimeVarying(a: Annotation): boolean {
-  // Пульс идёт только у рисунка-отрезка: «только кадр» — стоп-кадр без волны.
-  if ((a.type === 'circle' || a.type === 'ring') && a.pulse === true && a.timing.mode === 'range')
-    return true
+  if (pulseActive(a)) return true
   return 'reveal' in a && a.reveal !== undefined && a.timing.mode === 'range'
 }
 
@@ -28,10 +31,17 @@ export function revealFraction(a: Annotation, t: number): number {
   return Math.min(1, Math.max(0, (t - a.timing.start) / n))
 }
 
-/** Фаза пульса в момент t: 0 (волна у центра) .. 1 (у края), период PULSE_PERIOD. Всегда в [0, 1). */
+/**
+ * Число ступеней фазы пульса за период. Фаза округляется вниз до ступени, поэтому картинок пульса за период не больше
+ * PULSE_STEPS при любой частоте кадров (29,97 и 59,94 тоже): экспорт рисует каждую один раз и берёт из кэша. Волна
+ * идёт ~27 ступеней в секунду — глазом не отличить от плавной.
+ */
+export const PULSE_STEPS = 40
+
+/** Фаза пульса в момент t: 0 (волна у центра) .. 1 (у края), период PULSE_PERIOD, ступенями по 1/PULSE_STEPS. Всегда в [0, 1). */
 export function pulsePhase(t: number): number {
   const x = (((t % PULSE_PERIOD) + PULSE_PERIOD) % PULSE_PERIOD) / PULSE_PERIOD
-  return x >= 1 ? 0 : x
+  return x >= 1 ? 0 : Math.floor(x * PULSE_STEPS) / PULSE_STEPS
 }
 
 /** Ореол: во сколько раз его вылет за край обводки больше толщины обводки. */

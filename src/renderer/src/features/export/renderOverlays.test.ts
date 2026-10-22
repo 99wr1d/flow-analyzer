@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { resolveAt } from '../../../../shared/animation'
 import type { Annotation } from '../../../../shared/annotations'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
-import { GLOW_ALPHA, GLOW_LAYERS, TARGET_CENTER_ALPHA } from '../../../../shared/styleFx'
+import {
+  GLOW_ALPHA,
+  GLOW_LAYERS,
+  PULSE_STEPS,
+  TARGET_CENTER_ALPHA
+} from '../../../../shared/styleFx'
 import { BoundedCache, buildOverlaySvg, layersFor, phaseKeyOf } from './renderOverlays'
 
 const style = { color: '#ff3b30', width: 0.01, dash: 'solid' as const }
@@ -508,9 +513,23 @@ describe('phaseKeyOf: картинки кадров с пульсом повто
   const plain = { ...base } as Annotation
 
   it('одна фаза (t и t + период) — один ключ; другая фаза — другой', () => {
-    expect(phaseKeyOf([pulsing], 0.3)).toBe(phaseKeyOf([pulsing], 0.3 + 1.5))
-    expect(phaseKeyOf([pulsing], 0.3)).toBe(phaseKeyOf([pulsing], 0.3 + 3 * 1.5))
-    expect(phaseKeyOf([pulsing], 0.3)).not.toBe(phaseKeyOf([pulsing], 0.9))
+    expect(phaseKeyOf([pulsing], 0.32)).toBe(phaseKeyOf([pulsing], 0.32 + 1.5))
+    expect(phaseKeyOf([pulsing], 0.32)).toBe(phaseKeyOf([pulsing], 0.32 + 3 * 1.5))
+    expect(phaseKeyOf([pulsing], 0.32)).not.toBe(phaseKeyOf([pulsing], 0.9))
+  })
+
+  it('при 29,97 и 59,94 к/с за 10 с не больше PULSE_STEPS разных ключей на слой, и они повторяются', () => {
+    for (const fps of [30000 / 1001, 60000 / 1001, 25]) {
+      for (const layer of ['over', 'under'] as const) {
+        const ann = (layer === 'under' ? { ...pulsing, underPlayers: true } : pulsing) as Annotation
+        const keys = new Set<string | null>()
+        const frames = Math.floor(10 * fps)
+        for (let n = 0; n < frames; n += 1) keys.add(phaseKeyOf([ann], (n + 0.5) / fps, layer))
+        expect(keys.size).toBeLessThanOrEqual(PULSE_STEPS)
+        expect(keys.has(null)).toBe(false)
+        expect(frames / keys.size).toBeGreaterThan(fps > 50 ? 5 : 4)
+      }
+    }
   })
 
   it('рисунок без пульса не зависит от времени', () => {
@@ -527,7 +546,9 @@ describe('phaseKeyOf: картинки кадров с пульсом повто
     const over = { ...arrow, id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4f03' } as Annotation
     // Пульс рисунка «под игроками» меняет только свой слой.
     expect(phaseKeyOf([under, over], 0.3, 'over')).toBe(phaseKeyOf([under, over], 0.9, 'over'))
-    expect(phaseKeyOf([under, over], 0.3, 'under')).not.toBe(phaseKeyOf([under, over], 0.9, 'under'))
+    expect(phaseKeyOf([under, over], 0.3, 'under')).not.toBe(
+      phaseKeyOf([under, over], 0.9, 'under')
+    )
   })
 
   it('рисунок с ключами (движется) кэшировать нельзя', () => {

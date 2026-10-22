@@ -39,6 +39,7 @@ import {
   lineGlowStack,
   LINE_GLOW_BOOST,
   LINE_GLOW_REACH,
+  pulseActive,
   pulsePhase,
   revealFraction,
   WAVE_LINE_SCALE,
@@ -208,10 +209,7 @@ function ShapeBody({
     const ry = Math.abs(p2.y - p1.y) / 2
     if (isTarget(a)) {
       // «Мишень»: три кольца (1, 0.66, 0.33), радиальная заливка от центра к краю, волна пульса.
-      const phase =
-        a.pulse === true && a.timing.mode === 'range' && time !== undefined
-          ? pulsePhase(time)
-          : undefined
+      const phase = pulseActive(a) && time !== undefined ? pulsePhase(time) : undefined
       return (
         <>
           {selected && (
@@ -274,10 +272,7 @@ function ShapeBody({
         </>
       )
     }
-    const phase =
-      a.pulse === true && a.timing.mode === 'range' && time !== undefined
-        ? pulsePhase(time)
-        : undefined
+    const phase = pulseActive(a) && time !== undefined ? pulsePhase(time) : undefined
     const ellipseLen = Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry)))
     const ds = dashStyle(a.style.dash, w, ellipseLen, true)
     return (

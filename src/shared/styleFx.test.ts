@@ -5,9 +5,11 @@ import {
   GLOW_LAYERS,
   GLOW_REACH,
   PULSE_PERIOD,
+  PULSE_STEPS,
   dashStyle,
   glowStack,
   isTimeVarying,
+  pulseActive,
   pulsePhase,
   textShadowLayers,
   revealFraction
@@ -67,6 +69,45 @@ describe('pulsePhase', () => {
       expect(pulsePhase(t)).toBeGreaterThanOrEqual(0)
       expect(pulsePhase(t)).toBeLessThan(1)
     }
+  })
+})
+
+describe('pulsePhase: ступени', () => {
+  it('фаза — кратная 1/PULSE_STEPS, не больше PULSE_STEPS разных значений', () => {
+    const seen = new Set<number>()
+    for (let i = 0; i < 20000; i += 1) {
+      const p = pulsePhase(i * 0.00123)
+      expect(Math.round(p * PULSE_STEPS)).toBeCloseTo(p * PULSE_STEPS, 9)
+      seen.add(p)
+    }
+    expect(seen.size).toBe(PULSE_STEPS)
+  })
+  it('в пределах ступени фаза не меняется, на границе скачок, не вперёд времени', () => {
+    expect(pulsePhase(0.001)).toBe(0)
+    expect(pulsePhase(1.5 / PULSE_STEPS - 0.001)).toBe(0)
+    expect(pulsePhase(1.5 / PULSE_STEPS + 0.001)).toBe(1 / PULSE_STEPS)
+    expect(pulsePhase(1.49999)).toBe((PULSE_STEPS - 1) / PULSE_STEPS)
+  })
+})
+
+describe('pulseActive', () => {
+  const ring = (extra: object, mode: 'range' | 'frame' = 'range'): Annotation =>
+    ({
+      id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c11',
+      space: 'screen',
+      type: 'ring',
+      p1: { x: 0.1, y: 0.1 },
+      p2: { x: 0.2, y: 0.2 },
+      style: { color: '#ffffff', width: 0.01, dash: 'solid' },
+      timing:
+        mode === 'range' ? { mode, start: 0, duration: 3 } : { mode, start: 0, freezeSeconds: 2 },
+      ...extra
+    }) as unknown as Annotation
+  it('только кольцо/круг с pulse и отрезком', () => {
+    expect(pulseActive(ring({ pulse: true }))).toBe(true)
+    expect(pulseActive(ring({ pulse: true }, 'frame'))).toBe(false)
+    expect(pulseActive(ring({}))).toBe(false)
+    expect(pulseActive(arrow({ pulse: true }))).toBe(false)
   })
 })
 
