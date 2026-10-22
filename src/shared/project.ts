@@ -230,6 +230,41 @@ export function migrateProject(
   return { ok: true, data: obj }
 }
 
+type Rec = Record<string, unknown>
+const isRec = (v: unknown): v is Rec => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** Подменяет style каждого рисунка функцией fn (остальное не трогает). */
+function mapAnnotationStyles(raw: unknown, fn: (style: Rec) => Rec): unknown {
+  if (!isRec(raw) || !Array.isArray(raw.annotations)) return raw
+  return {
+    ...raw,
+    annotations: raw.annotations.map((a: unknown) =>
+      isRec(a) && isRec(a.style) ? { ...a, style: fn(a.style) } : a
+    )
+  }
+}
+
+/**
+ * Вид проекта для ФАЙЛА. В памяти пунктир точками — dash 'dotted', но версии до 0.18.0 не знают такого значения и
+ * отвергают весь проект. Поэтому в файл пишется dash 'dashed' + dots true: старая версия покажет штрих и проигнорирует
+ * лишнее поле, а эта версия при чтении вернёт точки.
+ */
+export function projectToFile(project: Project): unknown {
+  return mapAnnotationStyles(project, (style) => {
+    if (style.dash !== 'dotted') return style
+    return { ...style, dash: 'dashed', dots: true }
+  })
+}
+
+/** Обратное преобразование к projectToFile (применяется к сырым данным до схемы). 'dotted' в файле тоже принимается. */
+function projectFromFile(raw: unknown): unknown {
+  return mapAnnotationStyles(raw, (style) => {
+    if (style.dots === undefined) return style
+    const { dots, ...rest } = style
+    return dots === true && rest.dash === 'dashed' ? { ...rest, dash: 'dotted' } : rest
+  })
+}
+
 /** Разбор текста файла проекта: размер, JSON, версия, схема. Не бросает исключений. */
 export function parseProjectText(text: string): ProjectParse {
   if (text.length > MAX_PROJECT_BYTES) {
@@ -251,7 +286,7 @@ export function parseProjectText(text: string): ProjectParse {
   }
   const migrated = migrateProject(raw)
   if (!migrated.ok) return { ok: false, message: migrated.message }
-  const result = ProjectSchema.safeParse(migrated.data)
+  const result = ProjectSchema.safeParse(projectFromFile(migrated.data))
   if (result.success) return { ok: true, project: result.data }
   const issues = result.error.issues.slice(0, 5).map((i) => {
     const where = i.path.length > 0 ? `${i.path.join('.')}: ` : ''

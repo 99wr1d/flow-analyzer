@@ -353,3 +353,48 @@ describe('стили 0.18: проект 0.17.0 без новых полей', ()
     expect(by('text').style).toMatchObject({ background: false, shadow: true })
   })
 })
+
+describe('стили 0.18: пунктир «точки» в файле', () => {
+  it('в файле это dash «dashed» + dots (старые версии откроют проект и покажут штрих), в памяти — «dotted»', async () => {
+    const fixture = await readFileP(join(DIR, 'v0.18.0.flowproj'), 'utf8')
+    // В самом файле эпохи 0.18.0 нет значения «dotted» (его не прочтёт ни одна старая версия).
+    expect(fixture).not.toContain('"dotted"')
+    const parsed = parseProjectText(fixture)
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok) return
+    const dotted = parsed.project.annotations.filter(
+      (a) => 'style' in a && a.style.dash === 'dotted'
+    )
+    expect(dotted).toHaveLength(1)
+    expect(dotted[0].style).not.toHaveProperty('dots')
+
+    const path = await install(ERAS.find((e) => e.appVersion === '0.18.0')!)
+    const opened = await openProjectFile(userData, path)
+    expect(opened.status).toBe('opened')
+    if (opened.status !== 'opened') return
+    await saveToPath(userData, requestFrom(opened.project), await videoFacts(video), path, '0.18.0')
+    const text = await readFileP(path, 'utf8')
+    expect(text).not.toContain('"dotted"')
+    const raw = JSON.parse(text) as Project
+    const saved = raw.annotations.filter((a) => 'style' in a && 'dots' in a.style)
+    expect(saved).toHaveLength(1)
+    expect(saved[0].style).toMatchObject({ dash: 'dashed', dots: true })
+    // Заново прочитанный файл — те же рисунки, что в памяти.
+    const again = parseProjectText(text)
+    expect(again.ok && again.project.annotations).toEqual(parsed.project.annotations)
+  })
+
+  it('«dotted» в файле, записанном ранними сборками 0.18, по-прежнему читается', async () => {
+    const raw = JSON.parse(await readFileP(join(DIR, 'v0.18.0.flowproj'), 'utf8')) as Project
+    for (const a of raw.annotations) {
+      if ('style' in a && (a.style as { dots?: boolean }).dots) {
+        delete (a.style as { dots?: boolean }).dots
+        a.style.dash = 'dotted'
+      }
+    }
+    const parsed = parseProjectText(JSON.stringify(raw))
+    expect(
+      parsed.ok && parsed.project.annotations.some((a) => 'style' in a && a.style.dash === 'dotted')
+    ).toBe(true)
+  })
+})

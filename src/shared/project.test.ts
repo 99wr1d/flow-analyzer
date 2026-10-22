@@ -7,7 +7,8 @@ import {
   ProjectSaveRequestSchema,
   migrateProject,
   parseProjectText,
-  projectNameFromPath
+  projectNameFromPath,
+  projectToFile
 } from './project'
 import { sampleAnnotation, sampleEpisode, sampleProject, uuid } from './project.testkit'
 
@@ -157,5 +158,42 @@ describe('имя проекта по пути', () => {
     expect(projectNameFromPath('/home/a/b.FLOWPROJ')).toBe('b')
     expect(projectNameFromPath('/x/plain')).toBe('plain')
     expect(projectNameFromPath('/x/.flowproj')).toBe('Новый проект')
+  })
+})
+
+describe('пунктир «точки» в файле', () => {
+  const withDash = (dash: 'solid' | 'dashed' | 'dotted'): ReturnType<typeof sampleProject> => {
+    const project = sampleProject()
+    const a = sampleAnnotation() as unknown as { style: { dash: string } }
+    a.style.dash = dash
+    return { ...project, annotations: [a as never] }
+  }
+
+  it('в файл «dotted» пишется как dashed + dots, обратно читается как dotted', () => {
+    const project = withDash('dotted')
+    const file = JSON.parse(JSON.stringify(projectToFile(project)))
+    expect(file.annotations[0].style).toMatchObject({ dash: 'dashed', dots: true })
+    const back = parseProjectText(JSON.stringify(file))
+    expect(back.ok && back.project).toEqual(project)
+  })
+
+  it('обычные штрих и сплошная проходят без изменений, поля dots нет', () => {
+    for (const dash of ['solid', 'dashed'] as const) {
+      const project = withDash(dash)
+      const file = JSON.parse(JSON.stringify(projectToFile(project)))
+      expect(file.annotations[0].style).not.toHaveProperty('dots')
+      expect(file.annotations[0].style.dash).toBe(dash)
+      const back = parseProjectText(JSON.stringify(file))
+      expect(back.ok && back.project).toEqual(project)
+    }
+  })
+
+  it('dots без «dashed» игнорируется', () => {
+    const file = JSON.parse(JSON.stringify(withDash('solid')))
+    file.annotations[0].style.dots = true
+    const back = parseProjectText(JSON.stringify(file))
+    expect(back.ok && (back.project.annotations[0] as { style: object }).style).not.toHaveProperty(
+      'dots'
+    )
   })
 })

@@ -148,7 +148,8 @@
       "style": {
         "color": "#ff3b30",
         "width": 0.011,
-        "dash": "dotted"
+        "dash": "dashed",
+        "dots": true
       },
       "timing": {
         "mode": "range",
