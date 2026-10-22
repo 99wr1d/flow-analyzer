@@ -10,6 +10,7 @@ import {
   moveHandle,
   normalize,
   snapAngle,
+  groundEllipseBox,
   squareFrom
 } from './geometry'
 import { assignLanes } from './lanes'
@@ -95,6 +96,27 @@ describe('привязка углов (Shift)', () => {
     const e = squareFrom({ x: 0.2, y: 0.2 }, { x: 0.6, y: 0.3 }, size)
     expect((e.x - 0.2) * size.w).toBeCloseTo((e.y - 0.2) * size.h, 5)
     expect((e.x - 0.2) * size.w).toBeCloseTo(0.4 * size.w, 5)
+  })
+})
+
+describe('groundEllipseBox: плоский эллипс у ног по щелчку', () => {
+  const frame = { w: 1280, h: 720 }
+  it('центр в точке щелчка, отношение высоты к ширине в пикселях — заданное', () => {
+    const b = groundEllipseBox({ x: 0.5, y: 0.6 }, 0.35, frame)
+    expect((b.p1.x + b.p2.x) / 2).toBeCloseTo(0.5)
+    expect((b.p1.y + b.p2.y) / 2).toBeCloseTo(0.6)
+    const w = (b.p2.x - b.p1.x) * frame.w
+    const h = (b.p2.y - b.p1.y) * frame.h
+    expect(h / w).toBeCloseTo(0.35, 5)
+    expect(w).toBeGreaterThan(40)
+  })
+  it('у края кадра эллипс сдвигается внутрь, форма не меняется', () => {
+    const b = groundEllipseBox({ x: 0.995, y: 0.99 }, 0.35, frame)
+    expect(b.p2.x).toBeLessThanOrEqual(1 + 1e-9)
+    expect(b.p2.y).toBeLessThanOrEqual(1 + 1e-9)
+    const w = (b.p2.x - b.p1.x) * frame.w
+    const h = (b.p2.y - b.p1.y) * frame.h
+    expect(h / w).toBeCloseTo(0.35, 5)
   })
 })
 

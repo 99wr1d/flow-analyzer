@@ -5,6 +5,7 @@ import type { PitchAnnotation } from '../../../../shared/annotations'
 import { shiftLabel, type LabelShift } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
 import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared/pitch/shapes'
+import { glowStack } from '../../../../shared/styleFx'
 import type { Size } from './geometry'
 import { pathOf } from './pathOf'
 import { isDarkColor } from './styles'
@@ -191,6 +192,21 @@ export function PaintParts({
   const rest = (
     <>
       {top && selected && (part === 'top' ? <g opacity={0.5}>{halo}</g> : halo)}
+      {ground &&
+        paint.glowPx !== undefined &&
+        paint.body.length > 0 &&
+        glowStack(0, paint.glowPx).map((l, i) => (
+          <path
+            key={`glow-${i}`}
+            data-part="glow"
+            d={pathOf(paint.body)}
+            fill="none"
+            stroke={color}
+            strokeOpacity={l.opacity}
+            strokeWidth={l.width}
+            strokeLinejoin="round"
+          />
+        ))}
       {ground && paint.disc.length > 0 && (
         <path
           data-part="disc"

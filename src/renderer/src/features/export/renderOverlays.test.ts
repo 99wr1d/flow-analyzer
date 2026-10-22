@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Annotation } from '../../../../shared/annotations'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
+import { GLOW_ALPHA, GLOW_LAYERS } from '../../../../shared/styleFx'
 import { buildOverlaySvg, layersFor } from './renderOverlays'
 
 const style = { color: '#ff3b30', width: 0.01, dash: 'solid' as const }
@@ -250,5 +251,79 @@ describe('экспорт: прожектор на экране с лучом (п
     const plain = buildOverlaySvg([spot()], 1000, 500)
     expect(withBeam).not.toEqual(plain)
     expect(withBeam).toContain('data-testid="spotlight-dim"')
+  })
+})
+
+describe('свечение кольца', () => {
+  const cal = sampleCalibration()
+  const tid = (n: number): string => `3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4d${n}`
+  const circle = (over: object = {}): Annotation =>
+    ({
+      id: tid(1),
+      space: 'screen',
+      type: 'circle',
+      p1: { x: 0.4, y: 0.5 },
+      p2: { x: 0.5, y: 0.55 },
+      style: { color: '#2e8bff', width: 0.006, dash: 'solid' },
+      fillOpacity: 0,
+      underPlayers: true,
+      timing,
+      ...over
+    }) as Annotation
+  const ring = (over: object = {}): Annotation =>
+    ({
+      id: tid(2),
+      space: 'pitch',
+      calibrationId: cal.id,
+      type: 'ring',
+      center: { x: 8, y: 34 },
+      radius: 1.5,
+      style: { color: '#2e8bff', width: 0.006, dash: 'solid' },
+      fillOpacity: 0,
+      underPlayers: true,
+      timing: { mode: 'frame', start: 12, freezeSeconds: 3 },
+      ...over
+    }) as Annotation
+  const glowCount = (svg: string): number => (svg.match(/data-part="glow"/g) ?? []).length
+
+  it('круг со свечением: стопка полупрозрачных слоёв того же цвета под обводкой, без тени', () => {
+    const svg = buildOverlaySvg([circle({ glow: true })], 1280, 720)
+    expect(glowCount(svg)).toBe(GLOW_LAYERS)
+    expect(svg).toContain('data-glow="true"')
+    expect(svg).not.toContain('class="anno-shape')
+    // Слои идут раньше самой обводки и повторяют её цвет.
+    const firstGlow = svg.indexOf('data-part="glow"')
+    expect(firstGlow).toBeGreaterThan(0)
+    expect(svg.indexOf('data-part="core"')).toBeGreaterThan(firstGlow)
+    const layer = svg.match(/<ellipse[^>]*data-part="glow"[^>]*>/)![0]
+    expect(layer).toContain('stroke="#2e8bff"')
+    expect(layer).toContain(`stroke-opacity="${GLOW_ALPHA}"`)
+    expect(layer).toContain('fill="none"')
+  })
+
+  it('старый круг без поля glow — без ореола и с прежней тенью', () => {
+    const svg = buildOverlaySvg([circle()], 1280, 720)
+    expect(glowCount(svg)).toBe(0)
+    expect(svg).not.toContain('data-glow')
+    expect(svg).toContain('class="anno-shape')
+  })
+
+  it('glow: false — тоже без ореола', () => {
+    expect(glowCount(buildOverlaySvg([circle({ glow: false })], 1280, 720))).toBe(0)
+  })
+
+  it('кольцо на поле со свечением: ореол вдоль кромок, у старого кольца нет', () => {
+    const on = buildOverlaySvg([ring({ glow: true })], 1280, 720, [cal])
+    expect(glowCount(on)).toBeGreaterThanOrEqual(GLOW_LAYERS)
+    expect(on).not.toContain('class="anno-shape')
+    expect(buildOverlaySvg([ring()], 1280, 720, [cal])).not.toContain('data-part="glow"')
+  })
+
+  it('ореол кольца «под игроками» лежит на слое травы, а не поверх игроков', () => {
+    const items = [ring({ glow: true }), circle({ glow: true })]
+    const under = buildOverlaySvg(items, 1280, 720, [cal], { part: 'under' })
+    const over = buildOverlaySvg(items, 1280, 720, [cal], { part: 'over' })
+    expect(glowCount(under)).toBeGreaterThan(GLOW_LAYERS)
+    expect(glowCount(over)).toBe(0)
   })
 })

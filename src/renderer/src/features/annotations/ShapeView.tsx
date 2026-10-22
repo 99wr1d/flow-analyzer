@@ -23,6 +23,7 @@ import {
   PitchHandlesView,
   type DrawPart
 } from './PitchShapeView'
+import { glowStack } from '../../../../shared/styleFx'
 import { isDarkColor } from './styles'
 import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
 
@@ -172,7 +173,23 @@ function ShapeBody({
         {selected && (
           <ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="none" stroke={HALO} strokeWidth={w + 8} />
         )}
+        {a.glow === true &&
+          glowStack(w, w).map((l, i) => (
+            <ellipse
+              key={`glow-${i}`}
+              data-part="glow"
+              cx={cx}
+              cy={cy}
+              rx={rx}
+              ry={ry}
+              fill="none"
+              stroke={color}
+              strokeOpacity={l.opacity}
+              strokeWidth={l.width}
+            />
+          ))}
         <ellipse
+          data-part="core"
           cx={cx}
           cy={cy}
           rx={rx}
@@ -331,7 +348,9 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
   const dark = isDarkColor(a.style.color)
   // Рисунок на поле без рабочей разметки (её удалили или точки некорректны) не показывается.
   if (isPitchAnnotation(a) && !props.projector) return null
-  const shadow = dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
+  // Кольцо со свечением рисуется без тени: тёмная кайма под ореолом портила бы его.
+  const glowing = (a.type === 'circle' || a.type === 'ring') && a.glow === true
+  const shadow = glowing ? undefined : dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
   // У рисунков с полупрозрачной заливкой тень на группе просвечивала бы сквозь заливку: тень получают только линии и подписи.
   const split = HAS_UNDERLAY.has(a.type)
   const body = (part: DrawPart | undefined, selected: boolean): React.JSX.Element =>
@@ -366,6 +385,7 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
       data-text={a.type === 'text' || a.type === 'ptext' ? a.text : undefined}
       data-selected={props.selected}
       data-under={isUnderPlayers(a) ? 'true' : 'false'}
+      data-glow={glowing ? 'true' : undefined}
       data-dimmed={props.dimmed ? 'true' : undefined}
       opacity={props.dimmed ? 0.5 : undefined}
     >

@@ -350,3 +350,25 @@ describe('заливка кольца (0.16.4)', () => {
     expect(paint({ fillOpacity: 0 })).toBe(0)
   })
 })
+
+describe('кольцо: ширина обводки в пикселях для ореола', () => {
+  it('нет glow — нет и ширины; со glow ширина около мировой ширины в пикселях', () => {
+    expect(paintPitch(baseRing, proj, SIZE, measure).glowPx).toBeUndefined()
+    const lit = paintPitch({ ...baseRing, glow: true }, proj, SIZE, measure)
+    expect(lit.glowPx).toBeGreaterThan(1)
+    // Ближнее кольцо шире в пикселях, чем дальнее (перспектива).
+    const near = paintPitch(
+      { ...baseRing, glow: true, center: { x: 8, y: 60 } },
+      proj,
+      SIZE,
+      measure
+    )
+    const far = paintPitch(
+      { ...baseRing, glow: true, center: { x: 8, y: 10 } },
+      proj,
+      SIZE,
+      measure
+    )
+    expect(near.glowPx!).toBeGreaterThan(far.glowPx!)
+  })
+})

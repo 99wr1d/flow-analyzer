@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import type { Annotation } from './annotations'
-import { PULSE_PERIOD, isTimeVarying, pulsePhase, revealFraction } from './styleFx'
+import {
+  GLOW_ALPHA,
+  GLOW_LAYERS,
+  GLOW_REACH,
+  PULSE_PERIOD,
+  glowStack,
+  isTimeVarying,
+  pulsePhase,
+  revealFraction
+} from './styleFx'
 
 const arrow = (
   extra: object,
@@ -71,5 +80,31 @@ describe('isTimeVarying', () => {
     expect(isTimeVarying(arrow({ reveal: 1 }, { mode: 'frame', start: 2, freezeSeconds: 3 }))).toBe(
       false
     )
+  })
+})
+
+describe('glowStack: ореол «стопкой» полупрозрачных линий', () => {
+  it('слои от внешнего к внутреннему, вылет за обводку 2-3 её толщины', () => {
+    const stack = glowStack(4, 4)
+    expect(stack).toHaveLength(GLOW_LAYERS)
+    const widths = stack.map((l) => l.width)
+    expect([...widths].sort((a, b) => b - a)).toEqual(widths)
+    expect(widths[0]).toBeCloseTo(4 + 2 * GLOW_REACH * 4)
+    expect(GLOW_REACH).toBeGreaterThanOrEqual(2)
+    expect(GLOW_REACH).toBeLessThanOrEqual(3)
+    expect(widths[GLOW_LAYERS - 1]).toBeGreaterThan(4)
+  })
+  it('у самой обводки ореол накопленно около 40% непрозрачности', () => {
+    const stack = glowStack(6, 6)
+    const through = stack.reduce((acc, l) => acc * (1 - l.opacity), 1)
+    expect(1 - through).toBeGreaterThan(0.35)
+    expect(1 - through).toBeLessThan(0.5)
+    expect(stack.every((l) => l.opacity === GLOW_ALPHA)).toBe(true)
+  })
+  it('для кромки (база 0) ширина слоя — только вылет', () => {
+    expect(glowStack(0, 5)[0].width).toBeCloseTo(2 * GLOW_REACH * 5)
+  })
+  it('сверхтонкая обводка получает ореол не уже двух пикселей', () => {
+    expect(glowStack(1, 0.2)[0].width).toBeGreaterThanOrEqual(1 + 2 * GLOW_REACH * 2 - 1e-9)
   })
 })

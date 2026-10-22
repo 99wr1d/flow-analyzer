@@ -94,9 +94,26 @@ export interface PitchPaint {
   /** Освещённые области прожектора. */
   lit: PxPt[][]
   lens: LensPaint | null
+  /** Кольцо со свечением: средняя ширина обводки в пикселях (ореол кладётся вдоль кромок `body`). Нет — без свечения. */
+  glowPx?: number
 }
 
 export type Measure = (text: string, fontPx: number) => number
+
+/** Средняя ширина полос `body` в пикселях: 2·площадь / периметр (у кольца — ширина обводки). */
+function bandWidthPx(polys: readonly PxPt[][]): number {
+  let area = 0
+  let perimeter = 0
+  for (const poly of polys) {
+    for (let i = 0; i < poly.length; i += 1) {
+      const p = poly[i]
+      const q = poly[(i + 1) % poly.length]
+      area += (p.x * q.y - q.x * p.y) / 2
+      perimeter += Math.hypot(q.x - p.x, q.y - p.y)
+    }
+  }
+  return perimeter > 0 ? (2 * Math.abs(area)) / perimeter : 0
+}
 
 export const toPx = (p: Pt, size: PaintSize): PxPt => ({ x: p.x * size.w, y: p.y * size.h })
 
@@ -323,6 +340,7 @@ export function paintPitch(
     }
     const hit = proj.projectPolygon(outer)
     if (hit.length >= 3) out.hit.push(px(hit))
+    if (a.glow === true && out.body.length > 0) out.glowPx = bandWidthPx(out.body)
     handle('radius', { x: a.center.x + r, y: a.center.y })
   } else if (a.type === 'pline' || a.type === 'parrow' || a.type === 'ruler') {
     const w = worldWidthOf(a)

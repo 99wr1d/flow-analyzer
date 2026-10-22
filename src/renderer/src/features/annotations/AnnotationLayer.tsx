@@ -29,6 +29,7 @@ import {
   resolveAt
 } from '../../../../shared/animation'
 import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
+import { groundEllipseRatio } from '../../../../shared/pitch/ground'
 import {
   handleAnchor,
   moveWorld,
@@ -61,6 +62,7 @@ import { useAnnotationsStore, withUnder } from './annotationsStore'
 import {
   bboxOf,
   clampPoint,
+  groundEllipseBox,
   moveBy,
   moveHandle,
   snapAngle,
@@ -423,6 +425,21 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
         src: g.origin,
         radius,
         zoom: options.zoom,
+        style: shapeStyleOf(style)
+      }
+    }
+    if (g.tool === 'circle' && moved < CLICK_PX) {
+      // Щелчок: плоский эллипс «на траве» у ног (сплющивание — по разметке поля на этом кадре, иначе 0.35).
+      const near = nearestUsable(useCalibrationsStore.getState().items, g.start)
+      const cal =
+        near && isCalibrationFresh(near.calibration, g.start) ? near.calibration : undefined
+      const box = groundEllipseBox(g.origin, groundEllipseRatio(cal, g.origin), size)
+      return {
+        ...base,
+        type: 'circle',
+        ...box,
+        fillOpacity: options.fillOpacity,
+        ...newDrawingFx('circle', style),
         style: shapeStyleOf(style)
       }
     }

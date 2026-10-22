@@ -41,7 +41,10 @@ function useShownStyle(): CurrentStyle {
     level: levelOf(selected),
     textLevel: textLevelOf(selected),
     dash: isText ? style.dash : selected.style.dash,
-    textBackground: isText ? selected.style.background : style.textBackground
+    textBackground: isText ? selected.style.background : style.textBackground,
+    // Свечение выбранного кольца — его собственное (у старого кольца поля нет — значит, свечения нет), а не умолчание для новых.
+    glow:
+      selected.type === 'circle' || selected.type === 'ring' ? selected.glow === true : style.glow
   }
 }
 
@@ -165,6 +168,32 @@ function UnderToggle(): React.JSX.Element {
   )
 }
 
+/** «Свечение» кольца/круга: у выбранного — его значение, иначе — для новых. Для остальных рисунков недоступно. */
+function GlowToggle({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const type = selected ? selected.type : tool
+  const enabled = type === 'circle' || type === 'ring'
+  const on = enabled && shown.glow
+  return (
+    <button
+      type="button"
+      className={on ? 'chip-btn chip-btn--active' : 'chip-btn'}
+      disabled={!enabled}
+      aria-pressed={on}
+      title={ru.annotations.glowHint}
+      data-testid="glow-toggle"
+      onClick={(e) => {
+        setStyle({ glow: !shown.glow })
+        e.currentTarget.blur()
+      }}
+    >
+      {ru.annotations.glow}
+    </button>
+  )
+}
+
 export function StyleBar(): React.JSX.Element {
   const shown = useShownStyle()
   const context = useContextType()
@@ -278,6 +307,7 @@ export function StyleBar(): React.JSX.Element {
       >
         Aa
       </button>
+      <GlowToggle shown={shown} />
       <PitchControls />
       <span className="style-bar__sep" />
       <div className="style-bar__group">

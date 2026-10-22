@@ -30,3 +30,32 @@ export function pulsePhase(t: number): number {
   const x = (((t % PULSE_PERIOD) + PULSE_PERIOD) % PULSE_PERIOD) / PULSE_PERIOD
   return x >= 1 ? 0 : x
 }
+
+/** Ореол: во сколько раз его вылет за край обводки больше толщины обводки. */
+export const GLOW_REACH = 2.5
+/** Слоёв в стопке ореола. */
+export const GLOW_LAYERS = 8
+/** Непрозрачность одного слоя: у самой обводки накапливается около 41%, к краю ореола спадает до 6,5%. */
+export const GLOW_ALPHA = 0.065
+/** Толщина обводки, меньше которой ореол не считается (иначе у тончайшей линии ореол был бы незаметен). */
+const GLOW_MIN_CORE = 2
+
+export interface GlowLayer {
+  /** Толщина линии слоя, пиксели. */
+  width: number
+  opacity: number
+}
+
+/**
+ * Ореол свечения «стопкой» полупрозрачных линий того же цвета (вместо SVG-размытия: быстро и одинаково на экране и в экспорте).
+ * Слои от внешнего (самый широкий) к внутреннему. base — толщина линии, вдоль которой кладётся ореол
+ * (для обводки по оси — её толщина, для кромки контура — 0); corePx — толщина видимой обводки.
+ */
+export function glowStack(base: number, corePx: number): GlowLayer[] {
+  const reach = GLOW_REACH * Math.max(corePx, GLOW_MIN_CORE)
+  const layers: GlowLayer[] = []
+  for (let i = GLOW_LAYERS; i >= 1; i -= 1) {
+    layers.push({ width: base + (2 * reach * i) / GLOW_LAYERS, opacity: GLOW_ALPHA })
+  }
+  return layers
+}
