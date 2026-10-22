@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Annotation } from '../../../../shared/annotations'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
 import { GLOW_ALPHA, GLOW_LAYERS, TARGET_CENTER_ALPHA } from '../../../../shared/styleFx'
-import { buildOverlaySvg, layersFor, phaseKeyOf } from './renderOverlays'
+import { BoundedCache, buildOverlaySvg, layersFor, phaseKeyOf } from './renderOverlays'
 
 const style = { color: '#ff3b30', width: 0.01, dash: 'solid' as const }
 const timing = { mode: 'range' as const, start: 0, duration: 3 }
@@ -429,8 +429,8 @@ describe('buildOverlaySvg: мишень и пульс', () => {
     expect(svg).toMatch(/<radialGradient id="target-[^"]+"><stop offset="0"[^>]*stop-opacity="1"/)
     expect(svg).toMatch(/<stop offset="1"[^>]*stop-opacity="0"/)
     expect(svg).toContain(`fill-opacity="${TARGET_CENTER_ALPHA}"`)
-    expect(TARGET_CENTER_ALPHA).toBeGreaterThanOrEqual(0.33)
-    expect(TARGET_CENTER_ALPHA).toBeLessThanOrEqual(0.5)
+    expect(TARGET_CENTER_ALPHA).toBeGreaterThanOrEqual(0.3)
+    expect(TARGET_CENTER_ALPHA).toBeLessThanOrEqual(0.6)
   })
 
   it('круг без look — одно кольцо, как раньше (без градиента)', () => {
@@ -530,5 +530,16 @@ describe('phaseKeyOf: картинки кадров с пульсом повто
       ]
     } as unknown as Annotation
     expect(phaseKeyOf([moving], 0.3)).toBeNull()
+  })
+})
+
+describe('BoundedCache', () => {
+  it('не растёт выше потолка и выбрасывает самые старые', () => {
+    const c = new BoundedCache<number>(3)
+    for (let i = 0; i < 10; i += 1) c.set(`k${i}`, i)
+    expect(c.size).toBe(3)
+    expect(c.get('k0')).toBeUndefined()
+    expect(c.get('k9')).toBe(9)
+    expect(c.get('k7')).toBe(7)
   })
 })

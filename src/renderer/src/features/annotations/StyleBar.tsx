@@ -204,18 +204,22 @@ function GlowToggle({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   )
 }
 
-/** «Кольцо / Мишень» и «Пульс» кольца/круга: у выбранного — его значения, иначе — для новых. Для остальных рисунков недоступны. */
-function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+/** Сейчас настраивается кольцо или круг (выбранный рисунок или инструмент). */
+function useRingContext(): boolean {
   const selected = useAnnotationsStore(selectedAnnotation)
   const tool = useAnnotationsStore((s) => s.tool)
-  const setStyle = useAnnotationsStore((s) => s.setStyle)
   const type = selected ? selected.type : tool
-  const enabled = type === 'circle' || type === 'ring'
-  const pulseOn = enabled && shown.pulse
+  return type === 'circle' || type === 'ring'
+}
+
+/** «Кольцо / Мишень» и «Пульс» кольца/круга: у выбранного — его значения, иначе — для новых. Для остальных рисунков недоступны. */
+function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const pulseOn = shown.pulse
   return (
     <>
       {(['ring', 'target'] as const).map((look) => {
-        const on = enabled && shown.look === look
+        const on = shown.look === look
         return (
           <button
             key={look}
@@ -223,7 +227,6 @@ function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
             className={
               on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
             }
-            disabled={!enabled}
             aria-pressed={on}
             title={look === 'ring' ? ru.annotations.lookRingHint : ru.annotations.lookTargetHint}
             data-testid={`look-${look}`}
@@ -241,7 +244,6 @@ function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
         className={
           pulseOn ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
         }
-        disabled={!enabled}
         aria-pressed={pulseOn}
         title={ru.annotations.pulseHint}
         data-testid="pulse-toggle"
@@ -260,10 +262,7 @@ export function StyleBar(): React.JSX.Element {
   const shown = useShownStyle()
   const context = useContextType()
   // Для кольца/круга вместо кнопок подписи (они ему не нужны) показываются «Кольцо / Мишень» и «Пульс»: панель остаётся в одну строку.
-  const selectedNow = useAnnotationsStore(selectedAnnotation)
-  const toolNow = useAnnotationsStore((s) => s.tool)
-  const ringType = selectedNow ? selectedNow.type : toolNow
-  const ringContext = ringType === 'circle' || ringType === 'ring'
+  const ringContext = useRingContext()
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()

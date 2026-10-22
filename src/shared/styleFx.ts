@@ -9,7 +9,9 @@ export const REVEAL_MAX_SHARE = 0.8
 
 /** Рисунок меняется со временем без ключей: пульсирует или проявляется (экспорт рисует такие покадрово). */
 export function isTimeVarying(a: Annotation): boolean {
-  if ((a.type === 'circle' || a.type === 'ring') && a.pulse === true) return true
+  // Пульс идёт только у рисунка-отрезка: «только кадр» — стоп-кадр без волны.
+  if ((a.type === 'circle' || a.type === 'ring') && a.pulse === true && a.timing.mode === 'range')
+    return true
   return 'reveal' in a && a.reveal !== undefined && a.timing.mode === 'range'
 }
 
@@ -82,25 +84,31 @@ export function textShadowLayers(fontPx: number): TextShadowLayer[] {
 
 /** «Мишень»: радиусы колец относительно внешнего. */
 export const TARGET_RADII = [1, 0.66, 0.33] as const
-/** «Мишень»: непрозрачность радиальной заливки в центре (к краю спадает до 0). */
-export const TARGET_CENTER_ALPHA = 0.45
-/** «Мишень»: толщина линий колец относительно обычного кольца (тоньше — как у образца). */
-export const TARGET_LINE_SCALE = 0.6
-/** «Мишень»: непрозрачность колец от внешнего к центру (внешнее бледнее). */
-export const TARGET_RING_OPACITY = [0.4, 0.6, 0.85] as const
-/** «Мишень»: профиль заливки (смещение, доля непрозрачности центра): чуть выпуклее прямой — центр светлее. */
+/** «Мишень»: непрозрачность заливки в центре (к краю спадает до 0). Заливка — главное в мишени, линии еле заметны. */
+export const TARGET_CENTER_ALPHA = 0.55
+/** «Мишень»: толщина линий колец относительно обычного кольца (тонкие, как граница зон). */
+export const TARGET_LINE_SCALE = 0.35
+/** «Мишень»: непрозрачность колец от внешнего к центру. */
+export const TARGET_RING_OPACITY = [0.3, 0.45, 0.6] as const
+/**
+ * «Мишень»: профиль заливки — мягкие зоны между кольцами (ступеньки у радиусов 0.33 и 0.66): центр светлее всего,
+ * к краю тает до нуля (смещение от центра к краю, доля непрозрачности центра).
+ */
 export const TARGET_FILL_STOPS = [
   { offset: 0, alpha: 1 },
-  { offset: 0.4, alpha: 0.85 },
-  { offset: 0.75, alpha: 0.45 },
+  { offset: 0.28, alpha: 0.95 },
+  { offset: 0.38, alpha: 0.6 },
+  { offset: 0.6, alpha: 0.55 },
+  { offset: 0.72, alpha: 0.3 },
+  { offset: 0.94, alpha: 0.25 },
   { offset: 1, alpha: 0 }
 ] as const
 /** Волна пульса: радиус относительно внешнего кольца в фазе phase (0..1). */
 export const waveScale = (phase: number): number => Math.min(1, Math.max(0, phase))
-/** Волна пульса: непрозрачность линии в фазе phase — яркая у центра, тает к краю. */
-export const waveOpacity = (phase: number): number => 0.9 * (1 - Math.min(1, Math.max(0, phase)))
+/** Волна пульса: непрозрачность линии в фазе phase — мягкая, тает к краю. */
+export const waveOpacity = (phase: number): number => 0.65 * (1 - Math.min(1, Math.max(0, phase)))
+/** Волна пульса: толщина линии относительно обычного кольца. */
+export const WAVE_LINE_SCALE = 1.2
 
 /** Рисунок — «мишень» (а не кольцо). */
 export const isTarget = (a: { look?: string }): boolean => a.look === 'target'
-/** Волна пульса: толщина линии относительно обычного кольца (чуть жирнее колец мишени, чтобы не сливалась с ними). */
-export const WAVE_LINE_SCALE = 1.5

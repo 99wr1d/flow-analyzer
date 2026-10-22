@@ -77,6 +77,10 @@ describe('isTimeVarying', () => {
     expect(isTimeVarying(arrow({ ...c, pulse: true }))).toBe(true)
     expect(isTimeVarying(arrow({ ...c, pulse: false }))).toBe(false)
   })
+  it('пульс в режиме «кадр» — нет (стоп-кадр без волны)', () => {
+    const c = { type: 'circle', p1: { x: 0.1, y: 0.1 }, p2: { x: 0.2, y: 0.2 }, pulse: true }
+    expect(isTimeVarying(arrow(c, { mode: 'frame', start: 2, freezeSeconds: 3 }))).toBe(false)
+  })
   it('проявление в режиме «кадр» не меняется со временем', () => {
     expect(isTimeVarying(arrow({ reveal: 1 }, { mode: 'frame', start: 2, freezeSeconds: 3 }))).toBe(
       false

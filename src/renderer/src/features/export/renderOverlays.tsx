@@ -9,7 +9,7 @@ import {
   type Annotation
 } from '../../../../shared/annotations'
 import { isMoving, resolveAt } from '../../../../shared/animation'
-import { pulsePhase, revealFraction } from '../../../../shared/styleFx'
+import { PULSE_PERIOD, pulsePhase, revealFraction } from '../../../../shared/styleFx'
 import { OVERLAY_LIMITS, type OverlayLayer } from '../../../../shared/export'
 import { frameTime, parseKey, type AnimFrame } from '../../../../shared/exportOverlays'
 import {
@@ -221,6 +221,23 @@ export async function renderOverlayImages(opts: {
   return result
 }
 
+/** Словарь с потолком размера: при переполнении выбрасывается самая старая запись. */
+export class BoundedCache<V> {
+  private readonly map = new Map<string, V>()
+  constructor(private readonly max: number) {}
+  get(key: string): V | undefined {
+    return this.map.get(key)
+  }
+  set(key: string, value: V): void {
+    if (this.map.has(key)) this.map.delete(key)
+    this.map.set(key, value)
+    while (this.map.size > this.max) this.map.delete(this.map.keys().next().value as string)
+  }
+  get size(): number {
+    return this.map.size
+  }
+}
+
 /**
  * Ключ картинки кадра, если она зависит только от набора рисунков и фазы времени (ни один рисунок не движется по ключам):
  * кадры с одним ключом выглядят одинаково, их можно нарисовать один раз. null — кэшировать нельзя.
@@ -286,7 +303,10 @@ export async function renderAnimationFrames(opts: {
   canvas.height = height
   const blank = await svgToPng(buildOverlaySvg([], width, height), canvas, width, height)
   // Картинки кадров, где рисунки не движутся и зависят лишь от времени (пульс): та же фаза — та же картинка (период 1,5 с).
-  const phaseCache = new Map<string, Uint8Array<ArrayBuffer>>()
+  // Не больше двух периодов пульса на слой: при дробной частоте кадров фазы почти не повторяются, а кэш не должен расти.
+  const phaseCache = new BoundedCache<Uint8Array<ArrayBuffer>>(
+    Math.ceil(PULSE_PERIOD * fps) * 2 * 2
+  )
   const pending: Record<OverlayLayer, AnimFrameData[]> = { over: [], under: [] }
   const bytes: Record<OverlayLayer, number> = { over: 0, under: 0 }
   const drain = async (layer: OverlayLayer): Promise<void> => {

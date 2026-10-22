@@ -1,5 +1,5 @@
 // Кнопка «Газон» в панели стиля и окно настроек ключа: пипетка, чувствительность, мягкость края, сброс, показ маски.
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import {
   MAX_GRASS_BLEND,
   MAX_GRASS_SIMILARITY,
@@ -62,7 +62,17 @@ function Popover(): React.JSX.Element {
   const setMaskView = useGrassStore((s) => s.setMaskView)
   const resetAuto = useGrassStore((s) => s.resetAuto)
   const videoId = usePlayerStore((s) => s.source?.id)
+  const rootRef = useRef<HTMLDivElement>(null)
   const notFound = key.auto && estimate !== null && estimate.videoId === videoId && !estimate.found
+
+  // Кнопка может оказаться у левого края (панель в две строки): тогда окно открывается вправо от кнопки, а не влево.
+  useLayoutEffect(() => {
+    const el = rootRef.current
+    if (el && el.getBoundingClientRect().left < 8) {
+      el.style.right = 'auto'
+      el.style.left = '0'
+    }
+  }, [])
 
   // Окно открыли — цвет газона нужен для показа: определяем его по текущему кадру.
   useEffect(() => {
@@ -71,6 +81,7 @@ function Popover(): React.JSX.Element {
 
   return (
     <div
+      ref={rootRef}
       className="grass-popover"
       role="dialog"
       aria-label={ru.grass.title}

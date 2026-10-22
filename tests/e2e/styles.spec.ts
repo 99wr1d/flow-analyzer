@@ -597,7 +597,6 @@ test.describe('мишень и пульс', () => {
         2
       const onRing = [1, 0.66, 0.33].map((k) => maxDelta(shot, base, ...screenAt(at(k))))
       const sides = [1, 0.66, 0.33].map(sideScreen)
-      console.log(`Экран, мишень: на кольцах ${onRing}, рядом с ними ${sides}`)
       onRing.forEach((d, i) => expect(d).toBeGreaterThan(sides[i] + 12))
       // Заливка тает к краю: у центра заметнее, чем у внешнего кольца.
       expect(maxDelta(shot, base, ...screenAt(at(0.12)))).toBeGreaterThan(
@@ -615,7 +614,6 @@ test.describe('мишень и пульс', () => {
             videoDelta(exported, source, at(k + 0.07))) /
           2
       )
-      console.log(`Экспорт, мишень: на кольцах ${vRing}, рядом с ними ${vSides}`)
       vRing.forEach((d, i) => expect(d).toBeGreaterThan(vSides[i] + 12))
       expect(videoDelta(exported, source, at(0.12))).toBeGreaterThan(
         videoDelta(exported, source, at(0.9))
@@ -651,7 +649,6 @@ test.describe('мишень и пульс', () => {
       // На экране: в точке волны каждого момента картинки двух моментов различаются.
       const sa = maxDelta(shots[a], shots[b], ...screenAt(wave(a)))
       const sb = maxDelta(shots[a], shots[b], ...screenAt(wave(b)))
-      console.log(`Экран, пульс: разница моментов в точках волн ${sa} / ${sb}`)
       expect(sa).toBeGreaterThan(30)
       expect(sb).toBeGreaterThan(20)
 
@@ -663,7 +660,6 @@ test.describe('мишень и пульс', () => {
       // В готовом видео волна момента a — в точке wave(a), и её нет там в момент b (и наоборот).
       const xa = [videoDelta(ea, src[0], wave(a)), videoDelta(eb, src[1], wave(a))]
       const xb = [videoDelta(eb, src[1], wave(b)), videoDelta(ea, src[0], wave(b))]
-      console.log(`Экспорт, пульс: волна a: ${xa}; волна b: ${xb}`)
       expect(xa[0]).toBeGreaterThan(30)
       expect(xa[0]).toBeGreaterThan(xa[1] + 15)
       expect(xb[0]).toBeGreaterThan(20)

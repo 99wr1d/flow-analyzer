@@ -576,7 +576,7 @@ test.describe('анимация рисунков', () => {
     }
   })
 
-  test('панель стиля: одна строка при ширине окна 1100, 1440 и 1920, скриншоты', async () => {
+  test('панель стиля: элементы не налезают друг на друга при окне 1100, 1440 и 1920 для каждого инструмента, скриншоты', async () => {
     const ctx = await launch()
     const { win, app } = ctx
     try {
@@ -599,51 +599,47 @@ test.describe('анимация рисунков', () => {
         )
         await win.waitForFunction((width) => window.innerWidth >= width - 20, w)
         await win.waitForTimeout(400)
-        const bar = win.getByTestId('style-bar')
-        const info = await bar.evaluate((el) => {
-          const box = el.getBoundingClientRect()
-          const kids = [...el.querySelectorAll('button, [data-testid="pitch-active"]')]
-          const tops = kids.map((k) => {
-            const b = k.getBoundingClientRect()
-            return {
-              id: k.getAttribute('data-testid') ?? k.className,
-              top: b.top,
-              bottom: b.bottom,
-              right: b.right,
-              w: b.width
+        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler']) {
+          await win.getByTestId(`tool-${tool}`).click()
+          await win.waitForTimeout(100)
+          const info = await win.getByTestId('style-bar').evaluate((el) => {
+            const box = el.getBoundingClientRect()
+            const kids = [...el.querySelectorAll('button, [data-testid="pitch-active"]')]
+              .map((k) => ({
+                id: k.getAttribute('data-testid') ?? k.className,
+                r: k.getBoundingClientRect()
+              }))
+              .filter((k) => k.r.width > 0 && k.r.height > 0)
+            const overlaps: string[] = []
+            for (let i = 0; i < kids.length; i += 1) {
+              for (let j = i + 1; j < kids.length; j += 1) {
+                const p = kids[i].r
+                const q = kids[j].r
+                const dx = Math.min(p.right, q.right) - Math.max(p.left, q.left)
+                const dy = Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top)
+                if (dx > 1 && dy > 1) overlaps.push(`${kids[i].id}|${kids[j].id}`)
+              }
             }
+            const outside = kids
+              .filter(
+                (k) =>
+                  k.r.right > box.right + 0.5 ||
+                  k.r.left < box.left - 0.5 ||
+                  k.r.bottom > box.bottom + 0.5 ||
+                  k.r.top < box.top - 0.5
+              )
+              .map((k) => k.id)
+            return { overlaps, outside, height: box.height, count: kids.length }
           })
-          return {
-            width: box.width,
-            height: box.height,
-            right: box.right,
-            scrollW: el.scrollWidth,
-            clientW: el.clientWidth,
-            tops,
-            innerWidth: window.innerWidth
+          expect(info.count, `${tool} @${w}`).toBeGreaterThan(10)
+          expect(info.overlaps, `наложения: ${tool} @${w}`).toEqual([])
+          expect(info.outside, `за краем панели: ${tool} @${w}`).toEqual([])
+          expect(info.height).toBeLessThanOrEqual(80)
+          if (tool === 'circle') {
+            await win.screenshot({ path: join(SHOTS, `animation-stylebar-${w}${SUFFIX}.png`) })
           }
-        })
-        const centers = info.tops.map((t) => (t.top + t.bottom) / 2)
-        const minTop = Math.min(...centers)
-        const maxTop = Math.max(...centers)
-        console.log(
-          'Панель стиля при окне',
-          info.innerWidth,
-          'px: ширина',
-          info.width.toFixed(0),
-          'высота',
-          info.height.toFixed(0),
-          '; содержимое',
-          info.scrollW,
-          '/',
-          info.clientW,
-          '; разброс по вертикали',
-          (maxTop - minTop).toFixed(1)
-        )
-        expect(info.height).toBeLessThanOrEqual(40)
-        expect(maxTop - minTop).toBeLessThanOrEqual(1.5)
-        expect(info.scrollW).toBeLessThanOrEqual(info.clientW + 1)
-        for (const t of info.tops) expect(t.right).toBeLessThanOrEqual(info.right + 0.5)
+        }
+        await win.getByTestId('tool-circle').click()
         // Все кнопки на месте и видны.
         for (const id of [
           'pitch-calibrate',
@@ -656,7 +652,6 @@ test.describe('анимация рисунков', () => {
           await expect(win.getByTestId(id)).toBeVisible()
         }
         await expect(win.getByTestId('pitch-active')).toBeVisible()
-        await win.screenshot({ path: join(SHOTS, `animation-stylebar-${w}${SUFFIX}.png`) })
       }
       // Окно «Газон» из значка раскрывается и не выходит за окно.
       await app.evaluate(({ BrowserWindow }) => {

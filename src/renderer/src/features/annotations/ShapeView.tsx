@@ -99,6 +99,31 @@ function ScreenToolBody({
   )
 }
 
+/** Волна пульса экранного круга: эллипс растёт от центра к краю и бледнеет. */
+function WaveEllipse(p: {
+  cx: number
+  cy: number
+  rx: number
+  ry: number
+  phase: number
+  color: string
+  w: number
+}): React.JSX.Element {
+  return (
+    <ellipse
+      data-part="wave"
+      cx={p.cx}
+      cy={p.cy}
+      rx={p.rx * waveScale(p.phase)}
+      ry={p.ry * waveScale(p.phase)}
+      fill="none"
+      stroke={p.color}
+      strokeOpacity={waveOpacity(p.phase)}
+      strokeWidth={p.w * WAVE_LINE_SCALE}
+    />
+  )
+}
+
 function ShapeBody({
   annotation: a,
   size,
@@ -236,17 +261,7 @@ function ShapeBody({
             </g>
           ))}
           {phase !== undefined && (
-            <ellipse
-              data-part="wave"
-              cx={cx}
-              cy={cy}
-              rx={rx * waveScale(phase)}
-              ry={ry * waveScale(phase)}
-              fill="none"
-              stroke={color}
-              strokeOpacity={waveOpacity(phase)}
-              strokeWidth={w * WAVE_LINE_SCALE}
-            />
+            <WaveEllipse cx={cx} cy={cy} rx={rx} ry={ry} phase={phase} color={color} w={w} />
           )}
         </>
       )
@@ -287,17 +302,7 @@ function ShapeBody({
           strokeLinecap="round"
         />
         {phase !== undefined && (
-          <ellipse
-            data-part="wave"
-            cx={cx}
-            cy={cy}
-            rx={rx * waveScale(phase)}
-            ry={ry * waveScale(phase)}
-            fill="none"
-            stroke={color}
-            strokeOpacity={waveOpacity(phase)}
-            strokeWidth={w * WAVE_LINE_SCALE}
-          />
+          <WaveEllipse cx={cx} cy={cy} rx={rx} ry={ry} phase={phase} color={color} w={w} />
         )}
       </>
     )
