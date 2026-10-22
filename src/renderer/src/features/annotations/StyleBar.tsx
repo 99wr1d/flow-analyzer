@@ -43,6 +43,8 @@ function useShownStyle(): CurrentStyle {
     textLevel: textLevelOf(selected),
     dash: isText ? style.dash : selected.style.dash,
     textBackground: isText ? selected.style.background : style.textBackground,
+    // Тень выбранной подписи — её собственная (у старой подписи поля нет — значит, прежний контур, т. е. не «тень»).
+    textShadow: isText ? selected.style.shadow === true : style.textShadow,
     // Свечение выбранного кольца — его собственное (у старого кольца поля нет — значит, свечения нет), а не умолчание для новых.
     glow:
       selected.type === 'circle' || selected.type === 'ring' ? selected.glow === true : style.glow
@@ -307,6 +309,22 @@ export function StyleBar(): React.JSX.Element {
         }}
       >
         Aa
+      </button>
+      <button
+        type="button"
+        className={
+          shown.textShadow ? 'chip-btn chip-btn--sq chip-btn--active' : 'chip-btn chip-btn--sq'
+        }
+        disabled={context === 'shape' || context === 'ruler'}
+        title={ru.annotations.textShadow}
+        aria-pressed={shown.textShadow}
+        data-testid="text-shadow"
+        onClick={(e) => {
+          setStyle({ textShadow: !shown.textShadow })
+          e.currentTarget.blur()
+        }}
+      >
+        <span style={{ textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}>Aa</span>
       </button>
       <GlowToggle shown={shown} />
       <PitchControls />

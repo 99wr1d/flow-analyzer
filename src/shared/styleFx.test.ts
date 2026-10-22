@@ -8,6 +8,7 @@ import {
   glowStack,
   isTimeVarying,
   pulsePhase,
+  textShadowLayers,
   revealFraction
 } from './styleFx'
 
@@ -106,5 +107,16 @@ describe('glowStack: ореол «стопкой» полупрозрачных 
   })
   it('сверхтонкая обводка получает ореол не уже двух пикселей', () => {
     expect(glowStack(1, 0.2)[0].width).toBeGreaterThanOrEqual(1 + 2 * GLOW_REACH * 2 - 1e-9)
+  })
+})
+
+describe('textShadowLayers: тонкая тень подписи без плашки', () => {
+  it('слои от широкого мягкого к узкому плотному, тень лежит чуть ниже текста и не тяжёлая', () => {
+    const l = textShadowLayers(20)
+    expect(l.length).toBeGreaterThanOrEqual(2)
+    const widths = l.map((x) => x.width)
+    expect([...widths].sort((a, b) => b - a)).toEqual(widths)
+    expect(l.every((x) => x.dy > 0 && x.opacity > 0 && x.opacity <= 0.6)).toBe(true)
+    expect(widths[0]).toBeLessThan(20 * 0.3)
   })
 })

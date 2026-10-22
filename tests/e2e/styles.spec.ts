@@ -1,4 +1,5 @@
 // Новые стили рисунков (0.18): кольцо «как в образце» — тонкая обводка с мягким свечением, лежит на траве.
+// Подпись: жирная, без плашки, с тонкой тенью.
 // Настоящее приложение: players.mp4 (газон, крупные игроки). Пиксели экрана сравниваются с кадром готового видео.
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -319,6 +320,160 @@ test.describe('кольцо «как в образце»', () => {
       await expect(shapes(win, 'circle')).toHaveCount(1)
     } finally {
       await app.close()
+    }
+  })
+})
+
+/** Рамка подписи (по DOM букв, без тени) в пикселях экрана и её центр в долях кадра. */
+async function labelBox(
+  win: Page,
+  index = 0
+): Promise<{ f: Frac; box: { x: number; y: number; w: number; h: number } }> {
+  const layer = await layerBox(win)
+  const b = await shapes(win, 'text')
+    .nth(index)
+    .locator('[data-part="text"]')
+    .evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return { x: r.x, y: r.y, w: r.width, h: r.height }
+    })
+  return {
+    f: [(b.x + b.w / 2 - layer.x) / layer.width, (b.y + b.h / 2 - layer.y) / layer.height],
+    box: b
+  }
+}
+
+async function typeLabel(win: Page, at: Frac, text: string): Promise<void> {
+  await win.keyboard.press('t')
+  await clickAt(win, at)
+  await win.keyboard.type(text)
+  await win.keyboard.press('Enter')
+}
+
+test.describe('подписи без плашки', () => {
+  test('новая подпись: жирная, лайм, без плашки, с тенью; на экране и в готовом видео одинаково', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Подпись без плашки')
+      const layer = await layerBox(win)
+      const base = await png(win, 'label-base')
+      await win.keyboard.press('t')
+      await win.getByTestId('color-c6ff3d').click()
+      await clickAt(win, [0.45, 0.78])
+      await win.keyboard.type('LW')
+      await win.keyboard.press('Enter')
+      const label = shapes(win, 'text')
+      await expect(label).toHaveCount(1)
+      await win.getByTestId('duration-input').fill('3')
+      // Панель показывает умолчания: плашки нет, тень есть.
+      await expect(win.getByTestId('text-background')).toHaveAttribute('aria-pressed', 'false')
+      await expect(win.getByTestId('text-shadow')).toHaveAttribute('aria-pressed', 'true')
+      await expect(label).toHaveAttribute('data-color', '#c6ff3d')
+      const parts = await label.evaluate((g) => ({
+        plate: g.querySelectorAll('rect[fill^="rgba"]').length,
+        shadows: g.querySelectorAll('[data-part="text-shadow"]').length,
+        weight: Number(g.querySelector('[data-part="text"]')?.getAttribute('font-weight'))
+      }))
+      expect(parts.plate).toBe(0)
+      expect(parts.shadows).toBeGreaterThanOrEqual(2)
+      expect(parts.weight).toBeGreaterThanOrEqual(700)
+
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
+      await win.waitForTimeout(250)
+      const { box } = await labelBox(win)
+      const shot = await png(win, 'label-on')
+      // Экран: в углу рамки подписи плашки нет (трава не потемнела).
+      const corner = maxDelta(shot, base, Math.round(box.x + 1), Math.round(box.y + 1))
+      expect(corner).toBeLessThan(25)
+      // Тень: рядом с буквами трава темнее, чем без подписи (лайм-буквы светлее травы и сюда не попадают).
+      let darker = 0
+      for (let y = Math.round(box.y); y < box.y + box.h; y += 1) {
+        for (let x = Math.round(box.x); x < box.x + box.w; x += 1) {
+          const p = shot.at(x, y)
+          const q = base.at(x, y)
+          darker = Math.max(darker, q[0] + q[1] + q[2] - (p[0] + p[1] + p[2]))
+        }
+      }
+      console.log(`Экран: тень под буквами темнее на ${darker}`)
+      expect(darker).toBeGreaterThan(20)
+
+      // Экспорт: те же лайм-пиксели без плашки.
+      const file = await exportWhole(ctx)
+      const index = 35
+      const exported = frameRgb(file, index, W, H)
+      const source = frameRgb(fixture('players.mp4'), index, W, H)
+      const fx = (x: number): number => Math.round(((x - layer.x) / layer.width) * W)
+      const fy = (y: number): number => Math.round(((y - layer.y) / layer.height) * H)
+      const x0 = fx(box.x)
+      const x1 = fx(box.x + box.w)
+      const y0 = fy(box.y)
+      const y1 = fy(box.y + box.h)
+      let lime = 0
+      for (let y = y0; y <= y1; y += 1) {
+        for (let x = x0; x <= x1; x += 1) {
+          const [r, g, b] = pixelAt(exported, W, x, y)
+          if (r > 150 && g > 200 && b < 140) lime += 1
+        }
+      }
+      console.log(`Экспорт: лайм-пикселей подписи ${lime}`)
+      expect(lime).toBeGreaterThan(15)
+      expect(videoDelta(exported, source, [(x0 + 1) / W, (y0 + 1) / H])).toBeLessThan(25)
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('плашка: переключатель меняет подпись и запоминается для следующих; панель показывает значение выбранной', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Переключатель плашки')
+      const bg = win.getByTestId('text-background')
+      const sh = win.getByTestId('text-shadow')
+      const plate = (i: number) => shapes(win, 'text').nth(i).locator('rect[fill^="rgba"]')
+      await typeLabel(win, [0.2, 0.3], 'A')
+      const labels = shapes(win, 'text')
+      await expect(labels).toHaveCount(1)
+      await expect(plate(0)).toHaveCount(0)
+      // Выбранная подпись A: включаем плашку.
+      await win.keyboard.press('v')
+      const a = await labelBox(win, 0)
+      await clickAt(win, a.f)
+      await expect(labels.first()).toHaveAttribute('data-selected', 'true')
+      await expect(bg).toHaveAttribute('aria-pressed', 'false')
+      await bg.click()
+      await expect(bg).toHaveAttribute('aria-pressed', 'true')
+      await expect(plate(0)).toHaveCount(1)
+      await win.keyboard.press('Escape')
+      // Выбор запоминается для следующих (как цвет и толщина): B получает плашку.
+      await typeLabel(win, [0.5, 0.3], 'B')
+      await expect(labels).toHaveCount(2)
+      await expect(plate(1)).toHaveCount(1)
+      // Выбираем B и выключаем у неё плашку и тень — следующая подпись C получает «голый» текст.
+      await win.keyboard.press('v')
+      const b = await labelBox(win, 1)
+      await clickAt(win, b.f)
+      await expect(labels.nth(1)).toHaveAttribute('data-selected', 'true')
+      await bg.click()
+      await sh.click()
+      await expect(plate(1)).toHaveCount(0)
+      await expect(labels.nth(1).locator('[data-part="text-shadow"]')).toHaveCount(0)
+      await win.keyboard.press('Escape')
+      await typeLabel(win, [0.75, 0.3], 'C')
+      await expect(labels).toHaveCount(3)
+      await expect(plate(2)).toHaveCount(0)
+      await expect(labels.nth(2).locator('[data-part="text-shadow"]')).toHaveCount(0)
+      // Выбор A: панель показывает ЕЁ значения (плашка есть, тень есть), а не последние выбранные для новых.
+      await win.keyboard.press('v')
+      await clickAt(win, (await labelBox(win, 0)).f)
+      await expect(labels.first()).toHaveAttribute('data-selected', 'true')
+      await expect(bg).toHaveAttribute('aria-pressed', 'true')
+      await expect(sh).toHaveAttribute('aria-pressed', 'true')
+    } finally {
+      await ctx.app.close()
     }
   })
 })

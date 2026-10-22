@@ -1,3 +1,4 @@
+import { LabelText } from './LabelText'
 import { memo, useMemo } from 'react'
 import {
   LEGACY_CIRCLE_FILL,
@@ -25,7 +26,7 @@ import {
 } from './PitchShapeView'
 import { glowStack } from '../../../../shared/styleFx'
 import { isDarkColor } from './styles'
-import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
+import { measureTextWidth } from './textMetrics'
 
 const HALO = 'rgba(43, 214, 123, 0.38)'
 const ACCENT = '#2bd67b'
@@ -136,23 +137,15 @@ function ShapeBody({
             fill={dark ? 'rgba(255,255,255,0.88)' : 'rgba(10,12,16,0.68)'}
           />
         )}
-        <text
+        <LabelText
+          text={a.text}
           x={r.x + pad}
           y={r.y + r.h / 2}
-          dominantBaseline="central"
-          fontSize={font}
-          fontFamily={TEXT_FONT_FAMILY}
-          fontWeight={TEXT_FONT_WEIGHT}
-          fill={a.style.color}
-          stroke={
-            a.style.background ? undefined : dark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.75)'
-          }
-          strokeWidth={a.style.background ? undefined : font * 0.14}
-          strokeLinejoin="round"
-          paintOrder="stroke"
-        >
-          {a.text}
-        </text>
+          fontPx={font}
+          color={a.style.color}
+          plate={a.style.background}
+          shadow={a.style.shadow}
+        />
       </>
     )
   }
@@ -351,7 +344,11 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
   if (isPitchAnnotation(a) && !props.projector) return null
   // Кольцо со свечением рисуется без тени: тёмная кайма под ореолом портила бы его.
   const glowing = (a.type === 'circle' || a.type === 'ring') && a.glow === true
-  const shadow = glowing ? undefined : dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
+  // Подпись без плашки с полем shadow сама решает про тень (тонкая тёмная кайма букв или никакой); общая тень группы — только старым подписям.
+  const ownShadow =
+    (a.type === 'text' || a.type === 'ptext') && !a.style.background && a.style.shadow !== undefined
+  const shadow =
+    glowing || ownShadow ? undefined : dark ? 'anno-shape anno-shape--dark' : 'anno-shape'
   // У рисунков с полупрозрачной заливкой тень на группе просвечивала бы сквозь заливку: тень получают только линии и подписи.
   const split = HAS_UNDERLAY.has(a.type)
   const body = (part: DrawPart | undefined, selected: boolean): React.JSX.Element =>

@@ -59,3 +59,23 @@ export function glowStack(base: number, corePx: number): GlowLayer[] {
   }
   return layers
 }
+
+export interface TextShadowLayer {
+  /** Сдвиг вниз, пиксели. */
+  dy: number
+  /** Толщина тёмной каймы вокруг букв, пиксели. */
+  width: number
+  opacity: number
+}
+
+/**
+ * Тень подписи без плашки «стопкой» тёмных копий текста (без SVG-фильтра: одинаково на экране и в экспорте).
+ * От широкой мягкой к узкой плотной; вместе дают тонкую тёмную кайму, чуть смещённую вниз.
+ */
+export function textShadowLayers(fontPx: number): TextShadowLayer[] {
+  return [
+    { dy: fontPx * 0.07, width: fontPx * 0.2, opacity: 0.22 },
+    { dy: fontPx * 0.05, width: fontPx * 0.12, opacity: 0.35 },
+    { dy: fontPx * 0.03, width: fontPx * 0.05, opacity: 0.55 }
+  ]
+}

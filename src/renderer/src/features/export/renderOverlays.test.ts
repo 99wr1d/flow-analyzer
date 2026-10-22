@@ -351,3 +351,38 @@ describe('свечение пунктирного круга', () => {
     expect(layer).toContain('stroke-dasharray=')
   })
 })
+
+describe('buildOverlaySvg: подписи без плашки', () => {
+  const label = (style: object): Annotation =>
+    ({ ...text, text: 'LW', style: { color: '#c6ff3d', size: 0.05, ...style } }) as Annotation
+
+  it('новая подпись: без плашки, тень стопкой тёмных копий, без контура и общей тени группы', () => {
+    const svg = buildOverlaySvg([label({ background: false, shadow: true })], 1280, 720)
+    expect(svg).not.toContain('<rect')
+    expect(svg.match(/data-part="text-shadow"/g)!.length).toBeGreaterThanOrEqual(2)
+    expect(svg).toContain('font-weight="700"')
+    expect(svg).not.toContain('paint-order')
+    expect(svg).not.toContain('class="anno-shape')
+  })
+
+  it('старая подпись с плашкой выглядит как раньше: плашка и общая тень, без слоёв тени', () => {
+    const svg = buildOverlaySvg([label({ background: true })], 1280, 720)
+    expect(svg).toContain('<rect')
+    expect(svg).not.toContain('text-shadow')
+    expect(svg).toContain('class="anno-shape')
+  })
+
+  it('старая подпись без плашки и без поля shadow — прежний контур', () => {
+    const svg = buildOverlaySvg([label({ background: false })], 1280, 720)
+    expect(svg).not.toContain('<rect')
+    expect(svg).not.toContain('text-shadow')
+    expect(svg).toContain('paint-order="stroke"')
+  })
+
+  it('подпись без плашки и без тени — голый текст', () => {
+    const svg = buildOverlaySvg([label({ background: false, shadow: false })], 1280, 720)
+    expect(svg).not.toContain('text-shadow')
+    expect(svg).not.toContain('stroke=')
+    expect(svg).not.toContain('class="anno-shape')
+  })
+})

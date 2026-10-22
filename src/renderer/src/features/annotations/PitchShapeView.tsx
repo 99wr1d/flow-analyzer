@@ -8,6 +8,7 @@ import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared
 import { glowStack } from '../../../../shared/styleFx'
 import type { Size } from './geometry'
 import { pathOf } from './pathOf'
+import { LabelText } from './LabelText'
 import { isDarkColor } from './styles'
 import { TEXT_FONT_FAMILY, TEXT_FONT_WEIGHT, measureTextWidth } from './textMetrics'
 
@@ -27,22 +28,24 @@ const LABEL_TEST_ID: Record<LabelPaint['kind'], string> = {
 export function PillLabel({
   label,
   color,
-  background
+  background,
+  shadow
 }: {
   label: LabelPaint
   color: string
   /** Только для подписей-текста: показывать ли плашку. */
   background: boolean
+  /** Тень подписи-текста (нет поля — прежний контур без плашки). */
+  shadow?: boolean
 }): React.JSX.Element {
   const dark = isDarkColor(color)
   const x = label.x - label.w / 2
   const y = label.y - label.h / 2
   const measured = label.kind !== 'text'
-  const plain = !measured && !background
   const framed = label.kind === 'width' || label.kind === 'area' || label.kind === 'ruler'
   return (
     <g data-testid={LABEL_TEST_ID[label.kind]} data-text={label.text}>
-      {!plain && (
+      {(measured || background) && (
         <rect
           x={x}
           y={y}
@@ -54,22 +57,31 @@ export function PillLabel({
           strokeWidth={framed ? Math.max(1, label.fontPx * 0.07) : undefined}
         />
       )}
-      <text
-        x={label.x}
-        y={label.y}
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontSize={label.fontPx}
-        fontFamily={TEXT_FONT_FAMILY}
-        fontWeight={TEXT_FONT_WEIGHT}
-        fill={measured ? '#ffffff' : color}
-        stroke={plain ? (dark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.75)') : undefined}
-        strokeWidth={plain ? label.fontPx * 0.14 : undefined}
-        strokeLinejoin="round"
-        paintOrder="stroke"
-      >
-        {label.text}
-      </text>
+      {measured ? (
+        <text
+          x={label.x}
+          y={label.y}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={label.fontPx}
+          fontFamily={TEXT_FONT_FAMILY}
+          fontWeight={TEXT_FONT_WEIGHT}
+          fill="#ffffff"
+        >
+          {label.text}
+        </text>
+      ) : (
+        <LabelText
+          text={label.text}
+          x={label.x}
+          y={label.y}
+          fontPx={label.fontPx}
+          color={color}
+          plate={background}
+          shadow={shadow}
+          anchor="middle"
+        />
+      )}
     </g>
   )
 }
@@ -86,6 +98,8 @@ interface PaintProps {
   selected: boolean
   /** Плашка под текстом (для ptext). */
   textBackground?: boolean
+  /** Тень подписи (для ptext). */
+  textShadow?: boolean
   /** Класс тени для всего, кроме полупрозрачных подложек (если не задан, тень задаёт родитель). */
   shadowClass?: string
   /**
@@ -107,6 +121,7 @@ export function PaintParts({
   size,
   selected,
   textBackground = true,
+  textShadow,
   shadowClass,
   part = 'all'
 }: PaintProps): React.JSX.Element | null {
@@ -275,7 +290,12 @@ export function PaintParts({
         />
       )}
       {top && paint.label && (
-        <PillLabel label={paint.label} color={color} background={textBackground} />
+        <PillLabel
+          label={paint.label}
+          color={color}
+          background={textBackground}
+          shadow={textShadow}
+        />
       )}
       {top &&
         paint.labels.map((l, i) => (
@@ -380,6 +400,7 @@ export function PitchBody({
       size={size}
       selected={selected}
       textBackground={a.type === 'ptext' ? a.style.background : true}
+      textShadow={a.type === 'ptext' ? a.style.shadow : undefined}
       shadowClass={shadowClass}
       part={part}
     />
