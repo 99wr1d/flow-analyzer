@@ -24,7 +24,7 @@ import { readProjectFile } from './files'
 import { openProjectFile, saveToPath, videoFacts } from './session'
 
 const DIR = resolve('tests/fixtures/projects')
-const CURRENT_APP_VERSION = '0.17.0'
+const CURRENT_APP_VERSION = '0.18.0'
 
 interface Era {
   file: string
@@ -109,6 +109,17 @@ const ERAS: Era[] = [
   {
     file: 'v0.17.0.flowproj',
     appVersion: '0.17.0',
+    annotations: 6,
+    calibrations: 1,
+    episodes: 2,
+    meta: true,
+    grassKey: true,
+    types: ['ring', 'circle', 'text', 'arrow', 'pspot', 'spot'],
+    animated: 1
+  },
+  {
+    file: 'v0.18.0.flowproj',
+    appVersion: '0.18.0',
     annotations: 6,
     calibrations: 1,
     episodes: 2,
@@ -303,7 +314,7 @@ describe('стили 0.18: проект 0.17.0 без новых полей', ()
   const NEW_KEYS = ['glow', 'look', 'pulse', 'form', 'reveal', 'shadow']
 
   it('читается и сохраняется без появления новых полей (старый вид)', async () => {
-    const path = await install(ERAS[ERAS.length - 1])
+    const path = await install(ERAS.find((e) => e.appVersion === '0.17.0')!)
     const opened = await openProjectFile(userData, path)
     expect(opened.status).toBe('opened')
     if (opened.status !== 'opened') return

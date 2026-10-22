@@ -1,0 +1,321 @@
+{
+  "format": "flowanalyzer-project",
+  "version": 1,
+  "createdAt": "2026-04-01T09:00:00.000Z",
+  "updatedAt": "2026-10-20T18:30:00.000Z",
+  "appVersion": "0.18.0",
+  "video": {
+    "path": "C:/placeholder/cfr25.mp4",
+    "relativePath": null,
+    "fileName": "cfr25.mp4",
+    "sizeBytes": 1,
+    "fps": 25,
+    "fpsSource": "container",
+    "duration": 4
+  },
+  "annotations": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "space": "pitch",
+      "calibrationId": "00000000-0000-4000-8000-000000009001",
+      "type": "ring",
+      "center": {
+        "x": 20,
+        "y": 30
+      },
+      "radius": 2,
+      "style": {
+        "color": "#4cc9f0",
+        "width": 0.011,
+        "dash": "solid"
+      },
+      "fillOpacity": 0.18,
+      "underPlayers": true,
+      "timing": {
+        "mode": "frame",
+        "start": 1,
+        "freezeSeconds": 3
+      },
+      "glow": true,
+      "look": "target",
+      "pulse": true
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "space": "screen",
+      "type": "circle",
+      "p1": {
+        "x": 0.4,
+        "y": 0.3
+      },
+      "p2": {
+        "x": 0.46,
+        "y": 0.4
+      },
+      "style": {
+        "color": "#ffd60a",
+        "width": 0.011,
+        "dash": "solid"
+      },
+      "fillOpacity": 0.06,
+      "underPlayers": true,
+      "keyframes": [
+        {
+          "t": 1,
+          "ease": "linear",
+          "auto": true,
+          "geom": {
+            "p1": {
+              "x": 0.4,
+              "y": 0.3
+            },
+            "p2": {
+              "x": 0.46,
+              "y": 0.4
+            }
+          }
+        },
+        {
+          "t": 1.04,
+          "ease": "linear",
+          "auto": true,
+          "geom": {
+            "p1": {
+              "x": 0.41000000000000003,
+              "y": 0.3
+            },
+            "p2": {
+              "x": 0.47000000000000003,
+              "y": 0.4
+            }
+          }
+        },
+        {
+          "t": 1.08,
+          "ease": "linear",
+          "auto": true,
+          "geom": {
+            "p1": {
+              "x": 0.42000000000000004,
+              "y": 0.3
+            },
+            "p2": {
+              "x": 0.48000000000000004,
+              "y": 0.4
+            }
+          }
+        }
+      ],
+      "timing": {
+        "mode": "range",
+        "start": 1,
+        "duration": 3
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "space": "screen",
+      "type": "text",
+      "pos": {
+        "x": 0.2,
+        "y": 0.2
+      },
+      "text": "LW",
+      "style": {
+        "color": "#c6ff3d",
+        "size": 0.045,
+        "background": false,
+        "shadow": true
+      },
+      "timing": {
+        "mode": "range",
+        "start": 1,
+        "duration": 2
+      }
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000004",
+      "space": "screen",
+      "type": "arrow",
+      "p1": {
+        "x": 0.1,
+        "y": 0.2
+      },
+      "p2": {
+        "x": 0.6,
+        "y": 0.4
+      },
+      "style": {
+        "color": "#ff3b30",
+        "width": 0.011,
+        "dash": "dotted"
+      },
+      "timing": {
+        "mode": "range",
+        "start": 2,
+        "duration": 2
+      },
+      "glow": true,
+      "reveal": 0.8
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "space": "pitch",
+      "calibrationId": "00000000-0000-4000-8000-000000009001",
+      "type": "pspot",
+      "center": {
+        "x": 10,
+        "y": 34
+      },
+      "radius": 2.2,
+      "dim": 0.55,
+      "beam": true,
+      "style": {
+        "color": "#ffffff",
+        "width": 0.011,
+        "dash": "solid"
+      },
+      "underPlayers": true,
+      "timing": {
+        "mode": "frame",
+        "start": 2,
+        "freezeSeconds": 3
+      },
+      "form": "pillar"
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000006",
+      "space": "screen",
+      "type": "spot",
+      "p1": {
+        "x": 0.6,
+        "y": 0.5
+      },
+      "p2": {
+        "x": 0.7,
+        "y": 0.7
+      },
+      "dim": 0.55,
+      "beam": true,
+      "style": {
+        "color": "#ffffff",
+        "width": 0.011,
+        "dash": "solid"
+      },
+      "timing": {
+        "mode": "range",
+        "start": 1,
+        "duration": 2
+      }
+    }
+  ],
+  "calibrations": [
+    {
+      "id": "00000000-0000-4000-8000-000000009001",
+      "time": 0,
+      "aspect": 1.7777777777777777,
+      "pitch": {
+        "length": 105,
+        "width": 68
+      },
+      "template": "penalty-left",
+      "points": [
+        {
+          "world": {
+            "x": 0,
+            "y": 13.84
+          },
+          "image": {
+            "x": 0.363,
+            "y": 0.319
+          }
+        },
+        {
+          "world": {
+            "x": 16.5,
+            "y": 13.84
+          },
+          "image": {
+            "x": 0.58,
+            "y": 0.334
+          }
+        },
+        {
+          "world": {
+            "x": 16.5,
+            "y": 54.16
+          },
+          "image": {
+            "x": 0.492,
+            "y": 0.746
+          }
+        },
+        {
+          "world": {
+            "x": 0,
+            "y": 54.16
+          },
+          "image": {
+            "x": 0.127,
+            "y": 0.702
+          }
+        }
+      ],
+      "createdAt": "2026-04-04T20:00:00.000Z"
+    }
+  ],
+  "episodes": [
+    {
+      "id": "00000000-0000-4000-8000-000000001001",
+      "tagId": "transition-attack",
+      "tagName": "Переход в атаку",
+      "tagColor": "#b6e24a",
+      "start": 0.6,
+      "end": 3.4,
+      "rating": "bad",
+      "review": false
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000001002",
+      "tagId": "goal",
+      "tagName": "Гол",
+      "tagColor": "#ff4d6d",
+      "start": 3.4,
+      "end": 3.95,
+      "rating": "good",
+      "review": true,
+      "note": "Финал атаки"
+    }
+  ],
+  "tags": [
+    {
+      "id": "transition-attack",
+      "name": "Переход в атаку",
+      "color": "#b6e24a",
+      "preSeconds": 5,
+      "postSeconds": 5
+    },
+    {
+      "id": "goal",
+      "name": "Гол",
+      "color": "#ff4d6d",
+      "preSeconds": 5,
+      "postSeconds": 5
+    }
+  ],
+  "ui": {
+    "lastTime": 3
+  },
+  "meta": {
+    "title": "Слежение за игроком",
+    "type": "training",
+    "date": "2026-10-20",
+    "notes": "Рисунки до 0.18: без полей стилей"
+  },
+  "grassKey": {
+    "color": "#2f8a3f",
+    "similarity": 0.07,
+    "blend": 0.05,
+    "auto": true
+  }
+}

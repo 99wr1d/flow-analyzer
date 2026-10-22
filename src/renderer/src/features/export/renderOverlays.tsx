@@ -241,10 +241,18 @@ export class BoundedCache<V> {
 /**
  * Ключ картинки кадра, если она зависит только от набора рисунков и фазы времени (ни один рисунок не движется по ключам):
  * кадры с одним ключом выглядят одинаково, их можно нарисовать один раз. null — кэшировать нельзя.
+ * layer — ключ картинки одного слоя: фазы рисунков другого слоя в него не входят (пульс «под игроками» не заставляет
+ * заново рисовать слой «поверх» и наоборот).
  */
-export function phaseKeyOf(items: readonly Annotation[], time: number): string | null {
+export function phaseKeyOf(
+  items: readonly Annotation[],
+  time: number,
+  layer?: OverlayLayer
+): string | null {
   if (items.some(isMoving)) return null
   const parts = items.map((a) => {
+    // Рисунок, не попадающий в этот слой, на его картинку не влияет: его фаза в ключ не входит.
+    if (layer !== undefined && !layersFor([a])[layer]) return '/'
     const phase =
       (a.type === 'circle' || a.type === 'ring') && a.pulse === true && a.timing.mode === 'range'
     const reveal = 'reveal' in a && a.reveal !== undefined
@@ -324,12 +332,13 @@ export async function renderAnimationFrames(opts: {
     const time = frameTime(f.frame, fps)
     const items = f.members.map((i) => resolveAt(annotations[i], time))
     const need = layersFor(items)
-    const phaseKey = phaseKeyOf(
-      f.members.map((i) => annotations[i]),
-      time
-    )
     for (const layer of ['over', 'under'] as const) {
       if (!layers[layer]) continue
+      const phaseKey = phaseKeyOf(
+        f.members.map((i) => annotations[i]),
+        time,
+        layer
+      )
       const cacheKey = phaseKey === null ? null : `${layer}|${phaseKey}`
       const cached = cacheKey === null ? undefined : phaseCache.get(cacheKey)
       const data = !need[layer]

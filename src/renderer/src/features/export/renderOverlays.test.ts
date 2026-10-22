@@ -522,6 +522,14 @@ describe('phaseKeyOf: картинки кадров с пульсом повто
     expect(phaseKeyOf([pulsing], 0.3)).not.toBe(phaseKeyOf([other], 0.3))
   })
 
+  it('ключ слоя не зависит от фазы рисунков другого слоя', () => {
+    const under = { ...pulsing, underPlayers: true } as Annotation
+    const over = { ...arrow, id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4f03' } as Annotation
+    // Пульс рисунка «под игроками» меняет только свой слой.
+    expect(phaseKeyOf([under, over], 0.3, 'over')).toBe(phaseKeyOf([under, over], 0.9, 'over'))
+    expect(phaseKeyOf([under, over], 0.3, 'under')).not.toBe(phaseKeyOf([under, over], 0.9, 'under'))
+  })
+
   it('рисунок с ключами (движется) кэшировать нельзя', () => {
     const moving = {
       ...pulsing,
