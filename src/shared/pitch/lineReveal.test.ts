@@ -181,7 +181,8 @@ describe('проявление: линии на поле', () => {
     const dotted = { ...parrow, style: { ...parrow.style, dash: 'dotted' as const } }
     const part = paintPitch(dotted, proj, SIZE, measure, at(0.999)).body
     const full = paintPitch(dotted, proj, SIZE, measure, at(1)).body
-    expect(full).toHaveLength(part.length + 1)
+    expect(full.length).toBeGreaterThan(part.length)
+    expect(part.some((p) => p.length === 3)).toBe(false)
     expect(full.filter((p) => p.length === 3)).toHaveLength(1)
     expect(part.every((p) => p.length === 12)).toBe(true)
   })
@@ -224,8 +225,26 @@ describe('одна и та же доля на экране и в экспорт�
   it('доля зависит только от времени видео и начала отрезка (клип, начатый посреди отрезка)', () => {
     // Экспорт клипа, начавшегося на 10.4 с, на кадре 10.5 с — та же доля, что при перемотке на 10.5 с.
     expect(revealFraction(parrow, 10.5)).toBeCloseTo(0.5)
-    expect(paintPitch(parrow, proj, SIZE, measure, 10.5)).toEqual(
-      paintPitch(parrow, proj, SIZE, measure, 10.5)
+    // Разные моменты дают разные картинки, один и тот же момент — одну и ту же.
+    const a = paintPitch(parrow, proj, SIZE, measure, 10.5)
+    expect(a.body).not.toEqual(paintPitch(parrow, proj, SIZE, measure, 10.2).body)
+    expect(a).toEqual(paintPitch(parrow, proj, SIZE, measure, 10.5))
+  })
+})
+
+describe('наконечник и стержень на поле', () => {
+  it('короткая стрелка: стержень дорос ровно к появлению наконечника', () => {
+    const short = { ...parrow, p2: { x: 4.6, y: 20.4 } }
+    const near = paintPitch(short, proj, SIZE, measure, at(0.9999))
+    const full = paintPitch(short, proj, SIZE, measure, at(1))
+    expect(near.body).toHaveLength(1)
+    expect(full.body).toHaveLength(2)
+    expect(extent(near.body)).toBeCloseTo(extent([full.body[0]]), 0)
+  })
+  it('штриховая линия с проявлением: область попадания от времени не зависит', () => {
+    const dashed = { ...pline, style: { ...pline.style, dash: 'dashed' as const } }
+    expect(paintPitch(dashed, proj, SIZE, measure, at(0.3)).hit).toEqual(
+      paintPitch(dashed, proj, SIZE, measure, at(3)).hit
     )
   })
 })

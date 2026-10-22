@@ -34,6 +34,7 @@ import {
   dashStyle,
   glowStack,
   isTarget,
+  isTimeVarying,
   lineCoreColor,
   lineGlowStack,
   LINE_GLOW_BOOST,
@@ -144,7 +145,7 @@ function ShapeBody({
         selected={selected}
         shadowClass={shadowClass}
         part={part}
-        time={time}
+        time={isTimeVarying(a) ? time : undefined}
       />
     )
   }
@@ -328,9 +329,8 @@ function ShapeBody({
   // Точки раскладываются по длине всей линии, а не видимой части: они не ползут, пока линия растёт.
   const ds = dashStyle(a.style.dash, w, shaftLen)
   const frac = time === undefined ? 1 : revealFraction(a, time)
-  const totalLen = Math.hypot(p2.x - p1.x, p2.y - p1.y)
-  const reach = Math.min(shaftLen, frac * totalLen)
-  const k = shaftLen > 0 ? reach / shaftLen : 1
+  // Стержень проявляется по своей длине: наконечник появляется ровно тогда, когда стержень дорос.
+  const k = Math.min(1, frac)
   const end =
     frac >= 1 ? shaftEnd : { x: p1.x + (shaftEnd.x - p1.x) * k, y: p1.y + (shaftEnd.y - p1.y) * k }
   const glow = a.glow === true

@@ -161,7 +161,7 @@ export function paintScreenTool(
       const frac = time === undefined ? 1 : revealFraction(a, time)
       const shaftLen = polylineLength(parts.shaft)
       const shown =
-        frac >= 1 ? parts.shaft : polylinePrefix(parts.shaft, frac * polylineLength(line))
+        frac >= 1 ? parts.shaft : polylinePrefix(parts.shaft, frac * shaftLen)
       if (frac >= 1) out.body.push(parts.head)
       if (shown.length >= 2) {
         out.strokes.push({

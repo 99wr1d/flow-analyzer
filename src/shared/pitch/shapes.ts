@@ -430,16 +430,13 @@ export function paintPitch(
         const shaftEnd: Pt =
           a.type === 'parrow' ? { x: a.p2.x - ux * head * 0.8, y: a.p2.y - uy * head * 0.8 } : a.p2
         const shaftLen = a.type === 'parrow' ? len - head * 0.8 : len
-        const cut = Math.min(shaftLen, frac * len)
+        const cut = Math.min(1, frac) * shaftLen
         const reach: Pt = { x: a.p1.x + ux * cut, y: a.p1.y + uy * cut }
         const lay = (into: PxPt[][], half: number): void => {
           if (!(frac > 0)) return
           if (a.style.dash === 'dotted') {
             const dots = worldDots([a.p1, shaftEnd], w)
-            for (const c of dots.slice(
-              0,
-              revealedDotCount(dots.length, frac >= 1 ? 1 : cut / shaftLen)
-            )) {
+            for (const c of dots.slice(0, revealedDotCount(dots.length, Math.min(1, frac)))) {
               pushBody(dotDisc(c, half), into)
             }
           } else {
@@ -467,7 +464,7 @@ export function paintPitch(
           if (frac >= 1) pushBody(headPoly)
         }
         // Попадание курсором и ореол — по сплошной ленте всей линии (точки и недорисованная часть не в счёт).
-        if (a.style.dash === 'dotted' || frac < 1 || glow) {
+        if (a.style.dash === 'dotted' || a.reveal !== undefined || glow) {
           const whole: PxPt[][] = []
           pushBody(ribbon(a.p1, shaftEnd, hw), whole)
           if (glow) {

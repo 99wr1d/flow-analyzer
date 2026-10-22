@@ -247,7 +247,7 @@ export function paintPitchTool(
   /** Рисует линию с учётом проявления и свечения (светлое ядро — тонкие полосы поверх). */
   const strokeFx = (
     shaft: readonly Pt[],
-    a: { style: { dash: DashKind }; glow?: boolean },
+    a: { style: { dash: DashKind }; glow?: boolean; reveal?: number },
     frac: number
   ): void => {
     strokeWorld(shaft, a.style.dash, false, frac)
@@ -255,7 +255,7 @@ export function paintPitchTool(
       out.core = []
       strokeWorld(shaft, a.style.dash, false, frac, hw * LINE_CORE_SCALE, out.core)
     }
-    if (a.style.dash === 'dotted' || frac < 1 || a.glow === true) wholeStroke(shaft)
+    if (a.style.dash === 'dotted' || a.reveal !== undefined || a.glow === true) wholeStroke(shaft)
   }
   const labelFont = rulerFontPx(a.style.width, size) * 0.82
 
@@ -311,10 +311,8 @@ export function paintPitchTool(
       const frac = time === undefined ? 1 : revealFraction(a, time)
       const shaft = arrowHead(line, frac)
       const headCount = whole.length
-      // Проявление идёт по всей длине пути (до кончика), а не только по стержню: сперва стержень, потом наконечник.
-      const shaftLen = polylineLength(shaft)
-      const cut = Math.min(1, (frac * len) / Math.max(shaftLen, 1e-9))
-      strokeFx(shaft, a, frac >= 1 ? 1 : cut)
+      // Проявление идёт по длине стержня: наконечник появляется ровно тогда, когда он дорос.
+      strokeFx(shaft, a, Math.min(1, frac))
       if (a.glow === true) {
         out.glowPx = bandWidthPx(whole.slice(headCount)) * LINE_GLOW_REACH
         out.glowBoost = LINE_GLOW_BOOST

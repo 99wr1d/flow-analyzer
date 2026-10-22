@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { resolveAt } from '../../../../shared/animation'
 import type { Annotation } from '../../../../shared/annotations'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
 import { GLOW_ALPHA, GLOW_LAYERS, TARGET_CENTER_ALPHA } from '../../../../shared/styleFx'
@@ -756,7 +757,8 @@ describe('свечение и проявление линий (экран и э�
     expect(at(4)).not.toContain('<line') // начало отрезка: пусто
     const half = lineEnd(at(5))
     const most = lineEnd(at(5.9))
-    expect(half).toBeCloseTo(500, 0) // (5 − 4) / 2 = половина пути 100 → 900
+    // (5 − 4) / 2 = половина стержня (у стрелки он короче пути на наконечник).
+    expect(half).toBeCloseTo(100 + 0.5 * (lineEnd(at(8)) - 100), 0)
     expect(most).toBeGreaterThan(half)
     expect(at(5)).not.toContain('stroke-dasharray')
     expect(at(8)).toBe(buildOverlaySvg([a], 1000, 500)) // после N — целиком, как без времени
@@ -807,5 +809,56 @@ describe('свечение и проявление линий (экран и э�
     expect(phaseKeyOf([a], 6)).toBe(phaseKeyOf([a], 9))
     const plain = make('arrow')
     expect(phaseKeyOf([plain], 4.5)).toBe(phaseKeyOf([plain], 9))
+  })
+})
+
+describe('проявление: рисунок с ключами и короткие стрелки', () => {
+  const t = { mode: 'range' as const, start: 0, duration: 10 }
+  const lime = { color: '#c6ff3d', width: 0.01, dash: 'solid' as const }
+  const x2 = (svg: string): number =>
+    Number(svg.match(/<line[^>]*data-part="line"[^>]*x2="([\d.]+)"/)![1])
+
+  it('рисунок с ключами: доля от длины ТЕКУЩЕЙ геометрии, кэшировать кадр нельзя', () => {
+    const moving = {
+      id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b6a01',
+      space: 'screen',
+      type: 'line',
+      p1: { x: 0.1, y: 0.5 },
+      p2: { x: 0.3, y: 0.5 },
+      style: lime,
+      timing: t,
+      reveal: 2,
+      keyframes: [
+        { t: 0, geom: { p1: { x: 0.1, y: 0.5 }, p2: { x: 0.3, y: 0.5 } } },
+        { t: 2, geom: { p1: { x: 0.1, y: 0.5 }, p2: { x: 0.9, y: 0.5 } } }
+      ]
+    } as unknown as Annotation
+    expect(phaseKeyOf([moving], 1)).toBeNull()
+    const geom = resolveAt(moving, 1) as unknown as { p2: { x: number } }
+    // В момент 1 с геометрия — половина пути: p2.x = 0.6, доля проявления 0.5.
+    expect(geom.p2.x).toBeCloseTo(0.6)
+    const svg = buildOverlaySvg([resolveAt(moving, 1)], 1000, 500, [], { time: 1 })
+    expect(x2(svg)).toBeCloseTo(100 + 0.5 * (600 - 100), 0)
+  })
+
+  it('короткая стрелка: наконечник появляется ровно тогда, когда стержень дорос', () => {
+    const short = {
+      id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b6a02',
+      space: 'screen',
+      type: 'arrow',
+      p1: { x: 0.5, y: 0.5 },
+      p2: { x: 0.54, y: 0.5 },
+      style: lime,
+      timing: t,
+      reveal: 2
+    } as Annotation
+    const at = (s: number): string => buildOverlaySvg([short], 1000, 500, [], { time: s })
+    const end = x2(at(2))
+    for (const s of [1.5, 1.99, 1.9999]) {
+      expect(at(s)).not.toContain('<polygon')
+      if (s < 1.9) expect(x2(at(s))).toBeLessThan(end - 1)
+    }
+    expect(x2(at(1.9999))).toBeCloseTo(end, 1)
+    expect(at(2)).toContain('<polygon')
   })
 })
