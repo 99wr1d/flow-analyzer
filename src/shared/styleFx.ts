@@ -54,11 +54,11 @@ export interface GlowLayer {
  * Слои от внешнего (самый широкий) к внутреннему. base — толщина линии, вдоль которой кладётся ореол
  * (для обводки по оси — её толщина, для кромки контура — 0); corePx — толщина видимой обводки.
  */
-export function glowStack(base: number, corePx: number): GlowLayer[] {
+export function glowStack(base: number, corePx: number, boost = 1): GlowLayer[] {
   const reach = GLOW_REACH * Math.max(corePx, GLOW_MIN_CORE)
   const layers: GlowLayer[] = []
   for (let i = GLOW_LAYERS; i >= 1; i -= 1) {
-    layers.push({ width: base + (2 * reach * i) / GLOW_LAYERS, opacity: GLOW_ALPHA })
+    layers.push({ width: base + (2 * reach * i) / GLOW_LAYERS, opacity: GLOW_ALPHA * boost })
   }
   return layers
 }
@@ -119,7 +119,7 @@ export type DashKind = 'solid' | 'dashed' | 'dotted'
 /**
  * Штриховка экранной линии: strokeDasharray и форма концов. «Штрих» — 2.4 и 1.8 толщины, обрубленные концы;
  * «Точки» — круглые точки толщиной с линию (нулевой штрих с круглыми концами), шаг ≈ 2.5 толщины, подогнанный так,
- * чтобы точка лежала на обоих концах (у короткой линии их не меньше двух). Это обычная штриховка: проявление обрезает путь
+ * чтобы точка лежала на обоих концах (у короткой линии их не меньше двух; предела числа точек нет — это лишь два числа). Это обычная штриховка: проявление обрезает путь
  * по длине, а не через неё. length — длина линии в пикселях (нужна только точкам).
  */
 export function dashStyle(
@@ -131,8 +131,43 @@ export function dashStyle(
   if (dash === 'solid') return { array: undefined, cap: 'round' }
   if (dash === 'dashed') return { array: `${width * 2.4} ${width * 1.8}`, cap: 'butt' }
   if (!(length > 0)) return { array: undefined, cap: 'round' }
-  const { gaps, spacing } = dotLayout(length, width * DOT_STEP, closed)
+  const { gaps, spacing } = dotLayout(length, width * DOT_STEP, closed, Infinity)
   // Последняя точка сдвинута на 0.02 px внутрь линии: нулевой штрих ровно на её конце иногда не рисуется.
   const period = closed ? spacing : (length - 0.02) / gaps
   return { array: `0.001 ${Math.max(0.001, period - 0.001)}`, cap: 'round' }
 }
+
+/** Светящаяся линия: толщина светлого ядра относительно толщины линии. */
+export const LINE_CORE_SCALE = 0.45
+/** Светящаяся линия: насколько ядро светлее цвета (доля пути к белому). */
+export const LINE_CORE_LIGHTEN = 0.55
+
+/** Цвет #rrggbb, подмешанный к белому на долю k (0 — исходный, 1 — белый). Не #rrggbb возвращается как есть. */
+export function lighten(color: string, k: number): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(color)
+  if (!m) return color
+  const n = parseInt(m[1], 16)
+  const mix = (c: number): string =>
+    Math.round(c + (255 - c) * k)
+      .toString(16)
+      .padStart(2, '0')
+  return `#${mix((n >> 16) & 255)}${mix((n >> 8) & 255)}${mix(n & 255)}`
+}
+
+/** Светящаяся линия: ореол шире, чем у кольца (во сколько раз), и плотнее (во сколько раз): тонкая линия иначе почти не светится. */
+export const LINE_GLOW_REACH = 1.7
+export const LINE_GLOW_BOOST = 2.4
+
+/** Ореол светящейся линии толщиной w пикселей (ось — вдоль линии). */
+export const lineGlowStack = (w: number): GlowLayer[] =>
+  glowStack(w, w * LINE_GLOW_REACH, LINE_GLOW_BOOST)
+
+/** Цвет светлого ядра светящейся линии. */
+export const lineCoreColor = (color: string): string => lighten(color, LINE_CORE_LIGHTEN)
+
+/**
+ * Сколько точек пунктира на поле видно при доле проявления frac: первые floor(frac·count), по порядку вдоль линии.
+ * Целиком (frac ≥ 1) — все.
+ */
+export const revealedDotCount = (count: number, frac: number): number =>
+  frac >= 1 ? count : Math.max(0, Math.min(count, Math.floor(frac * count)))

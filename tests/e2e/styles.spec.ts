@@ -9,11 +9,21 @@ import { frameRgb, pixelAt } from '../../src/main/ffmpeg/ffmpeg.testkit'
 import { SHOTS, fixture, launch, makeUserData, seekVideo, stubDialog } from './helpers'
 import { createProject } from './startHelpers'
 import {
+  calibrate,
+  drag as pitchDrag,
+  layerBox as pitchLayerBox,
+  openPitch,
+  project,
+  saveCalibration,
+  truth
+} from './pitchHelpers'
+import {
   clickAt,
   dragPath,
   geo,
   layerBox,
   readPng,
+  setRange,
   shapes,
   type Frac,
   type Pixels
@@ -263,8 +273,8 @@ test.describe('кольцо «как в образце»', () => {
     try {
       await playersProject(ctx, 'Переключатель свечения')
       const toggle = win.getByTestId('glow-toggle')
-      // Недоступно, пока выбрано что-то кроме кольца.
-      await win.getByTestId('tool-arrow').click()
+      // Недоступно, пока выбрано что-то кроме кольца, круга и линий (у стрелки, линии и кривой своё свечение).
+      await win.getByTestId('tool-text').click()
       await expect(toggle).toBeDisabled()
 
       // Кольцо A (свечение по умолчанию включено).
@@ -828,6 +838,340 @@ test.describe('световой столб', () => {
       await expect(shapes(win, 'spot').first()).toHaveAttribute('data-selected', 'true')
       await expect(pillar).toHaveAttribute('aria-pressed', 'true')
       await expect(oval).toHaveAttribute('aria-pressed', 'false')
+    } finally {
+      await ctx.app.close()
+    }
+  })
+})
+
+test.describe('свечение и проявление линий', () => {
+  /** Правее всего, где в строке y (± 1) картинка заметно отличается от основы: конец линии в пикселях кадра. */
+  function lineEnd(
+    at: (x: number, y: number) => Rgb,
+    base: (x: number, y: number) => Rgb,
+    y: number,
+    from: number,
+    to: number
+  ): number {
+    for (let x = to; x >= from; x -= 1) {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        const p = at(x, y + dy)
+        const q = base(x, y + dy)
+        if (Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])) > 70) {
+          return x
+        }
+      }
+    }
+    return from
+  }
+
+  async function drawArrow(win: Page, revealSecs: number): Promise<void> {
+    await win.getByTestId('tool-arrow').click()
+    await win.getByTestId('glow-toggle').click()
+    await win.getByTestId('reveal-toggle').click()
+    await win.getByTestId('reveal-duration').click()
+    await setRange(win.getByTestId('reveal-slider'), revealSecs * 10)
+    await win.keyboard.press('Escape')
+    await dragPath(win, [
+      [0.1, 0.45],
+      [0.9, 0.45]
+    ])
+    await expect(shapes(win, 'arrow')).toHaveCount(1)
+    await win.getByTestId('duration-input').fill('3')
+  }
+
+  test('проявление: линия растёт по длине; на экране и в готовом видео в один и тот же момент — одна и та же', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Проявление')
+      await seekVideo(win, 0.02)
+      const layer = await layerBox(win)
+      const base = await png(win, 'reveal-base')
+      await drawArrow(win, 1)
+      const arrow = shapes(win, 'arrow')
+      await expect(arrow).toHaveAttribute('data-glow', 'true')
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
+      const y = Math.round(0.45 * H)
+      const frames = [3, 8, 14, 20, 32]
+      const onScreen: number[] = []
+      for (const n of frames) {
+        await seekVideo(win, (n + 0.5) / 25)
+        await win.waitForTimeout(350)
+        const shot = await png(win, 'reveal-' + n)
+        const sx = (x: number, yy: number): [number, number] => [
+          layer.x + (x / W) * layer.width,
+          layer.y + (yy / H) * layer.height
+        ]
+        onScreen.push(
+          lineEnd(
+            (x, yy) => shot.at(...sx(x, yy)),
+            (x, yy) => base.at(...sx(x, yy)),
+            y,
+            0.05 * W,
+            0.95 * W
+          )
+        )
+      }
+      console.log('Проявление на экране, конец линии по кадрам ' + frames + ': ' + onScreen)
+      // Растёт, к концу проявления (1 с = кадр 25) стоит целиком (наконечник у 0.9 ширины).
+      for (let i = 1; i < onScreen.length - 1; i += 1) {
+        expect(onScreen[i]).toBeGreaterThan(onScreen[i - 1] + 15)
+      }
+      expect(onScreen[onScreen.length - 1]).toBeGreaterThan(0.88 * W)
+      // Кадр 14 (≈ 0.58 с): примерно 0.1·W + 0.56·0.8·W.
+      expect(onScreen[2]).toBeGreaterThan(0.1 * W + 0.4 * 0.8 * W)
+      expect(onScreen[2]).toBeLessThan(0.1 * W + 0.7 * 0.8 * W)
+
+      const file = await exportWhole(ctx)
+      const video = fixture('players.mp4')
+      frames.forEach((n, i) => {
+        const exported = frameRgb(file, n, W, H)
+        const source = frameRgb(video, n, W, H)
+        const end = lineEnd(
+          (x, yy) => pixelAt(exported, W, x, yy),
+          (x, yy) => pixelAt(source, W, x, yy),
+          y,
+          0.05 * W,
+          0.95 * W
+        )
+        console.log('Экспорт, кадр ' + n + ': ' + end + ' (экран ' + onScreen[i] + ')')
+        // Экран = экспорт: допуск ±4 px.
+        expect(Math.abs(end - onScreen[i])).toBeLessThanOrEqual(4)
+      })
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('панель: «Свечение» и «Проявление» показывают значения выбранной линии, выбор и время запоминаются', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await playersProject(ctx, 'Переключатели линии')
+      const glow = win.getByTestId('glow-toggle')
+      const reveal = win.getByTestId('reveal-toggle')
+      const secs = win.getByTestId('reveal-duration')
+      // Для кольца «Проявления» нет, «Свечение» есть.
+      await win.getByTestId('tool-circle').click()
+      await expect(reveal).toHaveCount(0)
+      // Новая линия: по умолчанию свечения и проявления нет.
+      await win.getByTestId('tool-arrow').click()
+      await expect(glow).toBeEnabled()
+      await expect(glow).toHaveAttribute('aria-pressed', 'false')
+      await expect(reveal).toHaveAttribute('aria-pressed', 'false')
+      await expect(secs).toHaveCount(0)
+      // Линия A: включаем у новых свечение и проявление 0,8 с (умолчание), потом время 2 с.
+      await glow.click()
+      await reveal.click()
+      await expect(secs).toHaveText('0,8 с')
+      await secs.click()
+      await setRange(win.getByTestId('reveal-slider'), 20)
+      await expect(secs).toHaveText('2 с')
+      await win.keyboard.press('Escape')
+      await dragPath(win, [
+        [0.2, 0.3],
+        [0.5, 0.3]
+      ])
+      await expect(shapes(win, 'arrow')).toHaveCount(1)
+      // Линия B: без выбора выключаем и то и другое «для новых».
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-arrow').click()
+      await expect(reveal).toHaveAttribute('aria-pressed', 'true')
+      await glow.click()
+      await reveal.click()
+      await expect(reveal).toHaveAttribute('aria-pressed', 'false')
+      await dragPath(win, [
+        [0.2, 0.6],
+        [0.5, 0.6]
+      ])
+      await expect(shapes(win, 'arrow')).toHaveCount(2)
+      await expect(shapes(win, 'arrow').nth(1)).not.toHaveAttribute('data-glow', 'true')
+      // Выбираем A: панель показывает ЕЁ значения (свечение, проявление 2 с), а не умолчание для новых.
+      await win.getByTestId('tool-select').click()
+      await clickAt(win, [0.35, 0.3])
+      await expect(shapes(win, 'arrow').first()).toHaveAttribute('data-selected', 'true')
+      await expect(glow).toHaveAttribute('aria-pressed', 'true')
+      await expect(reveal).toHaveAttribute('aria-pressed', 'true')
+      await expect(secs).toHaveText('2 с')
+      // Выключаем проявление у A и включаем снова: время 2 с помнится.
+      await reveal.click()
+      await expect(reveal).toHaveAttribute('aria-pressed', 'false')
+      await reveal.click()
+      await expect(secs).toHaveText('2 с')
+      // B не изменилась.
+      await expect(shapes(win, 'arrow').nth(1)).not.toHaveAttribute('data-glow', 'true')
+    } finally {
+      await ctx.app.close()
+    }
+  })
+
+  test('панель: с проявлением и свечением в одну строку от 1600 px, не больше двух строк уже, без налезаний', async () => {
+    const ctx = await launch()
+    const { win, app } = ctx
+    try {
+      await playersProject(ctx, 'Панель линии')
+      await win.getByTestId('tool-arrow').click()
+      await win.getByTestId('glow-toggle').click()
+      await win.getByTestId('reveal-toggle').click()
+      for (const [w, h] of [
+        [1100, 720],
+        [1440, 860],
+        [1599, 860],
+        [1600, 860],
+        [1920, 1080]
+      ] as const) {
+        await app.evaluate(
+          ({ BrowserWindow }, [width, height]) => {
+            BrowserWindow.getAllWindows()[0].setContentSize(width, height)
+          },
+          [w, h]
+        )
+        await win.waitForTimeout(400)
+        const inner = await win.evaluate(() => window.innerWidth)
+        for (const open of [false, true]) {
+          if (open) await win.getByTestId('reveal-duration').click()
+          const info = await win.getByTestId('style-bar').evaluate((el) => {
+            const box = el.getBoundingClientRect()
+            const kids = [...el.querySelectorAll('button')]
+              .map((k) => ({
+                id: k.getAttribute('data-testid') ?? k.className,
+                r: k.getBoundingClientRect()
+              }))
+              .filter((k) => k.r.width > 0 && k.r.height > 0)
+            const overlaps: string[] = []
+            for (let i = 0; i < kids.length; i += 1) {
+              for (let j = i + 1; j < kids.length; j += 1) {
+                const p = kids[i].r
+                const q = kids[j].r
+                const dx = Math.min(p.right, q.right) - Math.max(p.left, q.left)
+                const dy = Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top)
+                if (dx > 1 && dy > 1) overlaps.push(kids[i].id + '|' + kids[j].id)
+              }
+            }
+            const outside = kids
+              .filter((k) => k.r.right > box.right + 0.5 || k.r.left < box.left - 0.5)
+              .map((k) => k.id)
+            const mids = kids.map((k) => k.r.top + k.r.height / 2).sort((a, b) => a - b)
+            const rows = mids.filter((m, i) => i === 0 || m - mids[i - 1] > 14).length
+            return { overlaps, outside, rows, height: box.height }
+          })
+          expect(info.overlaps, 'наложения @' + w).toEqual([])
+          expect(info.outside, 'за краем @' + w).toEqual([])
+          expect(info.height).toBeLessThanOrEqual(80)
+          expect(info.rows, 'строк @' + inner).toBeLessThanOrEqual(inner >= 1600 ? 1 : 2)
+          if (open) await win.keyboard.press('Escape')
+        }
+      }
+    } finally {
+      await ctx.app.close()
+    }
+  })
+})
+
+test.describe('линии на поле: точки + свечение + проявление', () => {
+  test('стрелка на поле: путь растёт, точки не ползут, экран и готовое видео совпадают', async () => {
+    const ctx = await launch()
+    const { win } = ctx
+    try {
+      await openPitch(ctx, 'Линия на поле')
+      await calibrate(win)
+      await saveCalibration(win)
+      const box = await pitchLayerBox(win)
+      const pw = truth.frame.w
+      const ph = truth.frame.h
+      const from = project(20, 25)
+      const to = project(8, 55)
+      const sampleAt = (t: number): [number, number] => [
+        from.x + (to.x - from.x) * t,
+        from.y + (to.y - from.y) * t
+      ]
+      const screenAt = ([fx, fy]: [number, number]): [number, number] => [
+        box.x + fx * box.width,
+        box.y + fy * box.height
+      ]
+      const base = readPng(await win.screenshot(), SHOTS, 'styles-px-pitchline-base')
+      await win.getByTestId('tool-arrow').click()
+      await win.getByTestId('dash-dotted').click()
+      await win.getByTestId('width-2').click()
+      await win.getByTestId('glow-toggle').click()
+      await win.getByTestId('reveal-toggle').click()
+      await win.getByTestId('reveal-duration').click()
+      await setRange(win.getByTestId('reveal-slider'), 10)
+      await win.keyboard.press('Escape')
+      await pitchDrag(win, from, to)
+      await expect(shapes(win, 'parrow')).toHaveCount(1)
+      await win.getByTestId('mode-range').click()
+      await win.getByTestId('duration-input').fill('3')
+      await win.keyboard.press('Escape')
+      await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
+
+      // Дальняя от начала точка линии, где картинка заметно отличается от основы.
+      const reach = (
+        at: (x: number, y: number) => Rgb,
+        ref: (x: number, y: number) => Rgb,
+        toXY: (p: [number, number]) => [number, number]
+      ): number => {
+        for (let k = 100; k >= 0; k -= 1) {
+          const [cx, cy] = toXY(sampleAt(k / 100))
+          for (let dy = -2; dy <= 2; dy += 1) {
+            for (let dx = -2; dx <= 2; dx += 1) {
+              const p = at(Math.round(cx) + dx, Math.round(cy) + dy)
+              const q = ref(Math.round(cx) + dx, Math.round(cy) + dy)
+              if (
+                Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), Math.abs(p[2] - q[2])) > 60
+              )
+                return k / 100
+            }
+          }
+        }
+        return 0
+      }
+      const frames = [27, 32, 38, 60]
+      const onScreen: number[] = []
+      for (const n of frames) {
+        await seekVideo(win, (n + 0.5) / 25)
+        await win.waitForTimeout(400)
+        const shot = readPng(await win.screenshot(), SHOTS, 'styles-px-pitchline-' + n)
+        onScreen.push(
+          reach(
+            (x, y) => shot.at(x, y),
+            (x, y) => base.at(x, y),
+            (p) => screenAt(p)
+          )
+        )
+      }
+      console.log('Линия на поле, дальняя точка по кадрам ' + frames + ': ' + onScreen)
+      for (let i = 1; i < onScreen.length; i += 1) {
+        expect(onScreen[i]).toBeGreaterThan(onScreen[i - 1] - 0.001)
+      }
+      expect(onScreen[0]).toBeLessThan(0.45)
+      expect(onScreen[onScreen.length - 1]).toBeGreaterThan(0.9)
+
+      const out = join(makeUserData(), 'out')
+      mkdirSync(out)
+      await stubDialog(ctx.app, out)
+      await win.getByTestId('export-open').click()
+      await expect(win.getByTestId('export-scope-whole')).toBeChecked()
+      await win.getByTestId('export-start').click()
+      await expect(win.getByTestId('export-result')).toBeVisible({ timeout: 90_000 })
+      await expect(win.getByTestId('export-result')).toHaveAttribute('data-status', 'done')
+      const file = join(out, readdirSync(out)[0])
+      frames.forEach((n, i) => {
+        const exported = frameRgb(file, n, pw, ph)
+        const source = frameRgb(fixture('pitch.mp4'), n, pw, ph)
+        const end = reach(
+          (x, y) => pixelAt(exported, pw, x, y),
+          (x, y) => pixelAt(source, pw, x, y),
+          (p) => [p[0] * pw, p[1] * ph]
+        )
+        console.log('Экспорт, кадр ' + n + ': ' + end + ' (экран ' + onScreen[i] + ')')
+        // Точки дискретны: расхождение не больше одного шага.
+        expect(Math.abs(end - onScreen[i])).toBeLessThanOrEqual(0.08)
+      })
     } finally {
       await ctx.app.close()
     }

@@ -26,6 +26,7 @@ import {
   type DrawPart
 } from './PitchShapeView'
 import {
+  LINE_CORE_SCALE,
   TARGET_CENTER_ALPHA,
   TARGET_LINE_SCALE,
   TARGET_RADII,
@@ -33,7 +34,12 @@ import {
   dashStyle,
   glowStack,
   isTarget,
+  lineCoreColor,
+  lineGlowStack,
+  LINE_GLOW_BOOST,
+  LINE_GLOW_REACH,
   pulsePhase,
+  revealFraction,
   WAVE_LINE_SCALE,
   waveOpacity,
   waveScale
@@ -73,15 +79,17 @@ function ScreenToolBody({
   size,
   selected,
   shadowClass,
-  part
+  part,
+  time
 }: {
   annotation: ScreenToolAnnotation
   size: Size
   selected: boolean
   shadowClass?: string
   part?: DrawPart
+  time?: number
 }): React.JSX.Element {
-  const paint = useMemo(() => paintScreenTool(a, size), [a, size])
+  const paint = useMemo(() => paintScreenTool(a, size, time), [a, size, time])
   return (
     <PaintParts
       paint={paint}
@@ -136,6 +144,7 @@ function ShapeBody({
         selected={selected}
         shadowClass={shadowClass}
         part={part}
+        time={time}
       />
     )
   }
@@ -189,10 +198,7 @@ function ShapeBody({
   const p1 = toPx(a.p1, size)
   const p2 = toPx(a.p2, size)
   const w = Math.max(1, a.style.width * size.h)
-  const ellipseLen = (rx: number, ry: number): number =>
-    Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry)))
   const color = a.style.color
-  const segLen = Math.hypot(p2.x - p1.x, p2.y - p1.y)
 
   if (a.type === 'circle') {
     const cx = (p1.x + p2.x) / 2
@@ -271,7 +277,8 @@ function ShapeBody({
       a.pulse === true && a.timing.mode === 'range' && time !== undefined
         ? pulsePhase(time)
         : undefined
-    const ds = dashStyle(a.style.dash, w, ellipseLen(rx, ry), true)
+    const ellipseLen = Math.PI * (3 * (rx + ry) - Math.sqrt((3 * rx + ry) * (rx + 3 * ry)))
+    const ds = dashStyle(a.style.dash, w, ellipseLen, true)
     return (
       <>
         {selected && (
@@ -314,70 +321,83 @@ function ShapeBody({
     )
   }
 
-  if (a.type === 'line') {
-    const ds = dashStyle(a.style.dash, w, segLen)
-    return (
-      <>
-        {selected && (
-          <line
-            x1={p1.x}
-            y1={p1.y}
-            x2={p2.x}
-            y2={p2.y}
-            stroke={HALO}
-            strokeWidth={w + 8}
-            strokeLinecap="round"
-          />
-        )}
+  // Стрелка и линия: свечение (ореол стопкой слоёв и светлое ядро) и проявление (путь обрезается по длине).
+  const arrow = a.type === 'arrow' ? arrowShape(p1, p2, w) : null
+  const shaftEnd = arrow ? arrow.lineEnd : p2
+  const shaftLen = Math.hypot(shaftEnd.x - p1.x, shaftEnd.y - p1.y)
+  // Точки раскладываются по длине всей линии, а не видимой части: они не ползут, пока линия растёт.
+  const ds = dashStyle(a.style.dash, w, shaftLen)
+  const frac = time === undefined ? 1 : revealFraction(a, time)
+  const totalLen = Math.hypot(p2.x - p1.x, p2.y - p1.y)
+  const reach = Math.min(shaftLen, frac * totalLen)
+  const k = shaftLen > 0 ? reach / shaftLen : 1
+  const end =
+    frac >= 1 ? shaftEnd : { x: p1.x + (shaftEnd.x - p1.x) * k, y: p1.y + (shaftEnd.y - p1.y) * k }
+  const glow = a.glow === true
+  const head = arrow && frac >= 1 ? arrow.head.map((p) => `${p.x},${p.y}`).join(' ') : null
+  const stroke = (
+    key: string,
+    part: string,
+    stroked: string,
+    width: number,
+    opacity?: number
+  ): React.JSX.Element => (
+    <line
+      key={key}
+      data-part={part}
+      x1={p1.x}
+      y1={p1.y}
+      x2={end.x}
+      y2={end.y}
+      stroke={stroked}
+      strokeOpacity={opacity}
+      strokeWidth={width}
+      strokeDasharray={ds.array}
+      strokeLinecap={ds.cap}
+    />
+  )
+  return (
+    <>
+      {selected && (
         <line
           x1={p1.x}
           y1={p1.y}
           x2={p2.x}
           y2={p2.y}
-          stroke={color}
-          strokeWidth={w}
-          strokeDasharray={ds.array}
-          strokeLinecap={ds.cap}
+          stroke={HALO}
+          strokeWidth={w + 8}
+          strokeLinecap="round"
         />
-      </>
-    )
-  }
-
-  const arrow = arrowShape(p1, p2, w)
-  const ds = dashStyle(a.style.dash, w, Math.hypot(arrow.lineEnd.x - p1.x, arrow.lineEnd.y - p1.y))
-  const points = arrow.head.map((p) => `${p.x},${p.y}`).join(' ')
-  return (
-    <>
-      {selected && (
-        <>
-          <line
-            x1={p1.x}
-            y1={p1.y}
-            x2={p2.x}
-            y2={p2.y}
-            stroke={HALO}
-            strokeWidth={w + 8}
-            strokeLinecap="round"
-          />
-        </>
       )}
-      <line
-        x1={p1.x}
-        y1={p1.y}
-        x2={arrow.lineEnd.x}
-        y2={arrow.lineEnd.y}
-        stroke={color}
-        strokeWidth={w}
-        strokeDasharray={ds.array}
-        strokeLinecap={ds.cap}
-      />
-      <polygon
-        points={points}
-        fill={color}
-        stroke={color}
-        strokeWidth={w * 0.5}
-        strokeLinejoin="round"
-      />
+      {glow &&
+        frac > 0 &&
+        lineGlowStack(w).map((l, i) => stroke(`glow-${i}`, 'glow', color, l.width, l.opacity))}
+      {glow &&
+        head &&
+        glowStack(0, w * LINE_GLOW_REACH, LINE_GLOW_BOOST).map((l, i) => (
+          <polygon
+            key={`head-glow-${i}`}
+            data-part="glow"
+            points={head}
+            fill="none"
+            stroke={color}
+            strokeOpacity={l.opacity}
+            strokeWidth={l.width}
+            strokeLinejoin="round"
+          />
+        ))}
+      {frac > 0 && stroke('line', 'line', color, w)}
+      {head && (
+        <polygon
+          data-part="head"
+          points={head}
+          fill={color}
+          stroke={color}
+          strokeWidth={w * 0.5}
+          strokeLinejoin="round"
+        />
+      )}
+      {glow && frac > 0 && stroke('core', 'core', lineCoreColor(color), w * LINE_CORE_SCALE)}
     </>
   )
 }
@@ -467,8 +487,8 @@ export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.E
   const time = a.timing.mode === 'range' ? props.time : undefined
   // Рисунок на поле без рабочей разметки (её удалили или точки некорректны) не показывается.
   if (isPitchAnnotation(a) && !props.projector) return null
-  // Кольцо со свечением рисуется без тени: тёмная кайма под ореолом портила бы его.
-  const glowing = (a.type === 'circle' || a.type === 'ring') && a.glow === true
+  // Кольцо и линия со свечением рисуются без тени: тёмная кайма под ореолом портила бы его.
+  const glowing = 'glow' in a && a.glow === true
   // Подпись без плашки с полем shadow сама решает про тень (тонкая тёмная кайма букв или никакой); общая тень группы — только старым подписям.
   const ownShadow =
     (a.type === 'text' || a.type === 'ptext') && !a.style.background && a.style.shadow !== undefined

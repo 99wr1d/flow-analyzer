@@ -13,7 +13,15 @@ import {
 import { beamSilhouette } from '../pitch/pitchTools'
 import { emptyPaint, type PaintSize, type PitchPaint, type PxPt } from '../pitch/shapes'
 import { pillarFromFooting, pillarPoly } from './pillar'
-import { curveMid, densifyQuad, pointBackFromEnd, polylineLength, trimEnd } from './curve'
+import { LINE_GLOW_BOOST, LINE_GLOW_REACH, revealFraction } from '../styleFx'
+import {
+  curveMid,
+  densifyQuad,
+  pointBackFromEnd,
+  polylineLength,
+  polylinePrefix,
+  trimEnd
+} from './curve'
 import { catmullRom } from './simplify'
 
 export type ScreenToolAnnotation = Spotlight | Curve | Pen | Zone | Loupe | Chain
@@ -90,7 +98,15 @@ function nodesOf(points: readonly PxPt[], size: PaintSize): { nodes: PxPt[]; rad
   return { nodes: [...points], radius: Math.max(4, size.h / 110) }
 }
 
-export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): PitchPaint {
+/**
+ * Что нарисовать для рисунка на экране. time — время видео, секунды: по нему проявляется кривая (нет времени — целиком);
+ * нажатие и ручки от времени не зависят.
+ */
+export function paintScreenTool(
+  a: ScreenToolAnnotation,
+  size: PaintSize,
+  time?: number
+): PitchPaint {
   const out = emptyPaint()
   const w = Math.max(1, a.style.width * size.h)
   const dash = a.style.dash
@@ -141,8 +157,29 @@ export function paintScreenTool(a: ScreenToolAnnotation, size: PaintSize): Pitch
     const line = densifyQuad(p1, c, p2, 48)
     const parts = headFor(line, w)
     if (parts) {
-      out.body.push(parts.head)
-      out.strokes.push({ points: parts.shaft, closed: false, widthPx: w, dash })
+      // Проявление: путь обрезается по длине; наконечник появляется, когда линия дошла до конца.
+      const frac = time === undefined ? 1 : revealFraction(a, time)
+      const shaftLen = polylineLength(parts.shaft)
+      const shown =
+        frac >= 1 ? parts.shaft : polylinePrefix(parts.shaft, frac * polylineLength(line))
+      if (frac >= 1) out.body.push(parts.head)
+      if (shown.length >= 2) {
+        out.strokes.push({
+          points: shown,
+          closed: false,
+          widthPx: w,
+          dash,
+          layoutLength: shaftLen
+        })
+      }
+      if (a.glow === true) {
+        out.lineGlow = true
+        // Ореол наконечника — вдоль его кромки.
+        if (frac >= 1) {
+          out.glowPx = w * LINE_GLOW_REACH
+          out.glowBoost = LINE_GLOW_BOOST
+        }
+      }
       out.hit = [...lineHit(line, tol), parts.head]
     }
     out.handles = [

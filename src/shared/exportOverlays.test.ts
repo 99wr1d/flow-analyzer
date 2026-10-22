@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Timing } from './annotations'
+import type { Annotation, Timing } from './annotations'
+import { revealFraction } from './styleFx'
 import {
+  frameTime,
   groupFrameDrawings,
   hasDrawings,
   keyOf,
@@ -197,5 +199,30 @@ describe('рисунок с пульсом без ключей в покадро
     expect(plan.animation.frames).toHaveLength(60)
     expect(plan.animation.frames[0]).toEqual({ frame: 30, members: [0] })
     expect(hasDrawings(plan)).toBe(true)
+  })
+})
+
+describe('проявление линии в покадровом плане: клип, начатый посреди отрезка', () => {
+  const arrow = {
+    id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c91',
+    space: 'screen',
+    type: 'arrow',
+    p1: { x: 0.1, y: 0.2 },
+    p2: { x: 0.9, y: 0.2 },
+    style: { color: '#c6ff3d', width: 0.01, dash: 'solid' },
+    timing: range(10, 5),
+    reveal: 0.8
+  } as Annotation
+
+  it('кадры идут с абсолютным временем видео, доля линии — от начала отрезка рисунка, а не клипа', () => {
+    const plan = planOverlays([arrow.timing], [{ start: 10.4, end: 12 }], 25, new Set([0]))
+    expect(plan.segments).toEqual([])
+    expect(plan.animation.frames[0]).toEqual({ frame: 260, members: [0] })
+    // Кадр 260 — середина на 10.42 с: прошло 0.42 из 0.8 с.
+    expect(revealFraction(arrow, frameTime(260, 25))).toBeCloseTo(0.525)
+    // Та же доля, что на экране при перемотке на этот кадр (часы анимации берут середину кадра).
+    expect(revealFraction(arrow, (260 + 0.5) / 25)).toBe(revealFraction(arrow, frameTime(260, 25)))
+    // Отрезок целиком в клипе: к концу проявления линия полная.
+    expect(revealFraction(arrow, frameTime(10 * 25 + 25, 25))).toBe(1)
   })
 })

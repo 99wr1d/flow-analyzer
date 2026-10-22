@@ -4,12 +4,20 @@ import { useMemo } from 'react'
 import type { PitchAnnotation } from '../../../../shared/annotations'
 import { shiftLabel, type LabelShift } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
-import { paintPitch, type LabelPaint, type PitchPaint } from '../../../../shared/pitch/shapes'
+import {
+  paintPitch,
+  type LabelPaint,
+  type PitchPaint,
+  type StrokePaint
+} from '../../../../shared/pitch/shapes'
 import {
   TARGET_FILL_STOPS,
   TARGET_RING_OPACITY,
+  LINE_CORE_SCALE,
   dashStyle,
-  glowStack
+  glowStack,
+  lineCoreColor,
+  lineGlowStack
 } from '../../../../shared/styleFx'
 import {
   PILLAR_LAYERS,
@@ -178,6 +186,12 @@ const strokeLength = (pts: readonly { x: number; y: number }[], closed: boolean)
   return len
 }
 
+/** Штриховка линии рисунка на экране; точки раскладываются по длине всей линии (layoutLength), пока видна её часть. */
+const strokeDash = (s: StrokePaint): ReturnType<typeof dashStyle> =>
+  dashStyle(s.dash, s.widthPx, s.layoutLength ?? strokeLength(s.points, s.closed), s.closed)
+
+const strokeD = (s: StrokePaint): string => pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')
+
 const pointsAttr = (poly: readonly { x: number; y: number }[]): string =>
   poly.map((p) => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')
 
@@ -303,7 +317,7 @@ export function PaintParts({
       {ground &&
         paint.glowPx !== undefined &&
         paint.body.length > 0 &&
-        glowStack(0, paint.glowPx).map((l, i) => (
+        glowStack(0, paint.glowPx, paint.glowBoost).map((l, i) => (
           <path
             key={`glow-${i}`}
             data-part="glow"
@@ -315,6 +329,25 @@ export function PaintParts({
             strokeLinejoin="round"
           />
         ))}
+      {ground &&
+        paint.lineGlow === true &&
+        paint.strokes.map((s, i) => {
+          const ds = strokeDash(s)
+          return lineGlowStack(s.widthPx).map((l, k) => (
+            <path
+              key={`line-glow-${i}-${k}`}
+              data-part="glow"
+              d={strokeD(s)}
+              fill="none"
+              stroke={color}
+              strokeOpacity={l.opacity}
+              strokeWidth={l.width}
+              strokeLinejoin="round"
+              strokeLinecap={ds.cap}
+              strokeDasharray={ds.array}
+            />
+          ))
+        })}
       {ground && paint.disc.length > 0 && paint.target && (
         <defs>
           <TargetGradient id={id} color={color} />
@@ -351,15 +384,36 @@ export function PaintParts({
       )}
       {ground &&
         paint.strokes.map((s, i) => {
-          const ds = dashStyle(s.dash, s.widthPx, strokeLength(s.points, s.closed), s.closed)
+          const ds = strokeDash(s)
           return (
             <path
               key={`stroke-${i}`}
               data-part="stroke"
-              d={pathOf([s.points]).replace(/Z$/, s.closed ? 'Z' : '')}
+              d={strokeD(s)}
               fill="none"
               stroke={color}
               strokeWidth={s.widthPx}
+              strokeLinejoin="round"
+              strokeLinecap={ds.cap}
+              strokeDasharray={ds.array}
+            />
+          )
+        })}
+      {ground && paint.core && paint.core.length > 0 && (
+        <path data-part="core" d={pathOf(paint.core)} fill={lineCoreColor(color)} stroke="none" />
+      )}
+      {ground &&
+        paint.lineGlow === true &&
+        paint.strokes.map((s, i) => {
+          const ds = strokeDash(s)
+          return (
+            <path
+              key={`line-core-${i}`}
+              data-part="core"
+              d={strokeD(s)}
+              fill="none"
+              stroke={lineCoreColor(color)}
+              strokeWidth={s.widthPx * LINE_CORE_SCALE}
               strokeLinejoin="round"
               strokeLinecap={ds.cap}
               strokeDasharray={ds.array}

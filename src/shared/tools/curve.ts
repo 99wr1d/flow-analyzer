@@ -154,11 +154,13 @@ export const MAX_DOTS = 800
 export function dotLayout(
   length: number,
   step: number,
-  closed = false
+  closed = false,
+  /** Предел числа промежутков: нужен многоугольникам-точкам на поле; штриховка SVG (экран) его не знает. */
+  maxGaps = MAX_DOTS
 ): { gaps: number; spacing: number } {
   if (!(length > 0) || !(step > 0)) return { gaps: 1, spacing: 0 }
   const want = Math.round(length / step)
-  const gaps = Math.min(MAX_DOTS, closed ? Math.max(3, want) : Math.max(1, want))
+  const gaps = Math.min(maxGaps, closed ? Math.max(3, want) : Math.max(1, want))
   return { gaps, spacing: length / gaps }
 }
 
@@ -187,6 +189,30 @@ export function dotsAlong(points: readonly Pt2[], step: number, closed = false):
     const len = Math.hypot(b.x - a.x, b.y - a.y)
     const t = len === 0 ? 0 : Math.min(1, Math.max(0, (target - walked) / len))
     out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+  }
+  return out
+}
+
+/**
+ * Начало ломаной длиной length (проявление линии: путь обрезается по длине, а не штриховкой).
+ * length ≤ 0 — пусто; length ≥ длины ломаной — вся ломаная. Узлы до места среза сохраняются как есть.
+ */
+export function polylinePrefix(points: readonly Pt2[], length: number): Pt2[] {
+  if (points.length === 0 || !(length > 0)) return []
+  const out: Pt2[] = [points[0]]
+  let left = length
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1]
+    const b = points[i]
+    const len = Math.hypot(b.x - a.x, b.y - a.y)
+    if (len <= left) {
+      out.push(b)
+      left -= len
+    } else {
+      const t = left / len
+      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t })
+      return out
+    }
   }
   return out
 }

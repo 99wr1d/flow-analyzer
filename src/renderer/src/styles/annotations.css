@@ -554,3 +554,22 @@
   background: rgba(10, 12, 16, 0.95);
   border-color: var(--accent);
 }
+.reveal-menu {
+  position: relative;
+  flex: none;
+}
+.reveal-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  padding: calc(var(--u) * 1.5);
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}

@@ -49,6 +49,11 @@ export type TextLevel = 0 | 1 | 2 | 3 | 4
 /** Размер новой подписи по умолчанию: на шаг меньше прежнего (был 0.065, стало 0.045). */
 export const DEFAULT_TEXT_LEVEL: TextLevel = 2
 
+/** Время проявления линии по умолчанию, секунды; пределы — 0.2–3. */
+export const DEFAULT_REVEAL = 0.8
+export const MIN_REVEAL = 0.2
+export const MAX_REVEAL = 3
+
 export interface CurrentStyle {
   color: string
   level: Level
@@ -70,6 +75,8 @@ export interface CurrentStyle {
   lineGlow: boolean
   /** Проявление новых стрелок/линий/кривых, секунд; null — выключено. */
   reveal: number | null
+  /** Время проявления, которое помнится, пока проявление выключено (при включении берётся оно). */
+  revealSecs: number
   /** Тень под текстом новой подписи. */
   textShadow: boolean
 }
@@ -88,6 +95,7 @@ export const DEFAULT_STYLE: CurrentStyle = {
   form: 'oval',
   lineGlow: false,
   reveal: null,
+  revealSecs: DEFAULT_REVEAL,
   textShadow: true
 }
 
@@ -113,6 +121,9 @@ const LINE_TYPES: ReadonlySet<string> = new Set([
   'pline',
   'pcurve'
 ])
+
+/** Вид линии со свечением и проявлением (стрелка, линия, кривая; на экране и на поле). */
+export const isLineType = (type: string): boolean => LINE_TYPES.has(type)
 
 /**
  * Поля стиля 0.18 НОВОГО рисунка этого вида (записываются явно, по выбору в панели).

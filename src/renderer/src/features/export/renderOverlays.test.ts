@@ -714,3 +714,98 @@ describe('пунктир точками (экран и экспорт)', () => {
     expect(performance.now() - t0).toBeLessThan(50)
   })
 })
+
+describe('свечение и проявление линий (экран и экспорт)', () => {
+  const uid = (n: number): string =>
+    `3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b5a${String(n).padStart(2, '0')}`
+  const lime = { color: '#c6ff3d', width: 0.01, dash: 'solid' as const }
+  const range = { mode: 'range' as const, start: 4, duration: 6 }
+  const geoms: Record<string, object> = {
+    arrow: { type: 'arrow', p1: { x: 0.1, y: 0.5 }, p2: { x: 0.9, y: 0.5 } },
+    line: { type: 'line', p1: { x: 0.1, y: 0.5 }, p2: { x: 0.9, y: 0.5 } },
+    curve: { type: 'curve', p1: { x: 0.1, y: 0.8 }, p2: { x: 0.9, y: 0.8 }, c: { x: 0.5, y: 0.2 } }
+  }
+  const make = (kind: string, extra: object = {}): Annotation =>
+    ({
+      id: uid(1),
+      space: 'screen',
+      style: lime,
+      timing: range,
+      ...geoms[kind],
+      ...extra
+    }) as Annotation
+  const lineEnd = (svg: string): number =>
+    Number(svg.match(/<line[^>]*data-part="line"[^>]*x2="([\d.]+)"/)![1])
+
+  it('свечение стрелки: ореол стопкой слоёв, светлое ядро поверх, без тени группы', () => {
+    const svg = buildOverlaySvg([make('arrow', { glow: true })], 1000, 500)
+    expect(svg.match(/data-part="glow"/g)!.length).toBeGreaterThanOrEqual(GLOW_LAYERS)
+    expect(svg).toContain('data-part="core"')
+    expect(svg).not.toContain('class="anno-shape')
+    // Ядро светлее цвета линии.
+    expect(svg.match(/data-part="core"[^>]*stroke="(#[0-9a-f]{6})"/)![1]).not.toBe('#c6ff3d')
+    // Без свечения — прежний вид: ни ореола, ни ядра.
+    const plain = buildOverlaySvg([make('arrow')], 1000, 500)
+    expect(plain).not.toContain('data-part="glow"')
+    expect(plain).not.toContain('data-part="core"')
+  })
+
+  it.each(['arrow', 'line'])('%s: путь обрезается по длине, штриховка не нужна', (kind) => {
+    const a = make(kind, { reveal: 2 })
+    const at = (t: number): string => buildOverlaySvg([a], 1000, 500, [], { time: t })
+    expect(at(4)).not.toContain('<line') // начало отрезка: пусто
+    const half = lineEnd(at(5))
+    const most = lineEnd(at(5.9))
+    expect(half).toBeCloseTo(500, 0) // (5 − 4) / 2 = половина пути 100 → 900
+    expect(most).toBeGreaterThan(half)
+    expect(at(5)).not.toContain('stroke-dasharray')
+    expect(at(8)).toBe(buildOverlaySvg([a], 1000, 500)) // после N — целиком, как без времени
+  })
+
+  it('наконечник стрелки появляется, только когда линия дошла до конца', () => {
+    const a = make('arrow', { reveal: 2 })
+    const at = (t: number): string => buildOverlaySvg([a], 1000, 500, [], { time: t })
+    expect(at(5.99)).not.toContain('<polygon')
+    expect(at(6)).toContain('<polygon')
+  })
+
+  it('точки + свечение + проявление вместе: штриховка та же, что у целой линии, светлое ядро тоже в точках', () => {
+    const dotted = { ...lime, dash: 'dotted' as const }
+    const a = make('line', { reveal: 2, glow: true, style: dotted })
+    const early = buildOverlaySvg([a], 1000, 500, [], { time: 5 })
+    const done = buildOverlaySvg([a], 1000, 500, [], { time: 9 })
+    const dash = (svg: string): string => svg.match(/stroke-dasharray="([^"]+)"/)![1]
+    expect(dash(early)).toBe(dash(done))
+    expect(early.match(/data-part="core"[^>]*stroke-dasharray/)).not.toBeNull()
+    expect(early).toContain('data-part="glow"')
+  })
+
+  it('кривая: путь обрезается, наконечник — в конце; свечение ложится на оба', () => {
+    const a = make('curve', { reveal: 2, glow: true })
+    const early = buildOverlaySvg([a], 1000, 500, [], { time: 5 })
+    const done = buildOverlaySvg([a], 1000, 500, [], { time: 6 })
+    expect(early).not.toContain('data-part="body"')
+    expect(done).toContain('data-part="body"')
+    expect(early).toContain('data-part="glow"')
+    expect(early).toContain('data-part="core"')
+  })
+
+  it('«только кадр»: проявления нет, линия целиком', () => {
+    const a = make('line', { reveal: 2, timing: { mode: 'frame', start: 4, freezeSeconds: 3 } })
+    expect(buildOverlaySvg([a], 1000, 500, [], { time: 4 })).toBe(buildOverlaySvg([a], 1000, 500))
+  })
+
+  it('клип, начатый посреди отрезка: доля считается от начала отрезка, а не клипа', () => {
+    const a = make('line', { reveal: 2 })
+    // Кадр на 5 с: прошла половина проявления, как при перемотке на 5 с.
+    expect(lineEnd(buildOverlaySvg([a], 1000, 500, [], { time: 5 }))).toBeCloseTo(500, 0)
+  })
+
+  it('phaseKeyOf: ключ зависит от доли проявления, а после проявления не меняется', () => {
+    const a = make('arrow', { reveal: 2 })
+    expect(phaseKeyOf([a], 4.5)).not.toBe(phaseKeyOf([a], 5))
+    expect(phaseKeyOf([a], 6)).toBe(phaseKeyOf([a], 9))
+    const plain = make('arrow')
+    expect(phaseKeyOf([plain], 4.5)).toBe(phaseKeyOf([plain], 9))
+  })
+})

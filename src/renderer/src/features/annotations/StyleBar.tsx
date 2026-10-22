@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { canBeUnder, isUnderPlayers } from '../../../../shared/annotations'
 import { ru } from '../../i18n/ru'
 import { GrassMenu } from '../under/GrassMenu'
@@ -21,8 +22,11 @@ import { useActiveCalibration } from '../pitch/usePitch'
 import { selectedAnnotation, underForNew, useAnnotationsStore } from './annotationsStore'
 import {
   LEVELS,
+  MAX_REVEAL,
+  MIN_REVEAL,
   PALETTE,
   TEXT_SIZES,
+  isLineType,
   levelOf,
   textLevelOf,
   type CurrentStyle,
@@ -58,6 +62,16 @@ function useShownStyle(): CurrentStyle {
       selected.type === 'circle' || selected.type === 'ring'
         ? selected.pulse === true
         : style.pulse,
+    // Свечение и проявление выбранной линии — её собственные (у старой линии полей нет — значит, выключены).
+    lineGlow: isLineType(selected.type)
+      ? (selected as { glow?: boolean }).glow === true
+      : style.lineGlow,
+    reveal: isLineType(selected.type)
+      ? ((selected as { reveal?: number }).reveal ?? null)
+      : style.reveal,
+    revealSecs: isLineType(selected.type)
+      ? ((selected as { reveal?: number }).reveal ?? style.revealSecs)
+      : style.revealSecs,
     // Вид выбранного прожектора — его собственный (у старого поля нет — значит, «овал»).
     form:
       selected.type === 'spot' || selected.type === 'pspot' ? (selected.form ?? 'oval') : style.form
@@ -184,24 +198,26 @@ function UnderToggle(): React.JSX.Element {
   )
 }
 
-/** «Свечение» кольца/круга: у выбранного — его значение, иначе — для новых. Для остальных рисунков недоступно. */
+/** «Свечение» кольца/круга и линий: у выбранного — его значение, иначе — для новых. Для остальных рисунков недоступно. */
 function GlowToggle({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   const selected = useAnnotationsStore(selectedAnnotation)
   const tool = useAnnotationsStore((s) => s.tool)
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const type = selected ? selected.type : tool
-  const enabled = type === 'circle' || type === 'ring'
-  const on = enabled && shown.glow
+  const line = isLineType(type)
+  const enabled = type === 'circle' || type === 'ring' || line
+  const value = line ? shown.lineGlow : shown.glow
+  const on = enabled && value
   return (
     <button
       type="button"
       className={on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'}
       disabled={!enabled}
       aria-pressed={on}
-      title={ru.annotations.glowHint}
+      title={line ? ru.annotations.glowLineHint : ru.annotations.glowHint}
       data-testid="glow-toggle"
       onClick={(e) => {
-        setStyle({ glow: !shown.glow })
+        setStyle(line ? { lineGlow: !value } : { glow: !value })
         e.currentTarget.blur()
       }}
     >
@@ -264,6 +280,107 @@ function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   )
 }
 
+/** Сейчас настраивается линия (стрелка, линия, кривая): выбранный рисунок или инструмент. */
+function useLineContext(): boolean {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  return isLineType(selected ? selected.type : tool)
+}
+
+/**
+ * «Проявление» линии и его длительность (малое окно со ползунком 0,2–3 с): у выбранной линии — её значения,
+ * иначе — для новых. Длительность запоминается и пока проявление выключено.
+ */
+function RevealControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const on = shown.reveal !== null
+  const secs = shown.reveal ?? shown.revealSecs
+
+  // Окно закрывается щелчком вне его и по Esc.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: PointerEvent): void => {
+      if (ref.current && e.target instanceof Node && !ref.current.contains(e.target)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return
+      setOpen(false)
+      e.stopPropagation()
+    }
+    window.addEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        type="button"
+        className={on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'}
+        aria-pressed={on}
+        title={ru.annotations.revealHint}
+        data-testid="reveal-toggle"
+        onClick={(e) => {
+          setOpen(false)
+          setStyle({ reveal: on ? null : shown.revealSecs, revealSecs: secs })
+          e.currentTarget.blur()
+        }}
+      >
+        {ru.annotations.reveal}
+      </button>
+      {on && (
+        <div className="reveal-menu" ref={ref}>
+          <button
+            type="button"
+            className={
+              open ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'
+            }
+            aria-pressed={open}
+            aria-haspopup="dialog"
+            title={ru.annotations.revealDuration}
+            data-testid="reveal-duration"
+            onClick={(e) => {
+              setOpen(!open)
+              e.currentTarget.blur()
+            }}
+          >
+            {ru.annotations.revealSeconds(secs)}
+          </button>
+          {open && (
+            <div
+              className="reveal-popover"
+              role="dialog"
+              aria-label={ru.annotations.revealDuration}
+              data-testid="reveal-popover"
+            >
+              <span className="field__label">{ru.annotations.revealDuration}</span>
+              <input
+                type="range"
+                min={MIN_REVEAL * 10}
+                max={MAX_REVEAL * 10}
+                step={1}
+                value={Math.round(secs * 10)}
+                aria-label={ru.annotations.revealDuration}
+                data-testid="reveal-slider"
+                onChange={(e) => {
+                  const v = Number(e.target.value) / 10
+                  setStyle({ reveal: v, revealSecs: v })
+                }}
+                onPointerUp={(e) => e.currentTarget.blur()}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  )
+}
+
 /** Сейчас настраивается прожектор (выбранный рисунок или инструмент). */
 function useSpotContext(): boolean {
   const selected = useAnnotationsStore(selectedAnnotation)
@@ -308,6 +425,7 @@ export function StyleBar(): React.JSX.Element {
   // Для кольца/круга вместо кнопок подписи (они ему не нужны) показываются «Кольцо / Мишень» и «Пульс»: панель остаётся в одну строку.
   const ringContext = useRingContext()
   const spotContext = useSpotContext()
+  const lineContext = useLineContext()
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()
@@ -408,7 +526,7 @@ export function StyleBar(): React.JSX.Element {
           </button>
         ))}
       </div>
-      {!ringContext && !spotContext && (
+      {!ringContext && !spotContext && !lineContext && (
         <>
           <button
             type="button"
@@ -449,6 +567,7 @@ export function StyleBar(): React.JSX.Element {
       <GlowToggle shown={shown} />
       {ringContext && <LookControls shown={shown} />}
       {spotContext && <FormControls shown={shown} />}
+      {lineContext && <RevealControls shown={shown} />}
       <PitchControls />
       <span className="style-bar__sep" />
       <div className="style-bar__group">
