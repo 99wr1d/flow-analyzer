@@ -166,6 +166,12 @@ export class MultiTracker {
    * вернувшегося своего игрока) при этом остаётся: одиночный новичок на месте цели от её игрока неотличим.
    */
   private readonly trimSince: Array<number | null>
+  /** Последний уверенный кадр перед ПОСЛЕДНИМ недоказанным возвращением (граница обрезки вывода, см. provenUntil). */
+  private readonly trimProven: Array<number | null>
+  /** Кадры «на виду» без соседей той же формы после последнего возвращения (окно снятия trimSince, см. settleDoubts). */
+  private readonly trimSeen: number[]
+  /** С последнего уверенного кадра цели все кадры были «на виду без соседей» (см. settleDoubts). */
+  private readonly seenThrough: boolean[]
   /** Безымянные игроки той же формы рядом с целями (см. Ghost). */
   private ghosts: Ghost[] = []
   private readonly lostFrames: number
@@ -183,6 +189,9 @@ export class MultiTracker {
     this.provenIndex = starts.map(() => null)
     this.unprovenClean = starts.map(() => false)
     this.trimSince = starts.map(() => null)
+    this.trimProven = starts.map(() => null)
+    this.trimSeen = starts.map(() => 0)
+    this.seenThrough = starts.map(() => true)
     this.lostFrames = Math.max(1, Math.round(LOST_SECONDS * fps))
   }
 
@@ -196,17 +205,17 @@ export class MultiTracker {
   }
 
   /**
-   * До какого кадра (номер, включительно) рамкам цели можно верить: до последнего уверенного кадра перед возвращением после
-   * пропуска, не подтверждённым ответом (короткая подмена на неотличимом новичке могла начаться там), иначе — до последнего
-   * уверенного кадра. null — уверенных кадров ещё не было. Только чтение.
-   * strict = false (ответ «моего тут нет»): «чистое» возвращение без соседей рядом через LOST_SECONDS считается доказанным
-   * (trimSince снят), чтобы безобидный пропуск не обрезал всё далеко назад. strict = true (потеря и прочие остановки —
-   * страховка): любое возвращение, не подтверждённое ответом (unprovenSince), — граница; одиночный новичок на месте цели
-   * неотличим от её же игрока, и если слежение кончилось потерей, кадры после такого возвращения выбрасываются.
+   * Граница вывода (обрезка при остановке, «моего тут нет», замена отсчётов при противоречащем ответе): до какого кадра
+   * (номер, включительно) рамкам цели можно верить. Это последний уверенный кадр перед ПОСЛЕДНИМ возвращением после
+   * пропуска, не подтверждённым ответом, — пока не прошло LOST_SECONDS «чистого» затишья без игроков той же формы рядом
+   * (тогда возвращение считается доказанным); иначе — последний уверенный кадр. null — уверенных кадров ещё не было.
+   * Первое недоказанное возвращение (unprovenSince) здесь не используется: оно нужно только правилу вопроса о вернувшемся
+   * игроке и никогда не снимается без ответа — как граница вывода оно стирало бы чистое слежение после любого пропуска.
+   * Предел: одиночный чужой той же формы, взятый при возвращении и ушедший один дольше LOST_SECONDS, после остановки
+   * остаётся в выводе (свой игрок так и не вернулся — отличить нечем).
    */
-  provenUntil(target: number, strict = false): number | null {
-    const since = strict ? this.unprovenSince[target] : this.trimSince[target]
-    if (since !== null) return this.provenIndex[target]
+  provenUntil(target: number): number | null {
+    if (this.trimSince[target] !== null) return this.trimProven[target]
     return this.lastConfIndex[target]
   }
 
@@ -248,6 +257,7 @@ export class MultiTracker {
     this.unprovenSince[target] = null
     this.unprovenClean[target] = false
     this.trimSince[target] = null
+    this.trimProven[target] = null
     // Ответ снимает подозрение, но не забывает соседей: подозреваемые цели остаются обычными безымянными следами
     // (иначе на следующем кадре, если её рамка пропадёт, сосед рядом прошёл бы молча — ответ обнуляет скорость Калмана).
     // След, который и есть выбранная рамка, — это сама цель: удаляется только он. Ищем по последней виденной рамке
@@ -1048,32 +1058,58 @@ export class MultiTracker {
     const f = this.frame?.index
     if (f === undefined) return
     for (let i = 0; i < this.trackers.length; i += 1) {
-      const since = this.trimSince[i]
-      if (since === null || !this.unprovenClean[i]) continue
       const look = this.trackers[i].appearance
-      // Смотрим только на кадрах, где цель уверенно на своей рамке: рядом с ней (CHAIN_COUNT_RADIUS) кто-то ещё той же формы?
-      // Окно LOST_SECONDS после возвращения прошло без соседей — снимаем (кадры позже на чистоту уже не влияют).
-      if (f - since >= this.lostFrames) {
-        this.trimSince[i] = null
+      const similar = (l: Float32Array): boolean => appearanceDistance(look, l) < CHAIN_SIMILAR_LOOK
+      const own = this.owned(i)
+      // Кадр «на виду без соседей»: цель на своей рамке и рядом (CHAIN_COUNT_RADIUS) никого той же формы, или цель без
+      // своей рамки, но у прогноза ровно одна рамка её формы (двойная рамка детектора — одна) и рядом ни одного
+      // безымянного следа. Иначе кадр не засчитывается.
+      let clean = false
+      let covered = false
+      let neighbour = false
+      if (own) {
+        const norm = Math.max(own.h, MIN_NORM_HEIGHT)
+        neighbour =
+          this.dets.some(
+            (d) =>
+              !sameBox(d.box, own) &&
+              similar(d.look) &&
+              apart(d.box, own, norm) <= CHAIN_COUNT_RADIUS
+          ) ||
+          this.ghosts.some((g) => similar(g.look) && apart(g.box, own, norm) <= CHAIN_COUNT_RADIUS)
+        clean = !neighbour
+        covered = clean
+      } else {
+        const pred = this.preds[i]
+        if (pred) {
+          const pn = Math.max(pred.h, MIN_NORM_HEIGHT)
+          const near = this.dets.filter(
+            (d) => similar(d.look) && apart(d.box, pred, pn) <= CHAIN_COUNT_RADIUS
+          )
+          const ghost = this.ghosts.some(
+            (g) => similar(g.look) && apart(g.box, pred, pn) <= CHAIN_COUNT_RADIUS
+          )
+          clean = !ghost && near.length > 0 && near.every((d) => sameBox(d.box, near[0].box))
+          // Для пропуска «насквозь на виду» этого мало: рамку у прогноза должен перекрывать игрок другой формы (он и
+          // объясняет пропуск). Рамка той же формы без такого перекрытия может быть новичком на месте пропавшей цели.
+          covered = clean && this.dets.some((d) => !similar(d.look) && iou(d.box, near[0].box) > 0)
+        }
+      }
+      // Пропуск «насквозь на виду»: с последнего уверенного кадра у цели каждый кадр был чистым — возвращение после
+      // такого пропуска обрезку не начинает (см. present).
+      this.seenThrough[i] = own ? covered : this.seenThrough[i] && covered
+      if (this.trimSince[i] === null || !this.unprovenClean[i]) continue
+      if (neighbour) {
         this.unprovenClean[i] = false
         continue
       }
-      const own = this.owned(i)
-      if (!own) continue
-      const norm = Math.max(own.h, MIN_NORM_HEIGHT)
-      const someone =
-        this.dets.some(
-          (d) =>
-            !sameBox(d.box, own) &&
-            appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
-            apart(d.box, own, norm) <= CHAIN_COUNT_RADIUS
-        ) ||
-        this.ghosts.some(
-          (g) =>
-            appearanceDistance(look, g.look) < CHAIN_SIMILAR_LOOK &&
-            apart(g.box, own, norm) <= CHAIN_COUNT_RADIUS
-        )
-      if (someone) this.unprovenClean[i] = false
+      if (clean) this.trimSeen[i] += 1
+      // LOST_SECONDS кадров на виду после возвращения прошли без соседей — снимаем (кадры позже на чистоту уже не
+      // влияют). Окно считается по кадрам на виду, а не по времени: потерянная цель чистоту не доказывает.
+      if (this.trimSeen[i] >= this.lostFrames) {
+        this.trimSince[i] = null
+        this.unprovenClean[i] = false
+      }
     }
   }
 
@@ -1206,12 +1242,19 @@ export class MultiTracker {
           if (f !== null && prev !== null && prev < f - 1) {
             this.recoveredAt[i] = f
             if (this.unprovenSince[i] === null) {
-              // Сомнение начинается с первого недоказанного возвращения: надёжное место — последняя уверенная рамка до него.
+              // Сомнение (для вопроса о вернувшемся игроке) начинается с первого недоказанного возвращения: надёжное место —
+              // последняя уверенная рамка до него.
               this.unprovenSince[i] = f
               this.provenBox[i] = { ...this.lastConf[i] }
               this.provenIndex[i] = prev
-              this.unprovenClean[i] = true
+            }
+            // Граница вывода — по последнему возвращению; окно «чистого» затишья начинается заново. Пропуск, весь
+            // прошедший на виду без соседей (seenThrough: цель пережидала за игроком другой формы), обрезку не начинает.
+            if (!this.seenThrough[i]) {
               this.trimSince[i] = f
+              this.trimProven[i] = prev
+              this.trimSeen[i] = 0
+              this.unprovenClean[i] = true
             }
           }
           this.lastConf[i] = { ...s.box }

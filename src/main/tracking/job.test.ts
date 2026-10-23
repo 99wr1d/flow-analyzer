@@ -8,6 +8,7 @@ import type { DetectOutput, Detector, DetectorFrame } from './detectorWindow'
 import {
   createStubDetector,
   DEFAULT_STUB_PATTERN,
+  loadStubPattern,
   StubPatternSchema,
   stubLook,
   type StubPattern
@@ -912,6 +913,217 @@ describe('ответ противоречит недоказанному воз�
     for (const [k, s] of out.samples[0].entries()) {
       // ни одного кадра у чужого (тот правее своего не меньше чем на 20 px)
       expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k}`).toBeLessThan(12)
+    }
+  })
+})
+
+describe('обрезка результата по последнему сомнению: чистое кольцо не теряет след', () => {
+  // Одно кольцо без соседей той же формы (рядом — игрок другой формы), детектор случайно пропускает кадры. Конец сцены —
+  // смена плана, уход за край или пропажа навсегда. Результат должен сохранить почти весь след (до последнего уверенного
+  // кадра без малого запаса), а не обрезаться к давнему безобидному пропуску.
+  const MARGIN = 5
+  const hist = (bin: number): Float32Array => {
+    const out = new Float32Array(48)
+    for (let c = 0; c < 3; c += 1) out[c * 16 + bin] = 1
+    return out
+  }
+  const rand = (seed: number): (() => number) => {
+    let a = seed >>> 0
+    return () => {
+      a = (a + 0x6d2b79f5) | 0
+      let t = Math.imul(a ^ (a >>> 15), 1 | a)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+  }
+  const ring = (
+    x: (f: number) => number,
+    y: (f: number) => number,
+    o: { seed: number; drop: number; cutAt?: number; goneAt?: number }
+  ): Detector => {
+    const R = rand(o.seed)
+    const misses = new Map<number, boolean>()
+    return {
+      backend: 'wasm',
+      detect(frame: DetectorFrame): Promise<DetectOutput> {
+        const f = frame.index ?? 0
+        if (!misses.has(f)) misses.set(f, f > 0 && R() < o.drop)
+        const out: Detection[] = [person(200 + 100 * Math.sin(f / 90), 450, 1)]
+        const seen = x(f) > -20 && x(f) < W + 20 && (o.goneAt === undefined || f < o.goneAt)
+        if (seen && !misses.get(f)) out.push(person(x(f), y(f), 0))
+        const cut = o.cutAt !== undefined && f >= o.cutAt
+        return Promise.resolve({ detections: out, frameHist: hist(cut ? 12 : 4) })
+      },
+      close() {
+        // нечего освобождать
+      }
+    }
+  }
+  const run = async (
+    det: Detector,
+    count: number,
+    x: (f: number) => number,
+    y: (f: number) => number
+  ): Promise<{ stop: string | undefined; kept: number; offTruth: number }> => {
+    const out = await runTrackingJob(
+      options({
+        to: count / FPS,
+        frames: frames(count),
+        createDetector: () => Promise.resolve(det),
+        anchors: [{ x: x(0) / W, y: y(0) / H }]
+      })
+    )
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return { stop: undefined, kept: 0, offTruth: 0 }
+    let off = 0
+    out.samples[0].forEach((s, k) => {
+      if (Math.hypot(s.foot.x * W - x(k), s.foot.y * H - (y(k) + 45)) > 27) off += 1
+    })
+    return { stop: out.stop?.reason, kept: out.samples[0].length, offTruth: off }
+  }
+  const cx = (f: number): number => 480 + 300 * Math.sin(f / 200)
+  const cy = (f: number): number => 270 + 100 * Math.cos(f / 260)
+
+  for (const drop of [0.02, 0.05])
+    for (const seed of [1, 2]) {
+      it(`смена плана (пропуски ${drop}, seed ${seed}): след до кадра смены`, async () => {
+        const r = await run(ring(cx, cy, { seed, drop, cutAt: 600 }), 700, cx, cy)
+        expect(r.stop).toBe('cut')
+        expect(r.kept).toBeGreaterThanOrEqual(600 - MARGIN)
+        expect(r.offTruth).toBe(0)
+      })
+
+      it(`пропажа навсегда (пропуски ${drop}, seed ${seed}): след до последнего уверенного кадра`, async () => {
+        const r = await run(ring(cx, cy, { seed, drop, goneAt: 600 }), 700, cx, cy)
+        expect(r.stop).toBe('occluded')
+        expect(r.kept).toBeGreaterThanOrEqual(600 - MARGIN)
+        expect(r.offTruth).toBe(0)
+      })
+
+      it(`уход за край (пропуски ${drop}, seed ${seed}): след до края`, async () => {
+        const ox = (f: number): number => 100 + 1.5 * f
+        const oy = (): number => 270
+        // правый край рамки доходит до края кадра на кадре 560
+        const r = await run(ring(ox, oy, { seed, drop }), 700, ox, oy)
+        expect(r.stop).toBe('out')
+        expect(r.kept).toBeGreaterThanOrEqual(560 - MARGIN)
+        expect(r.offTruth).toBe(0)
+      })
+    }
+
+  it('бегун пережидает за игроком другой формы, затем смена плана: след до смены, а не до пережидания', async () => {
+    // Сценарий e2e (stub-runner.json): бегун на 1.2–1.75 с перекрывает игрока другой формы — кольцо пережидает, хотя его
+    // рамка всё время у прогноза и рядом никого его формы. Такое возвращение не сомнительно: смена плана на 2.4 с
+    // обрезает до последнего уверенного кадра (59-й), а не до кадра перед пережиданием.
+    const pattern = loadStubPattern(
+      JSON.stringify({
+        players: [
+          { start: { x: 0.05, y: 0.4, w: 0.06, h: 0.34 }, velocity: { x: 0.25, y: 0 }, look: 0 },
+          { start: { x: 0.42, y: 0.36, w: 0.06, h: 0.34 }, velocity: { x: 0, y: 0 }, look: 1 },
+          { start: { x: 0.8, y: 0.45, w: 0.06, h: 0.34 }, velocity: { x: 0, y: 0 }, look: 2 }
+        ],
+        cuts: [2.4]
+      })
+    )
+    const out = await runTrackingJob(
+      options({
+        frames: frames(75),
+        createDetector: () => Promise.resolve(createStubDetector({ pattern })),
+        anchors: [{ x: 0.08, y: 0.74 }]
+      })
+    )
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(out.stop?.reason).toBe('cut')
+    expect(out.samples[0]).toHaveLength(60)
+  })
+
+  // Ближе (dx ≤ 10) рамка новичка неотличима от шага самой цели: пропуска нет вовсе — это предел детектора, не обрезки.
+  for (const dx of [15, 20, 25])
+    it(`игрок той же формы встаёт на место пропавшего кольца (dx=${dx}), затем смена плана: его кадров в следе нет`, async () => {
+      // Пропуск здесь не «насквозь на виду»: рамку у прогноза ничто другой формы не перекрывает — это новичок.
+      const own = (f: number): number => 300 + 2 * f
+      const det: Detector = {
+        backend: 'wasm',
+        detect(frame: DetectorFrame): Promise<DetectOutput> {
+          const f = frame.index ?? 0
+          const out: Detection[] = []
+          if (f < 20) out.push(person(own(f), 270, 0))
+          else out.push(person(own(f) + dx, 272, 0))
+          return Promise.resolve({ detections: out, frameHist: hist(f >= 30 ? 12 : 4) })
+        },
+        close() {
+          // нечего освобождать
+        }
+      }
+      const out = await runTrackingJob(
+        options({
+          frames: frames(60),
+          createDetector: () => Promise.resolve(det),
+          anchors: [{ x: own(0) / W, y: 315 / H }]
+        })
+      )
+      expect(out.kind).toBe('done')
+      if (out.kind !== 'done') return
+      for (const [k, s] of out.samples[0].entries()) {
+        if (k >= 20)
+          expect(Math.abs(s.foot.x * W - own(k) - dx), `кадр ${k} на чужом`).toBeGreaterThan(3)
+      }
+    })
+
+  it('ответ на давнее сомнение не переписывает след до последнего возвращения', async () => {
+    // Кольцо по кругу; на кадре 300 короткий пропуск, с 303-го рядом идёт игрок той же формы (вопрос), ответ верный.
+    // До этого — случайные пропуски без соседей. Отсчёты до пропуска на 300-м остаются на своём игроке (сверка ответа их не трогает).
+    const tx = (f: number): number => 480 + 150 * Math.cos(f / 60)
+    const ty = (f: number): number => 270 + 120 * Math.sin(f / 60)
+    const R = rand(5)
+    const misses = new Map<number, boolean>()
+    const det: Detector = {
+      backend: 'wasm',
+      detect(frame: DetectorFrame): Promise<DetectOutput> {
+        const f = frame.index ?? 0
+        if (!misses.has(f)) misses.set(f, f > 0 && f < 290 && R() < 0.03)
+        const out: Detection[] = []
+        if (!misses.get(f) && (f < 300 || f >= 312)) out.push(person(tx(f), ty(f), 0))
+        if (f >= 303 && f < 400) out.push(person(tx(f) + 30, ty(f) + 5, 0))
+        return Promise.resolve({ detections: out, frameHist: hist(4) })
+      },
+      close() {
+        // нечего освобождать
+      }
+    }
+    let asked = 0
+    const out = await runTrackingJob(
+      options({
+        to: 360 / FPS,
+        frames: frames(360),
+        createDetector: () => Promise.resolve(det),
+        anchors: [{ x: tx(0) / W, y: ty(0) / H }],
+        onAsk: (t, cands) => {
+          asked += 1
+          // верный ответ: вариант, ближайший к своему игроку на этом кадре
+          const f = Math.round(t * FPS - 0.5)
+          const err = (c: { x: number; y: number; w: number; h: number }): number =>
+            Math.hypot((c.x + c.w / 2) * W - tx(f), (c.y + c.h / 2) * H - ty(f))
+          let best = 0
+          cands.forEach((c, k) => {
+            if (err(c) < err(cands[best])) best = k
+          })
+          expect(err(cands[best])).toBeLessThan(15)
+          return Promise.resolve(best)
+        }
+      })
+    )
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(asked).toBeGreaterThan(0)
+    expect(out.samples[0].length).toBeGreaterThanOrEqual(300 - MARGIN)
+    for (let k = 0; k < 299; k += 1) {
+      const s = out.samples[0][k]
+      expect(
+        Math.hypot(s.foot.x * W - tx(k), s.foot.y * H - (ty(k) + 45)),
+        `кадр ${k}`
+      ).toBeLessThan(10)
     }
   })
 })

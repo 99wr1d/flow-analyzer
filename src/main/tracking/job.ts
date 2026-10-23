@@ -231,15 +231,10 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
      * дальше provenUntil (последний уверенный кадр перед недоказанным возвращением: перед остановкой могла быть короткая
      * подмена на неотличимом новичке). У всех целей одна длина — наименьшая; время — последнего оставленного кадра.
      */
-    const trustedLen = (
-      tr: MultiTracker,
-      fallbackT: number,
-      /** strict — до любого недоказанного возвращения; relaxed — «чистое» возвращение снято. */
-      mode: 'strict' | 'relaxed'
-    ): { len: number; t: number } => {
+    const trustedLen = (tr: MultiTracker, fallbackT: number): { len: number; t: number } => {
       let len = Infinity
       lastGood.forEach((g, k) => {
-        const proven = tr.provenUntil(k, mode === 'strict')
+        const proven = tr.provenUntil(k)
         const upTo = proven === null ? 0 : sampleFrames.filter((f) => f <= proven).length
         len = Math.min(len, g?.len ?? 0, upTo)
       })
@@ -298,7 +293,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         if (signal.aborted) return { kind: 'cancelled' }
         if (index === 'none') {
           // «Моего игрока тут нет»: стоп на последнем надёжном кадре (см. trustedLen).
-          const { len, t } = trustedLen(tracker, frame.t, 'relaxed')
+          const { len, t } = trustedLen(tracker, frame.t)
           return stopAt(len, t, 'not-here', target)
         }
         // Пустой или неверный ответ без отмены — сбой: интерфейс не должен ждать итога вечно.
@@ -308,7 +303,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         reconcileAnswer(
           samples[target],
           sampleFrames,
-          tracker.provenUntil(target, true),
+          tracker.provenUntil(target),
           boxToSample(chosen.box, frame.t, fw, fh),
           fw / fh
         )
@@ -318,9 +313,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       if (step.kind === 'lost') {
         // Стоп — на последнем надёжном кадре всех целей (спека, п. 8): отсчёты «пережидания» и недоказанных
         // возвращений после него отбрасываем.
-        // Строго (до любого недоказанного возвращения) при любой остановке, в том числе при смене плана: одиночный
-        // новичок на месте цели неотличим от её же игрока после безобидного пережидания, и иначе кадры на чужом остались бы.
-        const { len, t } = trustedLen(tracker, frame.t, 'strict')
+        const { len, t } = trustedLen(tracker, frame.t)
         return stopAt(len, t, step.reason, step.target)
       }
       coasting = step.coasting.some(Boolean)

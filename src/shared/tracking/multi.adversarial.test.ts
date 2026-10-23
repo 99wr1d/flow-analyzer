@@ -1125,14 +1125,11 @@ function longScene(
       wrong = Array.from({ length: nT }, () => [])
     }
     let r: MultiStep = m.step({ index: f, t: (f + 0.5) / FPS, detections: dets, frameHist: WF })
-    // Вопрос без своего: пользователь ответил бы «моего тут нет» (обрезка нестрогая); иначе — потеря (строгая).
-    let lostStop = true
     while (r.kind === 'ask') {
       asks++
       const target = r.target
       const p = r.candidates.find((c) => src.get(c) === target)
       if (!p) {
-        lostStop = false
         r = { kind: 'lost', target, reason: 'occluded' }
         break
       }
@@ -1143,9 +1140,7 @@ function longScene(
       // целей до общего надёжного кадра. В оставшемся не должно быть ни одного кадра на чужом игроке.
       stops++
       const tm = m
-      const bound = Math.min(
-        ...Array.from({ length: nT }, (_, k) => tm.provenUntil(k, lostStop) ?? -1)
-      )
+      const bound = Math.min(...Array.from({ length: nT }, (_, k) => tm.provenUntil(k) ?? -1))
       for (let k = 0; k < nT; k++) {
         const bad = wrong[k].filter((x) => x <= bound)
         if (bad.length > 0)
