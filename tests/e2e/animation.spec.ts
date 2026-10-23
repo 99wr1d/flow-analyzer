@@ -427,7 +427,10 @@ test.describe('анимация рисунков', () => {
   })
 
   test('экспорт всего видео: кольцо в готовых кадрах там, где его считает анимация (±2 px)', async () => {
-    const ctx = await launch()
+    // Своя временная папка приложения (TEMP/TMP): параллельные процессы на машине (vitest) в неё ничего не кладут.
+    const tmpDir = join(makeUserData(), 'tmp')
+    mkdirSync(tmpDir)
+    const ctx = await launch({ env: { TEMP: tmpDir, TMP: tmpDir } })
     const { win, app } = ctx
     const out = join(makeUserData(), 'out')
     mkdirSync(out)
@@ -488,7 +491,7 @@ test.describe('анимация рисунков', () => {
         ])
       }
       // Временные файлы убраны.
-      const left = readdirSync(process.env.TEMP ?? process.env.TMP ?? '.').filter(
+      const left = readdirSync(tmpDir).filter(
         (n) => n.startsWith('flow-overlays-') || n.startsWith('flow-export-')
       )
       console.log('Временных папок после экспорта:', left.length)
