@@ -17,9 +17,12 @@ import {
 import type { Calibration } from '../../../../shared/pitch/calibration'
 import {
   DEFAULT_THIN_TOLERANCE,
+  FOOT_LIFT,
+  linkTrackToKeys,
   mergeTrackedKeys,
   pitchToScreenForTracking,
   thinTrack,
+  thinTracks,
   trackToKeys,
   type TrackSample
 } from '../../../../shared/tracking/keys'
@@ -27,14 +30,27 @@ import type { DetectorBackend } from '../../../../shared/tracking/detectorIpc'
 import {
   estimateSeconds,
   FALLBACK_FPS,
+  type FractionBox,
   type StopReason
 } from '../../../../shared/tracking/trackingIpc'
 import { PILLAR_WIDTH_SHARE } from '../../../../shared/tools/pillar'
 import { ru } from '../../i18n/ru'
 import { formatTime } from '../player/format'
 
-/** Рисунки, у которых есть кнопка «Следить за игроком». */
-const TRACKABLE: ReadonlySet<AnnotationType> = new Set(['circle', 'spot', 'text', 'ring', 'pspot'])
+/** Рисунки, у которых есть кнопка «Следить за игроком» (у связки — «Следить за игроками»). */
+const TRACKABLE: ReadonlySet<AnnotationType> = new Set([
+  'circle',
+  'spot',
+  'text',
+  'ring',
+  'pspot',
+  'link',
+  'plink'
+])
+
+/** Связка (на экране или на поле): слежение ведёт сразу все её точки. */
+export const isLinkType = (a: Pick<Annotation, 'type'>): boolean =>
+  a.type === 'link' || a.type === 'plink'
 
 /** Есть ли у рисунка кнопка слежения: подходящий вид и отрезок («Только кадр» — нет). */
 export function canTrack(a: Annotation): boolean {
@@ -62,6 +78,15 @@ export function anchorOfGeom(a: Annotation, geom: Geom): Pt {
   return { x: clamp01((p1.x + p2.x) / 2), y: clamp01((p1.y + p2.y) / 2) }
 }
 
+/** Точки рисунка, по которым ищутся «его» игроки на стартовом кадре: у связки — все её точки, у остальных — одна. */
+export function anchorsOfGeom(a: Annotation, geom: Geom): Pt[] {
+  if (isLinkType(a)) {
+    const points = (geom as { points?: Pt[] }).points ?? []
+    return points.map((p) => ({ x: clamp01(p.x), y: clamp01(p.y) }))
+  }
+  return [anchorOfGeom(a, geom)]
+}
+
 export interface PlanContext {
   /** Середина текущего кадра. */
   now: number
@@ -82,7 +107,8 @@ export interface TrackPlan {
   /** Середина этого кадра: момент, в который рисунок стоит относительно игрока. */
   at: number
   to: number
-  anchor: Pt
+  /** Якоря по целям: у связки — все точки на кадре «at», иначе один. */
+  anchors: Pt[]
   /** Сколько ручных ключей после места слежение заменит (вопрос тренеру). */
   replaceCount: number
   /** Рисунок для слежения (рисунок «на поле» уже переведён в экранный). */
@@ -144,9 +170,20 @@ export function planTracking(
   const to = ctx.videoDuration > 0 ? Math.min(end, ctx.videoDuration) : end
   if (to - from < MIN_FRAMES * frame) return { ok: false, reason: 'too-short' }
 
-  const anchor = anchorOfGeom(base, geomAt(base, at))
+  const anchors = anchorsOfGeom(base, geomAt(base, at))
+  if (anchors.length === 0) return { ok: false, reason: 'not-trackable' }
   const replaceCount = mergeTrackedKeys(keysOf(base), [], at).replacedManual
-  return { ok: true, mode, from, at, to, anchor, replaceCount, base, convertedFromPitch: converted }
+  return {
+    ok: true,
+    mode,
+    from,
+    at,
+    to,
+    anchors,
+    replaceCount,
+    base,
+    convertedFromPitch: converted
+  }
 }
 
 /** Бэкенд последнего законченного слежения в этом сеансе программы (до первого запуска неизвестен). */
@@ -160,9 +197,29 @@ export function planSeconds(plan: TrackPlan, fps: number): number {
   return Math.round(estimateSeconds(plan.to - plan.from, lastBackend ?? 'wasm', fps))
 }
 
-/** Сообщение об остановке слежения. */
-export function stopMessage(stop: { t: number; reason: StopReason }): string {
-  return ru.tracking.lost(formatTime(stop.t, { tenths: true }), ru.tracking.reasons[stop.reason])
+/**
+ * Сообщение об остановке слежения. У связки (link) называет точку (target с нуля → «Точка N»); «моего игрока тут нет» —
+ * отдельный текст: остановка по ответу тренера, а не потеря.
+ */
+export function stopMessage(
+  stop: { t: number; reason: StopReason; target?: number },
+  link = false
+): string {
+  const point = (stop.target ?? 0) + 1
+  if (stop.reason === 'not-here') return link ? ru.tracking.notHereLink(point) : ru.tracking.notHere
+  const time = formatTime(stop.t, { tenths: true })
+  const reason = ru.tracking.reasons[stop.reason]
+  return link ? ru.tracking.lostLink(point, time, reason) : ru.tracking.lost(time, reason)
+}
+
+/**
+ * Вопрос после неудачного старта (ambiguous-start): рамки на выбор или одна рамка. Одна рамка значит, что две точки связки
+ * стоят на одном игроке: выбирать нечего, надо развести точки.
+ */
+export function startAskKind(
+  candidates: readonly FractionBox[] | undefined
+): 'pick' | 'same-player' {
+  return candidates && candidates.length >= 2 ? 'pick' : 'same-player'
 }
 
 export interface ApplyOptions {
@@ -258,7 +315,7 @@ function coverFigure(a: Annotation, ref: TrackSample, at: number, aspect: number
  */
 export const RING_WIDTH_OF_HEIGHT = 0.72
 /** Подъём центра кольца над низом рамки (доли высоты рамки): рамка заходит ниже подошв. */
-export const RING_LIFT = 0.07
+export const RING_LIFT = FOOT_LIFT
 
 /**
  * Кольцо (экранный круг без ключей), от которого начинают слежение: центр — точка ног игрока (низ рамки), ширина ≈ 0.9 роста
@@ -312,53 +369,70 @@ const nearestSample = (samples: readonly TrackSample[], t: number): TrackSample 
 }
 
 /**
- * Траектория → ключи рисунка. current — рисунок сейчас (его ручные ключи сохраняются), plan — как был запущен расчёт.
- * Для рисунка «на поле» вместо current берётся plan.base (рисунок уже переведён в экранный).
- * Число ключей гарантированно не больше MAX_KEYFRAMES: допуск прореживания растёт, пока не уложимся.
+ * Траектории → ключи рисунка. current — рисунок сейчас (его ручные ключи сохраняются), plan — как был запущен расчёт,
+ * tracks — траектории по целям (у кольца одна, у связки по одной на точку). Для рисунка «на поле» вместо current берётся
+ * plan.base (рисунок уже переведён в экранный). Число ключей гарантированно не больше MAX_KEYFRAMES: допуск прореживания
+ * растёт, пока не уложимся (у связки прореживание идёт по всем точкам сразу — моменты ключей общие).
  */
 export function applyTrackResult(
   current: Annotation,
-  samples: readonly TrackSample[],
+  tracks: readonly (readonly TrackSample[])[],
   plan: TrackPlan,
   opts: ApplyOptions
 ): ApplyResult {
-  if (samples.length === 0) return { ok: false, reason: 'empty' }
+  if (tracks.length === 0 || tracks.some((t) => t.length === 0))
+    return { ok: false, reason: 'empty' }
   const aspect = opts.aspect && opts.aspect > 0 ? opts.aspect : 16 / 9
   const src0 = plan.convertedFromPitch ? plan.base : current
-  const ref = nearestSample(samples, plan.at)
-  const src = fitRing(
-    coverFigure(src0, ref, plan.at, aspect),
-    ref,
-    plan.at,
-    aspect,
-    plan.convertedFromPitch
-  )
+  const link = isLinkType(src0)
+  const lead = tracks[0]
+  const ref = nearestSample(lead, plan.at)
+  // Связка: точки сами встают к ногам (в первом ключе); кольцо и прожектор подгоняются под фигуру.
+  const src = link
+    ? src0
+    : fitRing(
+        coverFigure(src0, ref, plan.at, aspect),
+        ref,
+        plan.at,
+        aspect,
+        plan.convertedFromPitch
+      )
   const existing = keysOf(src)
+  const keysOfTracks = (ts: readonly (readonly TrackSample[])[], tolerance?: number): Keyframe[] =>
+    link
+      ? linkTrackToKeys(tolerance === undefined ? ts : thinTracks(ts, tolerance))
+      : trackToKeys(src, tolerance === undefined ? ts[0] : thinTrack(ts[0], tolerance), plan.at)
 
-  // Ручные ключи-опоры после места: если игрок там далеко от ручного положения — останавливаемся перед ними.
-  let usable = samples
+  // Ручные ключи-опоры после места: если игрок там далеко от ручного положения (по любой точке) — останавливаемся перед ними.
+  let usable: readonly (readonly TrackSample[])[] = tracks
   let diverged: { t: number } | undefined
   if (existing.some((k) => k.auto)) {
-    const full = trackToKeys(src, samples, plan.at)
-    const probe = { ...src, keyframes: full } as Annotation
+    const probe = { ...src, keyframes: keysOfTracks(tracks) } as Annotation
     for (const m of existing) {
       if (m.auto || m.t <= plan.at + KEY_EPS) continue
-      if (m.t > samples[samples.length - 1].t + KEY_EPS) break
-      const tracked = anchorOfGeom(src, geomAt(probe, m.t))
-      const manual = anchorOfGeom(src, m.geom)
-      const height = nearestSample(samples, m.t).height
-      if (dist(tracked, manual, aspect) > height * DIVERGE_HEIGHT_FRACTION) {
+      if (m.t > lead[lead.length - 1].t + KEY_EPS) break
+      const tracked = anchorsOfGeom(src, geomAt(probe, m.t))
+      const manual = anchorsOfGeom(src, m.geom)
+      const off = manual.some((q, i) => {
+        const p = tracked[i]
+        const track = tracks[Math.min(i, tracks.length - 1)]
+        return (
+          p !== undefined &&
+          dist(p, q, aspect) > nearestSample(track, m.t).height * DIVERGE_HEIGHT_FRACTION
+        )
+      })
+      if (off) {
         diverged = { t: m.t }
-        usable = samples.filter((s) => s.t < m.t - KEY_EPS)
+        usable = tracks.map((t) => t.filter((s) => s.t < m.t - KEY_EPS))
         break
       }
     }
   }
-  if (usable.length === 0) return { ok: false, reason: 'diverged', diverged }
+  if (usable.some((t) => t.length === 0)) return { ok: false, reason: 'diverged', diverged }
 
   let tolerance = DEFAULT_THIN_TOLERANCE
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const tracked: Keyframe[] = trackToKeys(src, thinTrack(usable, tolerance), plan.at)
+    const tracked: Keyframe[] = keysOfTracks(usable, tolerance)
     const merged = mergeTrackedKeys(existing, tracked, plan.at)
     if (merged.keys.length <= MAX_KEYFRAMES) {
       let all = merged.keys

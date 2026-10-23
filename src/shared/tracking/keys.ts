@@ -13,6 +13,7 @@ import {
   LEGACY_RING_FILL,
   type Annotation,
   type Circle,
+  type Link,
   type Spotlight
 } from '../annotations'
 import { geomAt, type Geom, type Keyframe } from '../animation'
@@ -32,21 +33,28 @@ export interface TrackSample {
 
 /** Допуск прореживания по умолчанию: 2,5 пикселя при высоте кадра 720. */
 export const DEFAULT_THIN_TOLERANCE = 2.5 / 720
+/**
+ * Подъём центра кольца и точки связки над низом рамки (доли высоты рамки): рамка детектора заходит ниже подошв.
+ * Кольцо (fitRing) и точки связки встают на одно и то же место.
+ */
+export const FOOT_LIFT = 0.07
 /** Окно сглаживания высоты рамки, кадров. */
 const SMOOTH_WINDOW = 5
 /** Во сколько раз ошибка высоты рамки весит меньше ошибки положения ног (высота влияет на размер рисунка слабее). */
 const HEIGHT_WEIGHT = 0.5
 
 /**
- * Прореживание траектории (Дугласа–Пёкера по времени): точка остаётся, если положение ног (и рост рамки)
- * иначе уходит от линейной интерполяции по времени дальше tolerance (доли кадра).
+ * Прореживание нескольких траекторий сразу (Дугласа–Пёкера по времени): кадр остаётся у ВСЕХ траекторий, если хотя бы у одной
+ * положение ног (или рост рамки) иначе уходит от линейной интерполяции по времени дальше tolerance (доли кадра). Траектории
+ * идут по одним и тем же кадрам (длина — по самой короткой); связка получает общий набор моментов для всех точек.
  */
-export function thinTrack(
-  samples: readonly TrackSample[],
+export function thinTracks(
+  tracks: readonly (readonly TrackSample[])[],
   tolerance: number = DEFAULT_THIN_TOLERANCE
-): TrackSample[] {
-  const n = samples.length
-  if (n <= 2) return [...samples]
+): TrackSample[][] {
+  if (tracks.length === 0) return []
+  const n = Math.min(...tracks.map((t) => t.length))
+  if (n <= 2) return tracks.map((t) => t.slice(0, n))
   const keep = new Array<boolean>(n).fill(false)
   keep[0] = true
   keep[n - 1] = true
@@ -54,18 +62,21 @@ export function thinTrack(
   while (stack.length > 0) {
     const [lo, hi] = stack.pop() as [number, number]
     if (hi - lo < 2) continue
-    const a = samples[lo]
-    const b = samples[hi]
-    const span = b.t - a.t
     let worst = -1
     let worstErr = 0
     for (let i = lo + 1; i < hi; i += 1) {
-      const p = samples[i]
-      const u = span > 0 ? (p.t - a.t) / span : 0
-      const dx = a.foot.x + (b.foot.x - a.foot.x) * u - p.foot.x
-      const dy = a.foot.y + (b.foot.y - a.foot.y) * u - p.foot.y
-      const dh = a.height + (b.height - a.height) * u - p.height
-      const err = Math.max(Math.hypot(dx, dy), Math.abs(dh) * HEIGHT_WEIGHT)
+      let err = 0
+      for (const samples of tracks) {
+        const a = samples[lo]
+        const b = samples[hi]
+        const p = samples[i]
+        const span = b.t - a.t
+        const u = span > 0 ? (p.t - a.t) / span : 0
+        const dx = a.foot.x + (b.foot.x - a.foot.x) * u - p.foot.x
+        const dy = a.foot.y + (b.foot.y - a.foot.y) * u - p.foot.y
+        const dh = a.height + (b.height - a.height) * u - p.height
+        err = Math.max(err, Math.hypot(dx, dy), Math.abs(dh) * HEIGHT_WEIGHT)
+      }
       if (err > worstErr) {
         worstErr = err
         worst = i
@@ -76,7 +87,18 @@ export function thinTrack(
       stack.push([lo, worst], [worst, hi])
     }
   }
-  return samples.filter((_, i) => keep[i])
+  return tracks.map((t) => t.slice(0, n).filter((_, i) => keep[i]))
+}
+
+/**
+ * Прореживание траектории одного игрока: точка остаётся, если положение ног (и рост рамки) иначе уходит от линейной
+ * интерполяции по времени дальше tolerance (доли кадра).
+ */
+export function thinTrack(
+  samples: readonly TrackSample[],
+  tolerance: number = DEFAULT_THIN_TOLERANCE
+): TrackSample[] {
+  return thinTracks([samples], tolerance)[0]
 }
 
 /** Скользящее среднее высоты рамки по окну SMOOTH_WINDOW (у краёв окно сужается). */
@@ -157,6 +179,29 @@ export function trackToKeys(
 }
 
 /**
+ * Ключи связки из N траекторий (по одной на точку): на каждом кадре каждая точка стоит у ног своего игрока — низ рамки,
+ * поднятый на FOOT_LIFT сглаженной высоты, как у кольца (fitRing). Исходное смещение щелчка не сохраняется. Траектории идут
+ * по одним и тем же кадрам; ключ — на каждом кадре (прореживание — отдельно, thinTracks).
+ */
+export function linkTrackToKeys(tracks: readonly (readonly TrackSample[])[]): Keyframe[] {
+  if (tracks.length === 0) return []
+  const n = Math.min(...tracks.map((t) => t.length))
+  if (n === 0) return []
+  const smooth = tracks.map((t) => smoothHeights(t.slice(0, n)))
+  const keys: Keyframe[] = []
+  for (let i = 0; i < n; i += 1) {
+    const t = tracks[0][i].t
+    if (keys.length > 0 && !(t - keys[keys.length - 1].t > KEY_EPS)) continue
+    const points = tracks.map((samples, k) => ({
+      x: clamp(samples[i].foot.x, 0, 1),
+      y: clamp(samples[i].foot.y - FOOT_LIFT * smooth[k][i], 0, 1)
+    }))
+    keys.push({ t, ease: 'linear', auto: true, geom: { points } })
+  }
+  return keys
+}
+
+/**
  * Склейка ключей слежения с уже стоящими: авто-ключи с момента from заменяются новыми, ручные ключи остаются
  * (в одном и том же моменте побеждает ручной). Если у рисунка нет ни одного авто-ключа (до этого он анимирован
  * только руками), ручные ключи после from слежение заменяет — их число replacedManual интерфейс показывает в вопросе
@@ -193,13 +238,37 @@ const ELLIPSE_STEPS = 48
 
 /**
  * Рисунок «На поле» → экранный рисунок для слежения (метры и привязка к разметке теряются):
- * кольцо → эллипс «под игроками» (вид на кадре по разметке), прожектор → экранный прожектор с лучом.
+ * кольцо → эллипс «под игроками» (вид на кадре по разметке), прожектор → экранный прожектор с лучом,
+ * связка на поле → экранная связка (точки по разметке на момент t; подписи длин в метрах пропадают).
  * Геометрия берётся на момент t. Остальные рисунки (и если разметка не даёт вида) возвращаются как есть.
  */
 export function pitchToScreenForTracking(a: Annotation, cal: Calibration, t: number): Annotation {
-  if (a.type !== 'ring' && a.type !== 'pspot') return a
+  if (a.type !== 'ring' && a.type !== 'pspot' && a.type !== 'plink') return a
   const proj = projectorFor(cal)
   if (!proj) return a
+  if (a.type === 'plink') {
+    const g = geomAt(a, t) as { points: Pt[] }
+    const points: Pt[] = []
+    for (const w of g.points) {
+      const p = proj.toImage(w)
+      if (!p) return a
+      points.push({ x: clamp(p.x, 0, 1), y: clamp(p.y, 0, 1) })
+    }
+    const out: Link = {
+      id: a.id,
+      space: 'screen',
+      type: 'link',
+      points,
+      closed: a.closed,
+      fillOpacity: a.fillOpacity,
+      rings: a.rings,
+      style: a.style,
+      ...(a.glow !== undefined ? { glow: a.glow } : {}),
+      ...(a.underPlayers !== undefined ? { underPlayers: a.underPlayers } : {}),
+      timing: a.timing
+    }
+    return out
+  }
   const g = geomAt(a, t) as { center: Pt; radius: number }
   let minX = Infinity
   let minY = Infinity

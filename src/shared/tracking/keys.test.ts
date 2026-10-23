@@ -4,9 +4,12 @@ import { keysOf, type Keyframe } from '../animation'
 import { groundEllipseRatio } from '../pitch/ground'
 import { sampleCalibration } from '../pitch/pitch.testkit'
 import {
+  FOOT_LIFT,
+  linkTrackToKeys,
   mergeTrackedKeys,
   pitchToScreenForTracking,
   thinTrack,
+  thinTracks,
   trackToKeys,
   type TrackSample
 } from './keys'
@@ -266,5 +269,116 @@ describe('pitchToScreenForTracking', () => {
   it('рисунок на экране возвращается как есть', () => {
     const a = ringAtFeet()
     expect(pitchToScreenForTracking(a, cal, 12)).toBe(a)
+  })
+})
+
+// --- Связка: N траекторий → ключи points ---
+
+const track = (n: number, x0: number, y: number, vx: number, height = 0.2): TrackSample[] =>
+  Array.from({ length: n }, (_, i) => sample(i, x0 + vx * i, y, height))
+
+describe('thinTracks: прореживание сразу по всем точкам', () => {
+  it('все траектории прореживаются по одним и тем же кадрам', () => {
+    const a = track(60, 0.1, 0.3, 0.004)
+    // Вторая точка меняет направление на 30-м кадре: этот кадр обязан остаться у всех.
+    const b = Array.from({ length: 60 }, (_, i) =>
+      sample(i, 0.5, 0.6 + (i < 30 ? i : 60 - i) * 0.005)
+    )
+    const out = thinTracks([a, b], 2.5 / 720)
+    expect(out).toHaveLength(2)
+    expect(out[0].map((s) => s.t)).toEqual(out[1].map((s) => s.t))
+    expect(out[0].some((s) => s.t === a[30].t)).toBe(true)
+    expect(out[0].length).toBeGreaterThan(2)
+    expect(out[0].length).toBeLessThan(10)
+    // Одна траектория совпадает с thinTrack.
+    expect(thinTracks([b], 2.5 / 720)[0]).toEqual(thinTrack(b, 2.5 / 720))
+  })
+  it('прямые траектории — остаются первый и последний кадры', () => {
+    const out = thinTracks([track(40, 0.1, 0.3, 0.004), track(40, 0.6, 0.7, -0.003)])
+    expect(out[0]).toHaveLength(2)
+    expect(out[1]).toHaveLength(2)
+  })
+  it('пустой список и пустые траектории', () => {
+    expect(thinTracks([])).toEqual([])
+    expect(thinTracks([[], []])).toEqual([[], []])
+  })
+})
+
+describe('linkTrackToKeys: ключи points из N траекторий', () => {
+  it('точка у ног с подъёмом, как у кольца: foot.y − 0.07 · (сглаженная высота), без смещения щелчка', () => {
+    const a = track(10, 0.1, 0.3, 0.01, 0.3)
+    const b = track(10, 0.6, 0.7, -0.01, 0.2)
+    const keys = linkTrackToKeys([a, b])
+    expect(keys).toHaveLength(10)
+    expect(keys.every((k) => k.auto === true && k.ease === 'linear')).toBe(true)
+    const p = keys[4].geom.points as Array<{ x: number; y: number }>
+    expect(p).toHaveLength(2)
+    expect(p[0].x).toBeCloseTo(a[4].foot.x, 9)
+    expect(p[0].y).toBeCloseTo(0.3 - FOOT_LIFT * 0.3, 9)
+    expect(p[1].x).toBeCloseTo(b[4].foot.x, 9)
+    expect(p[1].y).toBeCloseTo(0.7 - FOOT_LIFT * 0.2, 9)
+    expect(keys.map((k) => k.t)).toEqual(a.map((s) => s.t))
+  })
+  it('высота рамки сглаживается окном в 5 кадров (дрожание рамки не дрожит точкой)', () => {
+    const a = track(11, 0.3, 0.5, 0, 0.2).map((s, i) => ({ ...s, height: i === 5 ? 0.3 : 0.2 }))
+    const keys = linkTrackToKeys([a, a])
+    const p = keys[5].geom.points as Array<{ y: number }>
+    expect(p[0].y).toBeCloseTo(0.5 - FOOT_LIFT * 0.22, 9)
+    // а у края окно уже: на кадре 0 среднее по кадрам 0..2
+    expect((keys[0].geom.points as Array<{ y: number }>)[0].y).toBeCloseTo(0.5 - FOOT_LIFT * 0.2, 9)
+  })
+  it('кольцо и точка связки встают на одно и то же место (подъём одинаков)', () => {
+    const s = track(10, 0.3, 0.6, 0.01, 0.25)
+    const k = linkTrackToKeys([s, s])[0].geom.points as Array<{ x: number; y: number }>
+    expect(k[0].y).toBeCloseTo(s[0].foot.y - 0.07 * s[0].height, 9)
+  })
+  it('точки не выходят за кадр', () => {
+    const s = track(4, 0.5, 0.01, 0, 0.5)
+    const k = linkTrackToKeys([s, s])[0].geom.points as Array<{ y: number }>
+    expect(k[0].y).toBe(0)
+  })
+  it('пусто — пусто; ключи не чаще KEY_EPS', () => {
+    expect(linkTrackToKeys([])).toEqual([])
+    expect(linkTrackToKeys([[]])).toEqual([])
+    const dup = [sample(0, 0.1, 0.1), sample(0, 0.2, 0.2)]
+    expect(linkTrackToKeys([dup, dup])).toHaveLength(1)
+  })
+})
+
+describe('pitchToScreenForTracking: связка на поле → экранная', () => {
+  it('plink → link: те же id, вид, заливка и кольца; точки — по разметке; метров нет', () => {
+    const cal = sampleCalibration()
+    const plink = {
+      id,
+      space: 'pitch',
+      calibrationId: cal.id,
+      type: 'plink',
+      points: [
+        { x: 12, y: 16 },
+        { x: 12, y: 24 },
+        { x: 12, y: 33 }
+      ],
+      closed: true,
+      fillOpacity: 0.2,
+      rings: false,
+      labels: true,
+      style,
+      glow: true,
+      underPlayers: false,
+      timing: { mode: 'range' as const, start: 1, duration: 4 }
+    } as unknown as Annotation
+    const out = pitchToScreenForTracking(plink, cal, 1.5) as unknown as Record<string, unknown>
+    expect(out.type).toBe('link')
+    expect(out.space).toBe('screen')
+    expect(out.id).toBe(id)
+    expect(out.closed).toBe(true)
+    expect(out.fillOpacity).toBe(0.2)
+    expect(out.rings).toBe(false)
+    expect(out.glow).toBe(true)
+    expect(out.underPlayers).toBe(false)
+    expect('labels' in out).toBe(false)
+    expect('calibrationId' in out).toBe(false)
+    expect((out.points as unknown[]).length).toBe(3)
+    expect(AnnotationSchema.safeParse(out).success).toBe(true)
   })
 })

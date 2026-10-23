@@ -10,17 +10,24 @@ import { useFeedbackStore } from '../episodes/feedbackStore'
 import { useCalibrationsStore } from '../pitch/calibrationsStore'
 import { formatTime } from '../player/format'
 import { getVideoElement, seekTo } from '../player/videoElement'
+import { geomAt } from '../../../../shared/animation'
 import {
+  anchorsOfGeom,
   applyTrackResult,
+  isLinkType,
   planSeconds,
   rememberBackend,
   planTracking,
+  startAskKind,
   stopMessage,
   type PlanFailure,
   type TrackPlan
 } from './trackingApply'
 import { useTrackingStore } from './trackingStore'
 import { sendAnswer } from './answer'
+
+/** Ответ тренера на вопрос «Кто из них ваш?»: номер рамки или «моего игрока тут нет». */
+type PickAnswer = number | 'none'
 
 /** Предупреждение «это займёт около N с», если расчёт дольше этого (секунды). */
 export const LONG_SECONDS = 60
@@ -81,8 +88,8 @@ type JobEnd =
 interface Running {
   jobId: string | null
   finish: (end: JobEnd) => void
-  /** Ответ на вопрос «Кто из них ваш?»: индекс или null (отмена). */
-  answerPick: ((index: number | null) => void) | null
+  /** Ответ на вопрос «Кто из них ваш?»: рамка, «моего тут нет» или null (отмена). */
+  answerPick: ((answer: PickAnswer | null) => void) | null
   cancelled: boolean
 }
 
@@ -112,12 +119,22 @@ export async function cancelTrackingNow(): Promise<void> {
   }
 }
 
-/** Щелчок по игроку в вопросе «Кто из них ваш?». */
-export function answerPick(index: number): void {
-  running?.answerPick?.(index)
+/** Щелчок по игроку в вопросе «Кто из них ваш?» либо кнопка «Моего игрока тут нет». */
+export function answerPick(answer: PickAnswer): void {
+  running?.answerPick?.(answer)
 }
 
-function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<JobEnd> {
+/** Где точка связки стоит на кадре t: ею подсвечивается точка на картинке. Для одиночного слежения — null. */
+function markerOf(plan: TrackPlan, target: number, t: number): { x: number; y: number } | null {
+  if (!isLinkType(plan.base)) return null
+  return anchorsOfGeom(plan.base, geomAt(plan.base, t))[target] ?? null
+}
+
+function runJob(
+  plan: TrackPlan,
+  videoId: string,
+  picks: ReadonlyArray<FractionBox | null>
+): Promise<JobEnd> {
   return new Promise<JobEnd>((resolve) => {
     const store = useTrackingStore.getState()
     const job: Running = {
@@ -151,16 +168,21 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
         if (ask.jobId !== job.jobId || job.cancelled) return
         // Рамки лежат на кадре вопроса: показываем именно его.
         seekTo(ask.t)
-        job.answerPick = (index) => {
+        job.answerPick = (answer) => {
           job.answerPick = null
           useTrackingStore.getState().setPick(null)
-          if (index === null) return
+          if (answer === null) return
           // Отклонённый ответ: задача отменяется и показывается обычное сообщение об ошибке слежения.
-          void sendAnswer(window.api, ask.jobId, index, ask.target).then((message) => {
+          void sendAnswer(window.api, ask.jobId, answer, ask.target).then((message) => {
             if (message !== null) job.finish({ kind: 'error', message })
           })
         }
-        useTrackingStore.getState().setPick({ candidates: ask.candidates })
+        const link = isLinkType(plan.base)
+        useTrackingStore.getState().setPick({
+          candidates: ask.candidates,
+          point: link ? ask.target : null,
+          marker: markerOf(plan, ask.target, ask.t)
+        })
       } else if (ev.done.jobId === job.jobId) {
         job.finish({ kind: 'done', done: ev.done })
       }
@@ -180,8 +202,8 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
         videoId,
         from: plan.from,
         to: plan.to,
-        anchors: [plan.anchor],
-        ...(pick ? { picks: [pick] } : {})
+        anchors: plan.anchors,
+        ...(picks.some((p) => p !== null) ? { picks: [...picks] } : {})
       })
       .then((r) => {
         job.jobId = r.jobId
@@ -204,22 +226,27 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
 }
 
 /** Ждёт щелчка по одной из рамок на стартовом кадре (ambiguous-start). */
-function waitStartPick(done: StartFailure, plan: TrackPlan): Promise<number | null> {
+function waitStartPick(done: StartFailure, plan: TrackPlan): Promise<PickAnswer | null> {
   return new Promise((resolve) => {
     const store = useTrackingStore.getState()
     const job: Running = {
       jobId: null,
       finish: () => undefined,
       cancelled: false,
-      answerPick: (index) => {
+      answerPick: (answer) => {
         running = null
         useTrackingStore.getState().setPick(null)
-        resolve(index)
+        resolve(answer)
       }
     }
     running = job
     seekTo(plan.at)
-    store.setPick({ candidates: done.candidates ?? [] })
+    const link = isLinkType(plan.base)
+    store.setPick({
+      candidates: done.candidates ?? [],
+      point: link ? done.target : null,
+      marker: markerOf(plan, done.target, plan.at)
+    })
   })
 }
 
@@ -239,8 +266,9 @@ function applySuccess(
   const current = store.items.find((a) => a.id === annotationId)
   if (!current) return
   const { fps } = usePlayerStore.getState()
-  const result = applyTrackResult(current, done.samples[0], plan, { fps, aspect: videoAspect() })
-  const stop = done.stop ? stopMessage(done.stop) : null
+  const link = isLinkType(plan.base)
+  const result = applyTrackResult(current, done.samples, plan, { fps, aspect: videoAspect() })
+  const stop = done.stop ? stopMessage(done.stop, link) : null
   if (!result.ok) {
     if (result.reason === 'diverged' && result.diverged) {
       warn(ru.tracking.diverged(formatTime(result.diverged.t, { tenths: true })), LONG_TOAST_MS)
@@ -258,7 +286,8 @@ function applySuccess(
   if (stop) parts.push(stop)
   else if (result.diverged)
     parts.push(ru.tracking.diverged(formatTime(result.diverged.t, { tenths: true })))
-  if (plan.convertedFromPitch) parts.push(ru.tracking.pitchToScreen)
+  if (plan.convertedFromPitch)
+    parts.push(link ? ru.tracking.pitchToScreenLink : ru.tracking.pitchToScreen)
   if (parts.length > 0) warn(parts.join(' '), LONG_TOAST_MS)
   else useFeedbackStore.getState().show({ text: ru.tracking.done, kind: 'info', color: '#2bd67b' })
 }
@@ -279,7 +308,8 @@ export async function startTracking(annotationId: string): Promise<void> {
     return
   }
   const store = useTrackingStore.getState()
-  store.enter(annotationId)
+  const link = isLinkType(annotation)
+  store.enter(annotationId, link)
   // Расчёт привязан к этому видео и этому рисунку: смена видео или проекта отменяет его молча (вопрос «Кто из них ваш?»
   // и кадры относятся к прежнему видео), правка или удаление рисунка — с сообщением. Ничего не применяется и не рисуется.
   let edited = false
@@ -302,17 +332,38 @@ export async function startTracking(annotationId: string): Promise<void> {
     if (plan.replaceCount > 0 && !(await confirmOnce(ru.tracking.replaceManual(plan.replaceCount))))
       return
 
-    let end = await runJob(plan, source.id)
-    if (end.kind === 'done' && 'error' in end.done && end.done.error === 'ambiguous-start') {
-      const index = await waitStartPick(end.done, plan)
-      const box = index === null ? undefined : end.done.candidates?.[index]
-      if (!box) return
-      useTrackingStore.getState().startRunning()
-      end = await runJob(plan, source.id, box)
-      if (end.kind === 'done' && 'error' in end.done && end.done.error === 'ambiguous-start') {
-        warn(ru.tracking.pickFailed, LONG_TOAST_MS)
+    // Рамки, выбранные тренером по целям. Каждая неоднозначная цель спрашивается отдельно (по одному вопросу на запуск).
+    const picks: Array<FractionBox | null> = plan.anchors.map(() => null)
+    let end = await runJob(plan, source.id, picks)
+    for (let round = 0; round <= plan.anchors.length; round += 1) {
+      if (!(end.kind === 'done' && 'error' in end.done && end.done.error === 'ambiguous-start'))
+        break
+      const failure = end.done
+      const target = failure.target
+      if (startAskKind(failure.candidates) === 'same-player') {
+        // Одна рамка: две точки связки стоят на одном игроке — выбирать нечего.
+        warn(ru.tracking.samePlayer(target + 1), LONG_TOAST_MS)
         return
       }
+      // Эта цель уже отвечена, а старт опять неоднозначен: дальше спрашивать бесполезно.
+      if (picks[target] !== null) {
+        warn(link ? ru.tracking.pickFailedPoint(target + 1) : ru.tracking.pickFailed, LONG_TOAST_MS)
+        return
+      }
+      const answer = await waitStartPick(failure, plan)
+      if (answer === null) return
+      if (answer === 'none') {
+        warn(
+          link ? ru.tracking.noPlayerStartPoint(target + 1) : ru.tracking.noPlayerStart,
+          LONG_TOAST_MS
+        )
+        return
+      }
+      const box = failure.candidates?.[answer]
+      if (!box) return
+      picks[target] = box
+      useTrackingStore.getState().startRunning()
+      end = await runJob(plan, source.id, picks)
     }
     if (end.kind === 'cancelled') {
       if (edited && sameSource()) warn(ru.tracking.edited, LONG_TOAST_MS)
@@ -328,9 +379,17 @@ export async function startTracking(annotationId: string): Promise<void> {
     }
     const done = end.done
     if ('error' in done) {
-      if (done.error === 'no-player') warn(ru.tracking.noPlayer, LONG_TOAST_MS)
+      if (done.error === 'no-player')
+        warn(
+          link ? ru.tracking.noPlayerPoint(done.target + 1) : ru.tracking.noPlayer,
+          LONG_TOAST_MS
+        )
       else if (done.error === 'failed') warn(ru.tracking.failed(done.message), LONG_TOAST_MS)
-      else warn(ru.tracking.pickFailed, LONG_TOAST_MS)
+      else
+        warn(
+          link ? ru.tracking.pickFailedPoint(done.target + 1) : ru.tracking.pickFailed,
+          LONG_TOAST_MS
+        )
       return
     }
     rememberBackend(done.backend)

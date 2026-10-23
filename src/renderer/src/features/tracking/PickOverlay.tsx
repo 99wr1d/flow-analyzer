@@ -18,6 +18,7 @@ export function TrackingPanel(): React.JSX.Element | null {
   const cancelling = useTrackingStore((s) => s.cancelling)
   const pick = useTrackingStore((s) => s.pick)
   const runs = useTrackingStore((s) => s.runs)
+  const link = useTrackingStore((s) => s.link)
   const videoId = usePlayerStore((s) => s.source?.id)
   const hostRef = useRef<HTMLDivElement>(null)
   const rect = usePictureRect(hostRef, phase !== 'idle', videoId)
@@ -48,9 +49,37 @@ export function TrackingPanel(): React.JSX.Element | null {
     >
       {phase === 'asking' && pick && rect && (
         <div className="pick-shield" data-testid="pick-overlay">
-          <div className="pick-banner" role="alert" data-testid="pick-text">
-            {ru.tracking.pick}
+          <div
+            className="pick-banner"
+            role="alert"
+            data-testid="pick-text"
+            data-point={pick.point === null ? undefined : pick.point + 1}
+          >
+            {pick.point === null ? ru.tracking.pick : ru.tracking.pickPoint(pick.point + 1)}
           </div>
+          <button
+            type="button"
+            className="btn pick-none"
+            title={ru.tracking.pickNoneHint}
+            data-testid="pick-none"
+            onClick={() => answerPick('none')}
+          >
+            {ru.tracking.pickNone}
+          </button>
+          {pick.marker && pick.point !== null && (
+            <div
+              className="pick-point"
+              data-testid="pick-point"
+              data-point={pick.point + 1}
+              title={ru.tracking.pickPointMarker(pick.point + 1)}
+              style={{
+                left: rect.x + pick.marker.x * rect.w,
+                top: rect.y + pick.marker.y * rect.h
+              }}
+            >
+              {pick.point + 1}
+            </div>
+          )}
           {pickOrder(pick.candidates).map(({ c, i }) => (
             <button
               key={i}
@@ -97,7 +126,9 @@ export function TrackingPanel(): React.JSX.Element | null {
         ) : (
           <>
             {phase === 'running' && (
-              <span className="track-panel__text">{ru.tracking.running}</span>
+              <span className="track-panel__text">
+                {link ? ru.tracking.runningLink : ru.tracking.running}
+              </span>
             )}
             {phase === 'running' && (
               <div

@@ -12,7 +12,7 @@ export interface AnswerApi {
 export async function sendAnswer(
   api: AnswerApi,
   jobId: string,
-  index: number,
+  index: number | 'none',
   target: number
 ): Promise<string | null> {
   try {
