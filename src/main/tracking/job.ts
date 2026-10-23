@@ -69,6 +69,45 @@ export function boxToSample(box: Box, t: number, w: number, h: number): TrackSam
   return { t, foot: { x: (box.x + box.w / 2) / w, y: (box.y + box.h) / h }, height: box.h / h }
 }
 
+/** Ответ «вот мой» дальше этого (в высотах игрока) от последнего отсчёта цели противоречит её недавнему следу. */
+export const ANSWER_CONTRADICTS = 0.3
+
+/**
+ * Ответ пользователя противоречит недоказанному возвращению (цель шла за неотличимым новичком, пока её игрок не
+ * вернулся): отсчёты цели после последнего надёжного кадра (provenFrame) до кадра ответа заменяются прямой от надёжного
+ * отсчёта к выбранной рамке — как отсчёты «пережидания» (догадка, а не чужой игрок). Противоречие — выбранная рамка дальше
+ * ANSWER_CONTRADICTS высот от последнего отсчёта цели. Возвращает число заменённых отсчётов (0 — ничего не тронуто).
+ */
+export function reconcileAnswer(
+  samples: TrackSample[],
+  sampleFrames: number[],
+  provenFrame: number | null,
+  answered: TrackSample,
+  /** Ширина кадра / высота: доли ширины и высоты приводятся к долям высоты. */
+  aspect = 1
+): number {
+  const last = samples.at(-1)
+  if (!last) return 0
+  const dist = Math.hypot((answered.foot.x - last.foot.x) * aspect, answered.foot.y - last.foot.y)
+  if (dist <= ANSWER_CONTRADICTS * Math.max(answered.height, last.height)) return 0
+  const keep = provenFrame === null ? 0 : sampleFrames.filter((f) => f <= provenFrame).length
+  if (keep >= samples.length) return 0
+  const from = keep > 0 ? samples[keep - 1] : answered
+  const span = answered.t - from.t
+  for (let j = keep; j < samples.length; j += 1) {
+    const k = span > 0 ? (samples[j].t - from.t) / span : 1
+    samples[j] = {
+      t: samples[j].t,
+      foot: {
+        x: from.foot.x + (answered.foot.x - from.foot.x) * k,
+        y: from.foot.y + (answered.foot.y - from.foot.y) * k
+      },
+      height: from.height + (answered.height - from.height) * k
+    }
+  }
+  return samples.length - keep
+}
+
 /** Вырез для нескольких целей: общая рамка их прогнозов с запасом, если помещается в окно детектора; иначе целый кадр. */
 function sharedRoi(boxes: Box[]): Box | undefined {
   if (boxes.length === 1) return boxes[0]
@@ -195,12 +234,12 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     const trustedLen = (
       tr: MultiTracker,
       fallbackT: number,
-      /** strict — до любого недоказанного возвращения; relaxed — «чистое» возвращение снято; none — только уверенные. */
-      mode: 'strict' | 'relaxed' | 'none'
+      /** strict — до любого недоказанного возвращения; relaxed — «чистое» возвращение снято. */
+      mode: 'strict' | 'relaxed'
     ): { len: number; t: number } => {
       let len = Infinity
       lastGood.forEach((g, k) => {
-        const proven = mode === 'none' ? Infinity : tr.provenUntil(k, mode === 'strict')
+        const proven = tr.provenUntil(k, mode === 'strict')
         const upTo = proven === null ? 0 : sampleFrames.filter((f) => f <= proven).length
         len = Math.min(len, g?.len ?? 0, upTo)
       })
@@ -265,16 +304,23 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         // Пустой или неверный ответ без отмены — сбой: интерфейс не должен ждать итога вечно.
         const chosen = index === null ? undefined : cands[index]
         if (!chosen) throw new Error('Не удалось определить выбранного игрока')
+        // Ответ противоречит недоказанному возвращению — кадры на чужом заменяются догадкой (до ответа: он снимает сомнение).
+        reconcileAnswer(
+          samples[target],
+          sampleFrames,
+          tracker.provenUntil(target, true),
+          boxToSample(chosen.box, frame.t, fw, fh),
+          fw / fh
+        )
         step = tracker.resolve(target, chosen)
         forceFull = true
       }
       if (step.kind === 'lost') {
         // Стоп — на последнем надёжном кадре всех целей (спека, п. 8): отсчёты «пережидания» и недоказанных
         // возвращений после него отбрасываем.
-        // Строго (до любого недоказанного возвращения) — при потере цели (закрыта, ушла из кадра): она могла кончиться
-        // на чужом игроке. Смена плана теряет всех сразу и о личности ничего не говорит — как раньше, до последнего
-        // уверенного кадра; иначе безобидное пережидание (за игроком другой формы) обрезало бы всё слежение до него.
-        const { len, t } = trustedLen(tracker, frame.t, step.reason === 'cut' ? 'none' : 'strict')
+        // Строго (до любого недоказанного возвращения) при любой остановке, в том числе при смене плана: одиночный
+        // новичок на месте цели неотличим от её же игрока после безобидного пережидания, и иначе кадры на чужом остались бы.
+        const { len, t } = trustedLen(tracker, frame.t, 'strict')
         return stopAt(len, t, step.reason, step.target)
       }
       coasting = step.coasting.some(Boolean)

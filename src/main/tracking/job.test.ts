@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Box, Detection } from '../../shared/tracking/types'
 import { estimateSeconds } from '../../shared/tracking/trackingIpc'
-import { boxToSample, runTrackingJob, type RunTrackingOptions } from './job'
+import { boxToSample, reconcileAnswer, runTrackingJob, type RunTrackingOptions } from './job'
 import type { DecodedFrame } from './frames'
 import type { DetectOutput, Detector, DetectorFrame } from './detectorWindow'
 import {
@@ -843,6 +843,75 @@ describe('runTrackingJob: потеря после недоказанного в�
     expect(out.samples[0]).toHaveLength(20)
     for (const [k, s] of out.samples[0].entries()) {
       expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k}`).toBeLessThan(10)
+    }
+  })
+})
+
+describe('ответ противоречит недоказанному возвращению', () => {
+  const at = (
+    t: number,
+    x: number
+  ): { t: number; foot: { x: number; y: number }; height: number } => ({
+    t,
+    foot: { x, y: 0.5 },
+    height: 0.17
+  })
+
+  it('reconcileAnswer: ответ далеко от последнего отсчёта — отсчёты после надёжного кадра заменяются прямой', () => {
+    const samples = [at(0, 0.3), at(1, 0.31), at(2, 0.4), at(3, 0.45)]
+    const n = reconcileAnswer(samples, [0, 1, 2, 3], 1, at(4, 0.32))
+    expect(n).toBe(2)
+    expect(samples[0].foot.x).toBe(0.3)
+    expect(samples[1].foot.x).toBe(0.31)
+    // прямая от (t=1, 0.31) к (t=4, 0.32)
+    expect(samples[2].foot.x).toBeCloseTo(0.31 + (0.01 * 1) / 3, 9)
+    expect(samples[3].foot.x).toBeCloseTo(0.31 + (0.01 * 2) / 3, 9)
+  })
+
+  it('reconcileAnswer: ответ согласен со следом (рядом с последним отсчётом) — ничего не трогается', () => {
+    const samples = [at(0, 0.3), at(1, 0.31), at(2, 0.32), at(3, 0.33)]
+    const copy = samples.map((s) => ({ ...s, foot: { ...s.foot } }))
+    expect(reconcileAnswer(samples, [0, 1, 2, 3], 1, at(4, 0.34))).toBe(0)
+    expect(samples).toEqual(copy)
+  })
+
+  it('кольцо ушло за неотличимым новичком, свой вернулся и ответ верный: в результате нет кадров на чужом', async () => {
+    // Своя рамка встаёт на кадре 22 и пропадает на кадрах 20–31; на кадре 22 рядом (dx=20) выходит игрок той же формы и
+    // идёт дальше. На кадре 32 свой виден снова — вопрос, ответ — свой.
+    const own = (f: number): number => 300 + 2 * Math.min(f, 22)
+    const other = (f: number): number => 300 + 2 * f + 20
+    const det = scripted((f) => {
+      const out: Detection[] = []
+      if (f < 20 || f >= 32) out.push(person(own(f), 270))
+      if (f >= 22) out.push(person(other(f), 270))
+      return out
+    })
+    const asked: number[] = []
+    const out = await runTrackingJob(
+      options({
+        frames: frames(50),
+        createDetector: () => Promise.resolve(det),
+        anchors: [{ x: 300 / W, y: 300 / H }],
+        onAsk: (t, candidates) => {
+          asked.push(Math.round(t * FPS - 0.5))
+          // свой — левее (ближе к 344 px)
+          let best = 0
+          candidates.forEach((c, k) => {
+            const cx = (c.x + c.w / 2) * W
+            const bx = (candidates[best].x + candidates[best].w / 2) * W
+            if (Math.abs(cx - own(32)) < Math.abs(bx - own(32))) best = k
+          })
+          return Promise.resolve(best)
+        }
+      })
+    )
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(asked.length).toBeGreaterThan(0)
+    expect(out.samples[0]).toHaveLength(50)
+    for (const [k, s] of out.samples[0].entries()) {
+      // ни одного кадра у чужого (тот правее своего не меньше чем на 20 px)
+      expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k}`).toBeLessThan(12)
     }
   })
 })
