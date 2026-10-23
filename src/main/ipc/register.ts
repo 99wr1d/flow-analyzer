@@ -1,5 +1,6 @@
 import { registerCloseHandlers } from '../closeGuard'
 import { registerAppHandlers } from './app'
+import { registerBoardHandlers } from './board'
 import { registerExportHandlers } from './export'
 import { registerLibraryHandlers } from './library'
 import { registerProjectHandlers } from './project'
@@ -17,5 +18,6 @@ export function registerIpcHandlers(): void {
   registerExportHandlers()
   registerStatsHandlers()
   registerTrackingHandlers()
+  registerBoardHandlers()
   registerCloseHandlers()
 }

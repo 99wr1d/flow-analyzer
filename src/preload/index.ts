@@ -16,6 +16,13 @@ import type {
   StageFrames,
   StageOverlays
 } from '../shared/export'
+import type {
+  BoardCard,
+  BoardOpenResult,
+  BoardSaveRequest,
+  BoardSaveResult,
+  SaveImageRequest
+} from '../shared/board/ipc'
 import type { AboutInfo, LicenseTexts, LogEntry } from '../shared/log'
 import type { CreateProjectRequest, LibraryListing } from '../shared/library'
 import type {
@@ -130,6 +137,14 @@ const api: FlowApi = {
     ipcRenderer.on(IPC_EVENTS.openProjectRequested, listener)
     return () => ipcRenderer.removeListener(IPC_EVENTS.openProjectRequested, listener)
   },
+  listBoards: () => invoke<BoardCard[]>(IPC_CHANNELS.boardList),
+  saveBoard: (request: BoardSaveRequest) =>
+    invoke<BoardSaveResult>(IPC_CHANNELS.boardSave, request),
+  openBoard: (path: string) => invoke<BoardOpenResult>(IPC_CHANNELS.boardOpen, path),
+  deleteBoard: (path: string) => invoke<void>(IPC_CHANNELS.boardDelete, path),
+  revealBoard: (path: string) => invoke<void>(IPC_CHANNELS.boardReveal, path),
+  saveBoardImage: (request: SaveImageRequest) =>
+    invoke<{ path: string } | null>(IPC_CHANNELS.boardSaveImage, request),
   importDroppedVideo(file: File): Promise<VideoSource> {
     let path: string
     try {

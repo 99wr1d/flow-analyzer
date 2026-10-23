@@ -1,5 +1,12 @@
 // Единый контракт IPC между main, preload и renderer.
 // Здесь только имена каналов, типы и константы — никакой логики.
+import type {
+  BoardCard,
+  BoardOpenResult,
+  BoardSaveRequest,
+  BoardSaveResult,
+  SaveImageRequest
+} from './board/ipc'
 import type { CreateProjectRequest, LibraryListing } from './library'
 import type {
   ProjectMeta,
@@ -69,7 +76,17 @@ export const IPC_CHANNELS = {
   windowSetTitle: 'window:set-title',
   appCloseResponse: 'app:close-response',
   appConfirmClose: 'app:confirm-close',
-  appCancelClose: 'app:cancel-close'
+  appCancelClose: 'app:cancel-close',
+  boardList: 'board:list',
+  boardSave: 'board:save',
+  boardOpen: 'board:open',
+  boardDelete: 'board:delete',
+  boardSaveImage: 'board:save-image',
+  boardExportVideo: 'board:export-video',
+  boardStageFrames: 'board:stage-frames',
+  boardFinishVideo: 'board:finish-video',
+  boardCancelVideo: 'board:cancel-video',
+  boardReveal: 'board:reveal'
 } as const
 
 /** События, которые main отправляет интерфейсу. */
@@ -79,7 +96,8 @@ export const IPC_EVENTS = {
   exportProgress: 'export:progress',
   trackingProgress: 'tracking:progress',
   trackingAsk: 'tracking:ask',
-  trackingDone: 'tracking:done'
+  trackingDone: 'tracking:done',
+  boardVideoProgress: 'board:video-progress'
 } as const
 
 export interface AppInfo {
@@ -211,4 +229,16 @@ export interface FlowApi {
   cancelClose(): Promise<void>
   /** Другой экземпляр приложения или двойной щелчок по .flowproj просит открыть проект. */
   onOpenProjectRequested(callback: (path: string) => void): () => void
+
+  /** Доски тренера (.flowboard) в папке «Доски» внутри папки проектов. */
+  listBoards(): Promise<BoardCard[]>
+  /** path = null — новый файл в папке досок (имя по названию); иначе путь из папки досок или выданный ранее. */
+  saveBoard(request: BoardSaveRequest): Promise<BoardSaveResult>
+  openBoard(path: string): Promise<BoardOpenResult>
+  /** Переносит файл доски в Корзину. */
+  deleteBoard(path: string): Promise<void>
+  /** Показывает файл доски в проводнике. */
+  revealBoard(path: string): Promise<void>
+  /** Диалог сохранения PNG. null — пользователь отменил. */
+  saveBoardImage(request: SaveImageRequest): Promise<{ path: string } | null>
 }
