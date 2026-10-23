@@ -68,6 +68,8 @@ export interface StrokePaint {
    * Нет — по длине самой линии.
    */
   layoutLength?: number
+  /** Кольцо у ног точки связки (а не линия рисунка): в разметке помечается data-part="ring". */
+  ring?: true
 }
 
 /** «Луч» над светлым пятном прожектора: силуэт и границы по вертикали (для градиента). */
@@ -317,19 +319,21 @@ export const worldWidthOf = (a: PitchAnnotation): number => {
         ? WORLD_WIDTH_FACTOR.line
         : a.type === 'pchain'
           ? WORLD_WIDTH_FACTOR.line * 1.4
-          : a.type === 'pzone'
-            ? WORLD_WIDTH_FACTOR.line * 0.8
-            : a.type === 'pspot'
-              ? WORLD_WIDTH_FACTOR.ring * 0.7
-              : a.type === 'parrow'
-                ? WORLD_WIDTH_FACTOR.arrow
-                : a.type === 'pline'
-                  ? WORLD_WIDTH_FACTOR.line
-                  : a.type === 'ring'
-                    ? WORLD_WIDTH_FACTOR.ring
-                    : a.type === 'ruler'
-                      ? WORLD_WIDTH_FACTOR.ruler
-                      : 0
+          : a.type === 'plink'
+            ? WORLD_WIDTH_FACTOR.line * 0.4
+            : a.type === 'pzone'
+              ? WORLD_WIDTH_FACTOR.line * 0.8
+              : a.type === 'pspot'
+                ? WORLD_WIDTH_FACTOR.ring * 0.7
+                : a.type === 'parrow'
+                  ? WORLD_WIDTH_FACTOR.arrow
+                  : a.type === 'pline'
+                    ? WORLD_WIDTH_FACTOR.line
+                    : a.type === 'ring'
+                      ? WORLD_WIDTH_FACTOR.ring
+                      : a.type === 'ruler'
+                        ? WORLD_WIDTH_FACTOR.ruler
+                        : 0
   return a.type === 'ptext' ? 0 : a.style.width * f
 }
 

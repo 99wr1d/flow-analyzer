@@ -119,7 +119,7 @@ export function buildOverlaySvg(
 }
 
 /** У рисунка «под игроками» есть часть, которая всегда поверх: подпись, луч прожектора (затемнение — отдельно). */
-const HAS_TOP_PART = new Set(['ruler', 'pzone', 'pchain', 'pspot'])
+const HAS_TOP_PART = new Set(['ruler', 'pzone', 'pchain', 'plink', 'pspot'])
 
 /** Какие слои нужны набору рисунков. */
 export function layersFor(items: readonly Annotation[]): { under: boolean; over: boolean } {

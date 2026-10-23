@@ -44,6 +44,7 @@ export const GEOM_FIELDS: Record<AnnotationType, readonly string[]> = {
   pen: ['points'],
   zone: ['points'],
   chain: ['points'],
+  link: ['points'],
   text: ['pos'],
   loupe: ['pos', 'src'],
   ring: ['center', 'radius'],
@@ -55,7 +56,8 @@ export const GEOM_FIELDS: Record<AnnotationType, readonly string[]> = {
   pcurve: ['p1', 'p2', 'c'],
   ppen: ['points'],
   pzone: ['points'],
-  pchain: ['points']
+  pchain: ['points'],
+  plink: ['points']
 }
 
 export function keysOf(a: object): Keyframe[] {

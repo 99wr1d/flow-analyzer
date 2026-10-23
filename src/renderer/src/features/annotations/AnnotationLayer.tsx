@@ -41,7 +41,7 @@ import type { Projector } from '../../../../shared/pitch/projector'
 import { pitchLabelShifts } from '../../../../shared/pitch/labelNudge'
 import { worldDistance, type PitchHandleId } from '../../../../shared/pitch/shapes'
 import { defaultControl } from '../../../../shared/tools/curve'
-import { hasVertices, vertexIndex } from '../../../../shared/tools/points'
+import { hasVertices, maxVertices, vertexIndex } from '../../../../shared/tools/points'
 import { insertionPoint, pushVertex } from '../../../../shared/tools/polygon'
 import { simplifyStroke } from '../../../../shared/tools/simplify'
 import { ru } from '../../i18n/ru'
@@ -78,6 +78,7 @@ import {
   cancelPolyDraft,
   draftAnnotation,
   finishPolyDraft,
+  maxDraftPoints,
   usePolyDraft,
   type PolyTool
 } from './polyDraft'
@@ -118,7 +119,21 @@ const CURVE_BEND = 0.28
 type DrawTool = 'arrow' | 'line' | 'circle' | 'spot' | 'curve' | 'loupe'
 type PitchDrawTool = 'arrow' | 'line' | 'circle' | 'ruler' | 'spot' | 'curve'
 /** Инструменты, которые умеют рисовать на поле, когда включено «На поле». */
-const PITCH_TOOLS = ['arrow', 'line', 'circle', 'text', 'spot', 'curve', 'pen', 'zone', 'chain']
+const PITCH_TOOLS = [
+  'arrow',
+  'line',
+  'circle',
+  'text',
+  'spot',
+  'curve',
+  'pen',
+  'zone',
+  'chain',
+  'link'
+]
+/** Инструменты, рисующие щелчками по вершинам (Enter / двойной щелчок — готово). */
+const isPolyTool = (tool: string): tool is PolyTool =>
+  tool === 'zone' || tool === 'chain' || tool === 'link'
 
 interface PitchTarget {
   calibrationId: string
@@ -289,7 +304,7 @@ function snapScreenHandle(
     if (handle !== 'p1' && handle !== 'p2') return target
     return snapAngle(handle === 'p1' ? item.p2 : item.p1, target, size)
   }
-  if (item.type === 'zone' || item.type === 'chain') {
+  if (item.type === 'zone' || item.type === 'chain' || item.type === 'link') {
     const i = vertexIndex(handle)
     if (i === null) return target
     const anchor = item.points[i > 0 ? i - 1 : 1]
@@ -630,7 +645,13 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     const minDist =
       d.space === 'pitch' ? 0.15 : VERTEX_MIN_PX / Math.max(1, Math.min(size.w, size.h))
     const next = pushVertex(d.points, point, minDist)
-    if (next.length !== d.points.length) usePolyDraft.getState().addPoint(point)
+    if (next.length === d.points.length) return
+    if (d.points.length >= maxDraftPoints(d.tool)) {
+      // Связка — не больше 8 точек: лишний щелчок не добавляется, но подсказывает, что делать.
+      useFeedbackStore.getState().show({ text: ru.annotations.linkMaxPoints, kind: 'warn' })
+      return
+    }
+    usePolyDraft.getState().addPoint(point)
   }
 
   /** Кадр, на котором правится рисунок (середина показанного кадра). */
@@ -782,14 +803,14 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       !usePolyDraft.getState().draft &&
       // Инструмент правит только выбранный рисунок (ручки и тело); остальные рисунки не мешают рисовать новое поверх них.
       // Зона и связи ставятся щелчками: тело не перехватывается, правятся только вершины выбранного.
-      beginEdit(e, norm, px, store.tool === 'zone' || store.tool === 'chain' ? 'none' : 'selected')
+      beginEdit(e, norm, px, isPolyTool(store.tool) ? 'none' : 'selected')
     ) {
       return
     }
 
     if (norm.x < 0 || norm.x > 1 || norm.y < 0 || norm.y > 1) return
 
-    if (store.tool === 'zone' || store.tool === 'chain') {
+    if (isPolyTool(store.tool)) {
       pauseVideo()
       store.select(null)
       polyClick(store.tool, norm, px, e.shiftKey, now)
@@ -869,7 +890,14 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     t: number
   ): { item: Annotation; stored: Annotation; index: number; gesture: Gesture } | null => {
     if (!hasVertices(current)) return null
-    const closed = current.type === 'zone' || current.type === 'pzone'
+    // Больше вершин, чем позволяет вид рисунка (связка — 8), не вставить.
+    if (current.points.length >= maxVertices(current)) return null
+    const closed =
+      current.type === 'zone' ||
+      current.type === 'pzone' ||
+      ((current.type === 'link' || current.type === 'plink') &&
+        current.closed &&
+        current.points.length >= 3)
     const projector = isPitchAnnotation(current) ? lookup(current.calibrationId) : null
     if (isPitchAnnotation(current) && !projector) return null
     // Ищем ближайшее звено на картинке (в пикселях).
@@ -945,10 +973,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       }
       const drawing = store.tool !== 'select'
       // Текст и незаконченная зона/связи: по рисункам не «ходим», только ставим новое.
-      if (
-        drawing &&
-        (store.tool === 'text' || store.tool === 'zone' || store.tool === 'chain' || pd || e.altKey)
-      ) {
+      if (drawing && (store.tool === 'text' || isPolyTool(store.tool) || pd || e.altKey)) {
         svg.style.cursor = store.tool === 'text' ? 'text' : 'crosshair'
         return
       }
@@ -1330,7 +1355,11 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
           data-testid="poly-hint"
           style={{ left: rect.x + 8, top: rect.y + 8 }}
         >
-          {poly.tool === 'zone' ? ru.annotations.polyHintZone : ru.annotations.polyHintChain}
+          {poly.tool === 'zone'
+            ? ru.annotations.polyHintZone
+            : poly.tool === 'link'
+              ? ru.annotations.polyHintLink
+              : ru.annotations.polyHintChain}
         </div>
       )}
       <MaskBadge rect={rect} />

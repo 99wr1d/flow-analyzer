@@ -470,8 +470,10 @@ function geometryOf(a: Annotation): string {
       return JSON.stringify({ points: a.points, arrow: a.arrow })
     case 'zone':
     case 'chain':
+    case 'link':
     case 'pzone':
     case 'pchain':
+    case 'plink':
       return JSON.stringify({ points: a.points })
     case 'loupe':
       return JSON.stringify({ pos: a.pos, src: a.src, radius: a.radius, zoom: a.zoom })
@@ -481,7 +483,7 @@ function geometryOf(a: Annotation): string {
 }
 
 /** Виды рисунков с полупрозрачной подложкой (заливка зоны и связей, луч прожектора). */
-const HAS_UNDERLAY = new Set(['zone', 'chain', 'pzone', 'pchain', 'spot', 'pspot'])
+const HAS_UNDERLAY = new Set(['zone', 'chain', 'link', 'pzone', 'pchain', 'plink', 'spot', 'pspot'])
 
 export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.Element | null {
   const a = props.annotation

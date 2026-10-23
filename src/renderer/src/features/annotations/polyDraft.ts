@@ -5,10 +5,13 @@ import {
   defaultDuration,
   frameCenter,
   DEFAULT_FREEZE,
+  MAX_LINK_POINTS,
   type Annotation,
   type Chain,
   type GroundChain,
+  type GroundLink,
   type GroundZone,
+  type Link,
   type Zone
 } from '../../../../shared/annotations'
 import { canClosePolygon, canFinishChain } from '../../../../shared/tools/polygon'
@@ -16,9 +19,9 @@ import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
 import { useFeedbackStore } from '../episodes/feedbackStore'
 import { useAnnotationsStore } from './annotationsStore'
-import { shapeStyleOf } from './styles'
+import { newDrawingFx, shapeStyleOf } from './styles'
 
-export type PolyTool = 'zone' | 'chain'
+export type PolyTool = 'zone' | 'chain' | 'link'
 
 export interface PolyDraft {
   tool: PolyTool
@@ -63,7 +66,14 @@ export const polyDraftActive = (): boolean => usePolyDraft.getState().draft !== 
 export function draftAnnotation(d: PolyDraft, withHover: boolean): Annotation {
   const points = withHover && d.hover ? [...d.points, d.hover] : d.points
   const { style, options } = useAnnotationsStore.getState()
-  const base = { id: 'poly-draft', style: shapeStyleOf(style) }
+  // Связка рисуется своим цветом и толщиной (по умолчанию белая и тонкая).
+  const base = {
+    id: 'poly-draft',
+    style:
+      d.tool === 'link'
+        ? shapeStyleOf({ ...style, color: style.linkColor, level: style.linkLevel })
+        : shapeStyleOf(style)
+  }
   const { duration } = usePlayerStore.getState()
   const timing =
     d.space === 'pitch'
@@ -79,6 +89,16 @@ export function draftAnnotation(d: PolyDraft, withHover: boolean): Annotation {
       space: 'pitch' as const,
       calibrationId: d.calibrationId ?? '',
       timing
+    }
+    if (d.tool === 'link') {
+      return {
+        ...ground,
+        ...newDrawingFx('plink', style),
+        type: 'plink',
+        points,
+        fillOpacity: options.linkFill,
+        labels: options.labels
+      } as GroundLink
     }
     return d.tool === 'zone'
       ? ({
@@ -97,12 +117,25 @@ export function draftAnnotation(d: PolyDraft, withHover: boolean): Annotation {
         } satisfies GroundChain)
   }
   const screen = { ...base, space: 'screen' as const, timing }
+  if (d.tool === 'link') {
+    return {
+      ...screen,
+      ...newDrawingFx('link', style),
+      type: 'link',
+      points,
+      fillOpacity: options.linkFill
+    } as Link
+  }
   return d.tool === 'zone'
     ? ({ ...screen, type: 'zone', points, opacity: options.opacity } satisfies Zone)
     : ({ ...screen, type: 'chain', points, fill: options.fill } satisfies Chain)
 }
 
-/** Можно ли завершить черновик (зона — от трёх вершин не на одной прямой, связь — от двух). */
+/** Предел точек при рисовании щелчками: у связки — 8 (у зоны и связей прежнего предела при щелчках нет). */
+export const maxDraftPoints = (tool: PolyTool): number =>
+  tool === 'link' ? MAX_LINK_POINTS : Infinity
+
+/** Можно ли завершить черновик (зона — от трёх вершин не на одной прямой, связь и связка — от двух). */
 export function canFinishDraft(d: PolyDraft): boolean {
   return d.tool === 'zone' ? canClosePolygon(d.points) : canFinishChain(d.points)
 }
@@ -113,7 +146,12 @@ export function finishPolyDraft(): boolean {
   if (!d) return false
   if (!canFinishDraft(d)) {
     useFeedbackStore.getState().show({
-      text: d.tool === 'zone' ? ru.annotations.zoneNeedPoints : ru.annotations.chainNeedPoints,
+      text:
+        d.tool === 'zone'
+          ? ru.annotations.zoneNeedPoints
+          : d.tool === 'link'
+            ? ru.annotations.linkNeedPoints
+            : ru.annotations.chainNeedPoints,
       kind: 'warn'
     })
     return false

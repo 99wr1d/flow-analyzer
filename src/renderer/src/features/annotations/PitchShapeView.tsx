@@ -388,7 +388,7 @@ export function PaintParts({
           return (
             <path
               key={`stroke-${i}`}
-              data-part="stroke"
+              data-part={s.ring ? 'ring' : 'stroke'}
               d={strokeD(s)}
               fill="none"
               stroke={color}

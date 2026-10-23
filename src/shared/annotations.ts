@@ -276,6 +276,11 @@ export const DEFAULT_ZONE_OPACITY = 0.3
 export const MAX_PEN_POINTS = 400
 export const MAX_ZONE_VERTICES = 60
 export const MAX_CHAIN_NODES = 30
+/** 0.19: «Связка» — 2–8 точек у ног игроков. Версии до 0.19 проект с такой связкой не открывают (новый вид рисунка). */
+export const MAX_LINK_POINTS = 8
+/** Заливка «Области» связки: по умолчанию и предел (доля прозрачности). */
+export const DEFAULT_LINK_FILL = 0.12
+export const MAX_LINK_FILL = 0.4
 export const MIN_LOUPE_RADIUS = 0.04
 export const MAX_LOUPE_RADIUS = 0.3
 export const DEFAULT_LOUPE_RADIUS = 0.12
@@ -291,6 +296,9 @@ const chainPoints = z.array(PointSchema).min(2).max(MAX_CHAIN_NODES)
 const groundPenPoints = z.array(WorldPointSchema).min(2).max(MAX_PEN_POINTS)
 const groundZonePoints = z.array(WorldPointSchema).min(3).max(MAX_ZONE_VERTICES)
 const groundChainPoints = z.array(WorldPointSchema).min(2).max(MAX_CHAIN_NODES)
+const linkPoints = z.array(PointSchema).min(2).max(MAX_LINK_POINTS)
+const groundLinkPoints = z.array(WorldPointSchema).min(2).max(MAX_LINK_POINTS)
+const linkFill = z.number().min(0).max(MAX_LINK_FILL).default(DEFAULT_LINK_FILL)
 
 const dim = z.number().min(MIN_DIM).max(MAX_DIM).default(DEFAULT_DIM)
 /**
@@ -390,6 +398,25 @@ export const ChainSchema = z.object({
   timing: TimingSchema
 })
 
+/**
+ * Связка (0.19): 2–8 точек у ног игроков, соединённых линией (closed = false) или замкнутых в область с лёгкой заливкой.
+ * rings — маленькое кольцо у ног в каждой точке (стиль 0.18).
+ */
+export const LinkSchema = z.object({
+  id,
+  space: screenSpace,
+  type: z.literal('link'),
+  points: linkPoints,
+  closed: z.boolean().default(false),
+  fillOpacity: linkFill,
+  rings: z.boolean().default(true),
+  style: ShapeStyleSchema,
+  glow,
+  underPlayers,
+  keyframes: kf({ points: linkPoints }),
+  timing: TimingSchema
+})
+
 /** Прожектор на траве: эллипс на земле радиусом radius метров и (по желанию) вертикальный «луч». */
 export const GroundSpotlightSchema = z.object({
   ...onPitch,
@@ -453,6 +480,21 @@ export const GroundChainSchema = z.object({
   keyframes: kf({ points: groundChainPoints }),
   timing: TimingSchema
 })
+/** Связка на траве; labels — подписи длин звеньев (у линии с тремя и больше точками ещё и «Ширина линии»). */
+export const GroundLinkSchema = z.object({
+  ...onPitch,
+  type: z.literal('plink'),
+  points: groundLinkPoints,
+  closed: z.boolean().default(false),
+  fillOpacity: linkFill,
+  rings: z.boolean().default(true),
+  labels: z.boolean().default(true),
+  style: ShapeStyleSchema,
+  glow,
+  underPlayers,
+  keyframes: kf({ points: groundLinkPoints }),
+  timing: TimingSchema
+})
 
 export const AnnotationSchema = z.discriminatedUnion('type', [
   ArrowSchema,
@@ -470,11 +512,13 @@ export const AnnotationSchema = z.discriminatedUnion('type', [
   ZoneSchema,
   LoupeSchema,
   ChainSchema,
+  LinkSchema,
   GroundSpotlightSchema,
   GroundCurveSchema,
   GroundPenSchema,
   GroundZoneSchema,
-  GroundChainSchema
+  GroundChainSchema,
+  GroundLinkSchema
 ])
 export const AnnotationListSchema = z.array(AnnotationSchema)
 
@@ -498,6 +542,8 @@ export type Pen = z.infer<typeof PenSchema>
 export type Zone = z.infer<typeof ZoneSchema>
 export type Loupe = z.infer<typeof LoupeSchema>
 export type Chain = z.infer<typeof ChainSchema>
+export type Link = z.infer<typeof LinkSchema>
+export type GroundLink = z.infer<typeof GroundLinkSchema>
 export type GroundSpotlight = z.infer<typeof GroundSpotlightSchema>
 export type GroundCurve = z.infer<typeof GroundCurveSchema>
 export type GroundPen = z.infer<typeof GroundPenSchema>
@@ -506,7 +552,7 @@ export type GroundChain = z.infer<typeof GroundChainSchema>
 export type Annotation = z.infer<typeof AnnotationSchema>
 export type AnnotationType = Annotation['type']
 export type ScreenAnnotation =
-  Arrow | Line | Circle | TextAnnotation | Spotlight | Curve | Pen | Zone | Loupe | Chain
+  Arrow | Line | Circle | TextAnnotation | Spotlight | Curve | Pen | Zone | Loupe | Chain | Link
 export type PitchAnnotation =
   | Ring
   | GroundArrow
@@ -518,11 +564,13 @@ export type PitchAnnotation =
   | GroundPen
   | GroundZone
   | GroundChain
+  | GroundLink
 export type TwoPointAnnotation = Arrow | Line | Circle
 /** Рисунки на экране, лежащие в рамке p1–p2 (как круг). */
 export type BoxAnnotation = Circle | Spotlight
 /** Рисунки, состоящие из списка точек (экран или поле). */
-export type PointsAnnotation = Pen | Zone | Chain | GroundPen | GroundZone | GroundChain
+export type PointsAnnotation =
+  Pen | Zone | Chain | Link | GroundPen | GroundZone | GroundChain | GroundLink
 
 /** Рисунок — прожектор (экран или поле): затемняет всё вокруг. */
 export const isSpotlight = (a: Annotation): a is Spotlight | GroundSpotlight =>
@@ -537,6 +585,8 @@ const UNDER_BY_DEFAULT: ReadonlySet<string> = new Set([
   'ppen',
   'pzone',
   'pchain',
+  'plink',
+  'link',
   'pspot',
   'ruler'
 ])
@@ -546,7 +596,7 @@ const NEVER_UNDER: ReadonlySet<string> = new Set(['text', 'ptext', 'loupe', 'spo
 /** Значение «под игроками» по умолчанию для вида рисунка. Старые проекты поля не имеют — берётся оно. */
 export const defaultUnderPlayers = (type: string): boolean => UNDER_BY_DEFAULT.has(type)
 /** Подсветки на экране, которые с 0.16.4 новыми кладутся под игроков (старые рисунки хранят своё значение). */
-const UNDER_WHEN_NEW_ON_SCREEN: ReadonlySet<string> = new Set(['circle', 'zone'])
+const UNDER_WHEN_NEW_ON_SCREEN: ReadonlySet<string> = new Set(['circle', 'zone', 'link'])
 /**
  * «Под игроками» для НОВОГО рисунка, пока пользователь не выбрал сам: всё на поле, а на экране
  * круг/эллипс и зона (подсветка выделяет игрока, а не закрывает его). Стрелки и линии на экране — поверх.

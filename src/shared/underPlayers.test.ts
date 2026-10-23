@@ -52,6 +52,7 @@ const OLD: Record<AnnotationType, Record<string, unknown>> = {
     radius: 0.1
   },
   chain: { ...base, space: 'screen', type: 'chain', points: pts },
+  link: { ...base, space: 'screen', type: 'link', points: pts },
   ring: { ...base, ...ground, type: 'ring', center: world, radius: 1 },
   parrow: { ...base, ...ground, type: 'parrow', p1: world, p2: { x: 15, y: 20 } },
   pline: { ...base, ...ground, type: 'pline', p1: world, p2: { x: 15, y: 20 } },
@@ -68,7 +69,8 @@ const OLD: Record<AnnotationType, Record<string, unknown>> = {
   pcurve: { ...base, ...ground, type: 'pcurve', p1: world, p2: { x: 15, y: 20 }, c: wp[2] },
   ppen: { ...base, ...ground, type: 'ppen', points: wp },
   pzone: { ...base, ...ground, type: 'pzone', points: wp },
-  pchain: { ...base, ...ground, type: 'pchain', points: wp }
+  pchain: { ...base, ...ground, type: 'pchain', points: wp },
+  plink: { ...base, ...ground, type: 'plink', points: wp }
 }
 
 const GROUND_TYPES: AnnotationType[] = [
@@ -79,17 +81,20 @@ const GROUND_TYPES: AnnotationType[] = [
   'ppen',
   'pzone',
   'pchain',
+  'plink',
+  // «Связка» (0.19) — новый вид: сразу под игроками и на экране.
+  'link',
   'pspot',
   'ruler'
 ]
 
 describe('underPlayers: значения по умолчанию по виду рисунка', () => {
-  it('все 20 видов рисунков читаются без поля underPlayers (старые проекты)', () => {
+  it('все 22 вида рисунков читаются без поля underPlayers (старые проекты)', () => {
     for (const [type, raw] of Object.entries(OLD)) {
       const parsed = AnnotationSchema.safeParse(raw)
       expect(parsed.success, type).toBe(true)
     }
-    expect(Object.keys(OLD)).toHaveLength(20)
+    expect(Object.keys(OLD)).toHaveLength(22)
   })
 
   it('на траве под игроками по умолчанию: кольцо, стрелки, линии, перо, зона, связи, прожектор, линейка', () => {

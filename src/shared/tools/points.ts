@@ -1,5 +1,10 @@
 // Точки рисунков этапа 15: перечислить все точки рисунка и преобразовать их (сдвиг, перенос в другое пространство).
-import type { Annotation } from '../annotations'
+import {
+  MAX_CHAIN_NODES,
+  MAX_LINK_POINTS,
+  MAX_ZONE_VERTICES,
+  type Annotation
+} from '../annotations'
 import type { Pt2 } from './curve'
 
 /** Все геометрические точки рисунка (без радиусов). Для старых видов рисунков — пусто (у них свой код). */
@@ -13,9 +18,11 @@ export function toolPointsOf(a: Annotation): Pt2[] {
     case 'pen':
     case 'zone':
     case 'chain':
+    case 'link':
     case 'ppen':
     case 'pzone':
     case 'pchain':
+    case 'plink':
       return [...a.points]
     case 'loupe':
       return [a.pos, a.src]
@@ -38,9 +45,11 @@ export function mapToolPoints<A extends Annotation>(a: A, fn: (p: Pt2) => Pt2): 
     case 'pen':
     case 'zone':
     case 'chain':
+    case 'link':
     case 'ppen':
     case 'pzone':
     case 'pchain':
+    case 'plink':
       return { ...b, points: b.points.map(fn) } as A
     case 'loupe':
       return { ...b, pos: fn(b.pos), src: fn(b.src) } as A
@@ -54,8 +63,21 @@ export function mapToolPoints<A extends Annotation>(a: A, fn: (p: Pt2) => Pt2): 
 /** Рисунок состоит из списка вершин, которые можно двигать, добавлять и удалять (зона, связи). */
 export const hasVertices = (
   a: Annotation
-): a is Extract<Annotation, { type: 'zone' | 'chain' | 'pzone' | 'pchain' }> =>
-  a.type === 'zone' || a.type === 'chain' || a.type === 'pzone' || a.type === 'pchain'
+): a is Extract<Annotation, { type: 'zone' | 'chain' | 'link' | 'pzone' | 'pchain' | 'plink' }> =>
+  a.type === 'zone' ||
+  a.type === 'chain' ||
+  a.type === 'link' ||
+  a.type === 'pzone' ||
+  a.type === 'pchain' ||
+  a.type === 'plink'
+
+/** Наибольшее число вершин рисунка: больше добавлять нельзя. */
+export const maxVertices = (a: Annotation): number =>
+  a.type === 'link' || a.type === 'plink'
+    ? MAX_LINK_POINTS
+    : a.type === 'chain' || a.type === 'pchain'
+      ? MAX_CHAIN_NODES
+      : MAX_ZONE_VERTICES
 
 /** Наименьшее число вершин: меньше удалять нельзя. */
 export const minVertices = (a: Annotation): number =>
