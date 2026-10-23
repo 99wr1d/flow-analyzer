@@ -165,6 +165,37 @@ function everyType(): Annotation[] {
         p2: { x: 50, y: 50 },
         style: s,
         timing
+      },
+      // Связи игроков и линия обороны (были до 0.18): без заливки в сплошном виде, с заливкой в штриховом.
+      {
+        id: id(),
+        space: 'screen',
+        type: 'chain',
+        points: [
+          { x: 0.15, y: 0.6 },
+          { x: 0.3, y: 0.65 },
+          { x: 0.45, y: 0.62 },
+          { x: 0.6, y: 0.68 }
+        ],
+        fill: dash === 'dashed',
+        style: s,
+        timing
+      },
+      {
+        id: id(),
+        space: 'pitch',
+        calibrationId: cal.id,
+        type: 'pchain',
+        points: [
+          { x: 25, y: 20 },
+          { x: 30, y: 28 },
+          { x: 38, y: 24 },
+          { x: 44, y: 34 }
+        ],
+        fill: dash === 'dashed',
+        labels: true,
+        style: s,
+        timing
       }
     )
   }
