@@ -81,7 +81,9 @@ export const ANSWER_REACH_PER_FRAME = 0.25
  * ANSWER_CONTRADICTS высот от последнего отсчёта цели. Возвращает число заменённых отсчётов (0 — ничего не тронуто).
  * Границ может быть несколько (недоказанные возвращения с прошлого ответа, по возрастанию): берётся САМАЯ ПОЗДНЯЯ, чей
  * надёжный отсчёт достижим из выбранной рамки (ANSWER_CONTRADICTS + ANSWER_REACH_PER_FRAME высот за кадр между ними);
- * если ни одна не достижима — самая ранняя.
+ * если ни одна не достижима — тоже самая поздняя (ранняя на быстром беге добавляла бы ошибку к верным отсчётам).
+ * provenFrame (MultiTracker.answerProven): ответ у последнего доказанного места цели при недоказанном возвращении —
+ * замена от этого кадра, даже если ответ согласен с последним отсчётом (чужой мог вернуться к своему вплотную).
  */
 export function reconcileAnswer(
   samples: TrackSample[],
@@ -90,15 +92,18 @@ export function reconcileAnswer(
   answered: TrackSample,
   /** Ширина кадра / высота: доли ширины и высоты приводятся к долям высоты. */
   aspect = 1,
-  fps = 25
+  fps = 25,
+  provenFrame: number | null = null
 ): number {
   const last = samples.at(-1)
   if (!last) return 0
+  const keepOf = (b: number): number => sampleFrames.filter((f) => f <= b).length
+  if (provenFrame !== null) return replaceAfter(samples, keepOf(provenFrame), answered)
   const dist = Math.hypot((answered.foot.x - last.foot.x) * aspect, answered.foot.y - last.foot.y)
   if (dist <= ANSWER_CONTRADICTS * Math.max(answered.height, last.height)) return 0
   const list = bounds === null ? [] : typeof bounds === 'number' ? [bounds] : bounds
-  const keepOf = (b: number): number => sampleFrames.filter((f) => f <= b).length
-  let keep = list.length > 0 ? keepOf(list[0]) : 0
+  const usable = list.map(keepOf).filter((k) => k < samples.length)
+  let keep = usable.length > 0 ? usable[usable.length - 1] : samples.length
   for (let j = list.length - 1; j >= 0; j -= 1) {
     const k = keepOf(list[j])
     const proven = k > 0 ? samples[k - 1] : null
@@ -115,6 +120,11 @@ export function reconcileAnswer(
       break
     }
   }
+  return replaceAfter(samples, keep, answered)
+}
+
+/** Отсчёты после первых keep заменяются прямой от последнего оставленного к ответу; возвращает число заменённых. */
+function replaceAfter(samples: TrackSample[], keep: number, answered: TrackSample): number {
   if (keep >= samples.length) return 0
   const from = keep > 0 ? samples[keep - 1] : answered
   const span = answered.t - from.t
@@ -330,7 +340,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           tracker.answerBounds(target),
           boxToSample(chosen.box, frame.t, fw, fh),
           fw / fh,
-          frame.fps
+          frame.fps,
+          tracker.answerProven(target, chosen.box)
         )
         step = tracker.resolve(target, chosen)
         forceFull = true

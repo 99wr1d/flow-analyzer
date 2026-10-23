@@ -1012,10 +1012,11 @@ describe('обрезка результата по последнему сомн
       })
     }
 
-  it('бегун пережидает за игроком другой формы, затем смена плана: след до смены, а не до пережидания', async () => {
-    // Сценарий e2e (stub-runner.json): бегун на 1.2–1.75 с перекрывает игрока другой формы — кольцо пережидает, хотя его
-    // рамка всё время у прогноза и рядом никого его формы. Такое возвращение не сомнительно: смена плана на 2.4 с
-    // обрезает до последнего уверенного кадра (59-й), а не до кадра перед пережиданием.
+  it('бегун пережидает за игроком другой формы, затем смена плана: след обрезается до пережидания', async () => {
+    // Сценарий e2e (stub-runner.json): бегун на 1.2–1.75 с перекрывает игрока другой формы — кольцо пережидает. Возвращение
+    // меньше чем за секунду до смены плана (2.4 с) не доказано: под прикрытием мог встать чужой той же формы, поэтому
+    // обрезка — до последнего уверенного кадра перед пережиданием (33-й, 1.3 с). Правила «пропуск под прикрытием не
+    // сомнителен» нет (раунд 13: оно пропускало чужого, вставшего под прикрытием в пределах 0,1 высоты).
     const pattern = loadStubPattern(
       JSON.stringify({
         players: [
@@ -1036,13 +1037,12 @@ describe('обрезка результата по последнему сомн
     expect(out.kind).toBe('done')
     if (out.kind !== 'done') return
     expect(out.stop?.reason).toBe('cut')
-    expect(out.samples[0]).toHaveLength(60)
+    expect(out.samples[0]).toHaveLength(34)
   })
 
   // Ближе (dx ≤ 10) рамка новичка неотличима от шага самой цели: пропуска нет вовсе — это предел детектора, не обрезки.
   for (const dx of [15, 20, 25])
     it(`игрок той же формы встаёт на место пропавшего кольца (dx=${dx}), затем смена плана: его кадров в следе нет`, async () => {
-      // Пропуск здесь не «насквозь на виду»: рамку у прогноза ничто другой формы не перекрывает — это новичок.
       const own = (f: number): number => 300 + 2 * f
       const det: Detector = {
         backend: 'wasm',
@@ -1129,7 +1129,7 @@ describe('обрезка результата по последнему сомн
   })
 })
 
-describe('раунд 12: ответ после долгой подмены и прикрытие соперником', () => {
+describe('ответ после долгой подмены и прикрытие соперником', () => {
   const cutHist = (bin: number): Float32Array => {
     const out = new Float32Array(48)
     for (let c = 0; c < 3; c += 1) out[c * 16 + bin] = 1
@@ -1191,7 +1191,7 @@ describe('раунд 12: ответ после долгой подмены и п
         }
       })
 
-  for (const dx of [15, 20, 25])
+  for (const dx of [0, 5, 10, 15, 20, 25])
     it(`чужой той же формы встаёт под прикрытием игрока другой формы (dx=${dx}), затем смена плана: его кадров нет`, async () => {
       // Свой останавливается и пропадает с 20-го; игрок другой формы закрывает место прогноза на 17–35-м; под ним на
       // месте прогноза (+dx) встаёт чужой той же формы и продолжает движение своего. Смена плана на 44-м.
@@ -1221,6 +1221,95 @@ describe('раунд 12: ответ после долгой подмены и п
       if (out.kind !== 'done') return
       for (const [k, s] of out.samples[0].entries()) {
         expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k} на чужом`).toBeLessThan(27)
+      }
+    })
+})
+
+describe('сверка ответа: от последнего доказанного места', () => {
+  const at = (t: number, x: number): TrackSample => ({ t, foot: { x, y: 0.5 }, height: 0.17 })
+  const fr = (n: number): number[] => Array.from({ length: n }, (_, f) => f)
+
+  it('reconcileAnswer: ответ у доказанного места заменяет след после него, даже если согласен с последним отсчётом', () => {
+    // отсчёты 0..4 у 0.30, 5..9 уходят к 0.60 и возвращаются к 0.31; ответ у 0.30 согласен с последним
+    const xs = [0.3, 0.3, 0.3, 0.3, 0.3, 0.4, 0.5, 0.6, 0.45, 0.31]
+    const samples = xs.map((x, f) => at((f + 0.5) / FPS, x))
+    expect(reconcileAnswer(samples, fr(10), [4], at(10.5 / FPS, 0.3), 1, FPS)).toBe(0)
+    expect(reconcileAnswer(samples, fr(10), [4], at(10.5 / FPS, 0.3), 1, FPS, 4)).toBe(5)
+    for (let f = 5; f < 10; f += 1) expect(Math.abs(samples[f].foot.x - 0.3)).toBeLessThan(0.001)
+  })
+
+  it('reconcileAnswer: ни одна граница не достижима — замена от самой поздней, а не от ранней', () => {
+    // быстрый бег: отсчёты 0..9 верные (по 0.1 высоты кадра за кадр), граница 2 и 8; ответ далеко впереди
+    const samples = fr(10).map((f) => at((f + 0.5) / FPS, 0.05 * f))
+    const n = reconcileAnswer(samples, fr(10), [2, 8], at(10.5 / FPS, 2.5), 1, FPS)
+    expect(n).toBe(1)
+    for (let f = 0; f < 9; f += 1) expect(samples[f].foot.x).toBeCloseTo(0.05 * f, 9)
+  })
+
+  it('reconcileAnswer: верный след на беге (0,25 высоты за кадр) с границами каждые 40 кадров не портится', () => {
+    // A1: 300 отсчётов по дуге, последние 8 — прямой прогноз пережидания; ответ — на настоящем месте
+    const hpx = 90
+    const truth = (f: number): [number, number] => {
+      const a = (f * 0.25 * hpx) / 150
+      return [480 + 150 * Math.cos(a), 270 + 150 * Math.sin(a)]
+    }
+    const samples: TrackSample[] = []
+    for (let f = 0; f < 300; f += 1) {
+      let [x, y] = truth(f)
+      if (f >= 292) {
+        const [x0, y0] = truth(291)
+        const [x1, y1] = truth(290)
+        x = x0 + (x0 - x1) * (f - 291)
+        y = y0 + (y0 - y1) * (f - 291)
+      }
+      samples.push({ t: (f + 0.5) / FPS, foot: { x: x / W, y: (y + 45) / H }, height: hpx / H })
+    }
+    const [ax, ay] = truth(300)
+    const answer = { t: 300.5 / FPS, foot: { x: ax / W, y: (ay + 45) / H }, height: hpx / H }
+    reconcileAnswer(samples, fr(300), [40, 80, 120, 160, 200, 240, 280, 291], answer, W / H, FPS)
+    for (let f = 0; f < 292; f += 1) {
+      const [tx, ty] = truth(f)
+      const s = samples[f]
+      expect(Math.hypot(s.foot.x * W - tx, s.foot.y * H - ty - 45), `кадр ${f}`).toBeLessThan(1)
+    }
+  })
+
+  for (const k of [1, 3])
+    it(`чужой после подмены сам пропал на ${k} кадр(а) (граница на чужом), свой вернулся, ответ верный: чужих отсчётов нет`, async () => {
+      // A2: свой стоит невидимым с 20-го до 55-го; чужой той же формы с 22-го идёт рядом и уходит, на 40-м пропадает на k
+      // кадров — граница возвращения ложится на чужого. Ответ у доказанного места своего — сверка от него.
+      const own = (f: number): number => 300 + 2 * Math.min(f, 20)
+      const det = scripted((f) => {
+        const out: Detection[] = []
+        if (f < 20 || f >= 55) out.push(person(own(f), 270))
+        if (f >= 22 && !(f >= 40 && f < 40 + k)) out.push(person(300 + 2 * f, 272))
+        return out
+      })
+      let asked = 0
+      const out = await runTrackingJob(
+        options({
+          frames: frames(75),
+          createDetector: () => Promise.resolve(det),
+          anchors: [{ x: 300 / W, y: 315 / H }],
+          onAsk: (t, candidates) => {
+            asked += 1
+            const f = Math.round(t * FPS - 0.5)
+            let best = 0
+            const err = (j: number): number =>
+              Math.abs((candidates[j].x + candidates[j].w / 2) * W - own(f))
+            candidates.forEach((_, j) => {
+              if (err(j) < err(best)) best = j
+            })
+            expect(err(best)).toBeLessThan(10)
+            return Promise.resolve(best)
+          }
+        })
+      )
+      expect(out.kind).toBe('done')
+      if (out.kind !== 'done') return
+      expect(asked).toBeGreaterThan(0)
+      for (const [f, s] of out.samples[0].entries()) {
+        expect(Math.abs(s.foot.x * W - own(f)), `кадр ${f}`).toBeLessThan(27)
       }
     })
 })
