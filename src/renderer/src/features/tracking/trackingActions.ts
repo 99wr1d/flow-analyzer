@@ -154,7 +154,7 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
           job.answerPick = null
           useTrackingStore.getState().setPick(null)
           if (index === null) return
-          void window.api.resolveTracking(ask.jobId, index).catch(() => undefined)
+          void window.api.resolveTracking(ask.jobId, index, ask.target).catch(() => undefined)
         }
         useTrackingStore.getState().setPick({ candidates: ask.candidates })
       } else if (ev.done.jobId === job.jobId) {
@@ -176,8 +176,8 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
         videoId,
         from: plan.from,
         to: plan.to,
-        anchor: plan.anchor,
-        ...(pick ? { pick } : {})
+        anchors: [plan.anchor],
+        ...(pick ? { picks: [pick] } : {})
       })
       .then((r) => {
         job.jobId = r.jobId
@@ -235,7 +235,7 @@ function applySuccess(
   const current = store.items.find((a) => a.id === annotationId)
   if (!current) return
   const { fps } = usePlayerStore.getState()
-  const result = applyTrackResult(current, done.samples, plan, { fps, aspect: videoAspect() })
+  const result = applyTrackResult(current, done.samples[0], plan, { fps, aspect: videoAspect() })
   const stop = done.stop ? stopMessage(done.stop) : null
   if (!result.ok) {
     if (result.reason === 'diverged' && result.diverged) {

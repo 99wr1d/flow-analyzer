@@ -45,8 +45,8 @@ interface ActiveJob {
   id: string
   controller: AbortController
   done: Promise<void>
-  /** Ждущий ответа вопрос: сколько вариантов и как его завершить. */
-  asking: { count: number; answer: (index: number | null) => void } | null
+  /** Ждущий ответа вопрос: по какой цели, сколько вариантов и как его завершить. */
+  asking: { target: number; count: number; answer: (index: number | null) => void } | null
 }
 
 let active: ActiveJob | null = null
@@ -136,8 +136,8 @@ async function startTracking(
         const outcome = await runTrackingJob({
           from: request.from,
           to: request.to,
-          anchor: request.anchor,
-          ...(request.pick ? { pick: request.pick } : {}),
+          anchors: request.anchors,
+          ...(request.picks ? { picks: request.picks } : {}),
           signal: controller.signal,
           frames: decodeFrames({
             videoPath: entry.path,
@@ -155,17 +155,18 @@ async function startTracking(
             lastProgress = now
             send(IPC_EVENTS.trackingProgress, { jobId: job.id, done, total })
           },
-          onAsk: (t, candidates: FractionBox[]) =>
+          onAsk: (t, candidates: FractionBox[], target) =>
             new Promise<number | null>((resolve) => {
               if (controller.signal.aborted) return resolve(null)
               job.asking = {
+                target,
                 count: candidates.length,
                 answer: (index) => {
                   job.asking = null
                   resolve(index)
                 }
               }
-              send(IPC_EVENTS.trackingAsk, { jobId: job.id, t, candidates })
+              send(IPC_EVENTS.trackingAsk, { jobId: job.id, t, target, candidates })
             })
         })
         if (outcome.kind === 'done') {
@@ -179,6 +180,7 @@ async function startTracking(
           final = {
             jobId: job.id,
             error: outcome.error,
+            target: outcome.target,
             ...(outcome.candidates ? { candidates: outcome.candidates } : {})
           }
         }
@@ -218,7 +220,7 @@ export function registerTrackingHandlers(): void {
     if (!job || job.id !== parsed.data.jobId || !job.asking) {
       return { ok: false, error: TRACKING_IPC_ERRORS.unknownJob }
     }
-    if (parsed.data.index >= job.asking.count) {
+    if (parsed.data.target !== job.asking.target || parsed.data.index >= job.asking.count) {
       return { ok: false, error: TRACKING_IPC_ERRORS.badAnswer }
     }
     job.asking.answer(parsed.data.index)

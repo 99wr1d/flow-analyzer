@@ -11,6 +11,8 @@
 //   players[].from/until — игрок виден только в этом интервале времени (по умолчанию всегда);
 //   cuts               — моменты «смены плана»: на каждом гистограмма кадра меняется скачком.
 // Игроки различаются «приметой» (цветом): номер игрока = его место в списке.
+// Сценарии для слежения за несколькими игроками (Связка): tests/fixtures/stub-three.json (три разных игрока),
+// stub-three-lost.json (средний пропадает на 1,0 с), stub-same-cross.json (два игрока с одной приметой идут навстречу).
 import { z } from 'zod'
 import type { Box, Detection } from '../../shared/tracking/types'
 import type { DetectOutput, Detector, DetectorFrame } from './detectorWindow'

@@ -37,7 +37,7 @@ vi.mock('../tracking/job', () => ({ runTrackingJob: (o: RunTrackingOptions) => i
 import { cancelActiveTracking, registerTrackingHandlers } from './tracking'
 
 const VIDEO_ID = '11111111-2222-4333-8444-555555555555'
-const request = { videoId: VIDEO_ID, from: 0, to: 3, anchor: { x: 0.3, y: 0.5 } }
+const request = { videoId: VIDEO_ID, from: 0, to: 3, anchors: [{ x: 0.3, y: 0.5 }] }
 
 class FakeSender extends EventEmitter {
   sent: Array<{ channel: string; payload: Record<string, unknown> }> = []
@@ -116,7 +116,7 @@ describe('IPC слежения', () => {
     const sender = new FakeSender()
     let asked: Promise<number | null> | null = null
     impl = async (o) => {
-      asked = o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }])
+      asked = o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 0)
       const index = await asked
       return index === null
         ? { kind: 'cancelled' }
@@ -139,20 +139,71 @@ describe('IPC слежения', () => {
     const sender = new FakeSender()
     let answer: number | null = -1
     impl = async (o) => {
-      answer = await o.onAsk(1, [
-        { x: 0, y: 0, w: 0.1, h: 0.2 },
-        { x: 0.5, y: 0, w: 0.1, h: 0.2 }
-      ])
+      answer = await o.onAsk(
+        1,
+        [
+          { x: 0, y: 0, w: 0.1, h: 0.2 },
+          { x: 0.5, y: 0, w: 0.1, h: 0.2 }
+        ],
+        0
+      )
       return { kind: 'done', samples: [], stop: null, backend: 'wasm' }
     }
     const jobId = await start(sender)
     await tick()
     expect((await call('tracking:resolve', sender, { jobId, index: 2 })).ok).toBe(false)
     expect((await call('tracking:resolve', sender, { jobId: 'x', index: 0 })).ok).toBe(false)
-    expect((await call('tracking:resolve', sender, { jobId, index: 1 })).ok).toBe(true)
+    expect((await call('tracking:resolve', sender, { jobId, index: 1, target: 0 })).ok).toBe(true)
     await tick()
     expect(answer).toBe(1)
     expect(sender.done()).toHaveLength(1)
+  })
+
+  it('вопрос по цели: событие несёт target, ответ другой цели отклоняется, нужной — доходит', async () => {
+    const sender = new FakeSender()
+    let answer: number | null = -1
+    let seenAnchors = 0
+    impl = async (o) => {
+      seenAnchors = o.anchors.length
+      answer = await o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 2)
+      return {
+        kind: 'done',
+        samples: [[], [], []],
+        stop: { t: 1, reason: 'occluded', target: 2 },
+        backend: 'wasm'
+      }
+    }
+    const three = {
+      ...request,
+      anchors: [request.anchors[0], request.anchors[0], request.anchors[0]]
+    }
+    const jobId = ((await call('tracking:start', sender, three)).data as { jobId: string }).jobId
+    await tick()
+    expect(seenAnchors).toBe(3)
+    expect(sender.sent.find((s) => s.channel === 'tracking:ask')?.payload).toMatchObject({
+      jobId,
+      target: 2
+    })
+    expect((await call('tracking:resolve', sender, { jobId, index: 0, target: 1 })).ok).toBe(false)
+    expect((await call('tracking:resolve', sender, { jobId, index: 0 })).ok).toBe(false)
+    expect((await call('tracking:resolve', sender, { jobId, index: 0, target: 2 })).ok).toBe(true)
+    await tick()
+    expect(answer).toBe(0)
+    expect(sender.done()[0]).toMatchObject({
+      payload: { samples: [[], [], []], stop: { target: 2, reason: 'occluded' } }
+    })
+  })
+
+  it('запрос с 0 или более чем 8 якорями отклоняется', async () => {
+    const sender = new FakeSender()
+    expect((await call('tracking:start', sender, { ...request, anchors: [] })).ok).toBe(false)
+    const nine = Array.from({ length: 9 }, () => request.anchors[0])
+    expect((await call('tracking:start', sender, { ...request, anchors: nine })).ok).toBe(false)
+    const { anchors: _omit, ...old } = request
+    void _omit
+    expect((await call('tracking:start', sender, { ...old, anchor: request.anchors[0] })).ok).toBe(
+      false
+    )
   })
 
   it('сбой задачи приходит итогом failed', async () => {

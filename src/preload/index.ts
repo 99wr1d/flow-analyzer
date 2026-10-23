@@ -104,8 +104,8 @@ const api: FlowApi = {
   },
   startTracking: (request: TrackingStartRequest) =>
     invoke<{ jobId: string }>(IPC_CHANNELS.trackingStart, request),
-  resolveTracking: (jobId: string, index: number) =>
-    invoke<void>(IPC_CHANNELS.trackingResolve, { jobId, index }),
+  resolveTracking: (jobId: string, index: number, target = 0) =>
+    invoke<void>(IPC_CHANNELS.trackingResolve, { jobId, index, target }),
   cancelTracking: (jobId: string) => invoke<void>(IPC_CHANNELS.trackingCancel, { jobId }),
   onTrackingProgress: (callback: (progress: TrackingProgress) => void) =>
     onEvent(IPC_EVENTS.trackingProgress, callback),
