@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_TAGS } from '../../../../shared/settings'
 import { makeBinding } from './binding'
-import { STATIC_COMMANDS, allCommands } from './definitions'
+import { BOARD_COMMANDS, STATIC_COMMANDS, allCommands } from './definitions'
 import {
   assignBinding,
   buildKeymap,
@@ -10,6 +10,7 @@ import {
   findConflicts,
   isOverridden,
   resetBinding,
+  scopeOf,
   setBindings,
   type CommandMeta
 } from './keymap'
@@ -72,15 +73,50 @@ describe('раскладка команд', () => {
 })
 
 describe('команды приложения', () => {
-  it('стандартные клавиши не конфликтуют друг с другом', () => {
+  it('стандартные клавиши не конфликтуют друг с другом (в пределах экрана)', () => {
     const commands = allCommands(DEFAULT_TAGS)
-    const map = buildKeymap(commands, {})
-    for (const [key, owners] of map) {
-      expect(
-        owners.map((c) => c.id),
-        `сочетание ${key}`
-      ).toHaveLength(1)
+    for (const scope of ['app', 'board'] as const) {
+      const map = buildKeymap(
+        commands.filter((c) => scopeOf(c) === scope),
+        {}
+      )
+      for (const [key, owners] of map) {
+        expect(
+          owners.map((c) => c.id),
+          `${scope}: сочетание ${key}`
+        ).toHaveLength(1)
+      }
     }
+  })
+
+  it('команды доски: группа «Доска», свой экран, клавиши из плана', () => {
+    const keys = (id: string): string[] =>
+      BOARD_COMMANDS.find((c) => c.id === id)!.defaults.map(
+        (b) => `${b.ctrl ? 'C+' : ''}${b.shift ? 'S+' : ''}${b.code}`
+      )
+    for (const c of BOARD_COMMANDS) {
+      expect(c.group).toBe('Доска')
+      expect(c.scope).toBe('board')
+    }
+    expect(keys('board:undo')).toEqual(['C+KeyZ'])
+    expect(keys('board:redo')[0]).toBe('C+KeyY')
+    expect(keys('board:delete')[0]).toBe('Delete')
+    expect(keys('board:play')).toEqual(['Space'])
+    expect(keys('board:prev-frame')).toEqual(['ArrowLeft'])
+    expect(keys('board:next-frame')).toEqual(['ArrowRight'])
+    expect(keys('board:add-frame')).toContain('S+Equal')
+    expect(keys('board:save')).toEqual(['C+KeyS'])
+    expect(keys('board:save-image')).toEqual(['C+S+KeyS'])
+    expect(keys('board:select')).toEqual(['KeyV'])
+  })
+
+  it('конфликт ищется только среди команд того же экрана', () => {
+    const commands = allCommands(DEFAULT_TAGS)
+    const ctrlZ = makeBinding('KeyZ', { ctrl: true })
+    expect(findConflicts(commands, {}, 'board:undo', ctrlZ)).toEqual([])
+    expect(findConflicts(commands, {}, 'board:save', ctrlZ).map((c) => c.id)).toEqual([
+      'board:undo'
+    ])
   })
 
   it('все прежние горячие клавиши на месте', () => {

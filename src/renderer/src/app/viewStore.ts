@@ -1,7 +1,7 @@
-// Какой экран показан: стартовый (библиотека проектов) или рабочая область с видео.
+// Какой экран показан: стартовый (библиотека проектов), рабочая область с видео или доска тренера.
 import { create } from 'zustand'
 
-export type AppView = 'start' | 'workspace'
+export type AppView = 'start' | 'workspace' | 'board'
 
 interface ViewState {
   view: AppView

@@ -9,9 +9,10 @@ import { usePitchStore } from '../pitch/pitchStore'
 import { useProjectStore } from '../project/projectStore'
 import { useUnsavedStore } from '../project/unsavedStore'
 import { useSettingsStore } from '../settings/settingsStore'
+import { useViewStore } from '../../app/viewStore'
 import { bindingFromEvent, serializeBinding } from './binding'
 import { allCommands, type Command } from './definitions'
-import { buildKeymap } from './keymap'
+import { buildKeymap, scopeOf } from './keymap'
 import { useKeymapStore } from './keymapStore'
 
 /** Поля, где печатают текст: горячие клавиши там не срабатывают (ползунки — не в счёт). */
@@ -69,8 +70,13 @@ export function handleKeyDown(e: KeyboardEvent): void {
   if (!candidates || handledNatively(e)) return
   // Пока размечается поле, работают только команды воспроизведения (кадр вперёд/назад): остальное — после разметки.
   const calibrating = usePitchStore.getState().draft !== null
+  // На доске тренера работают только её команды, на остальных экранах — только остальные.
+  const scope = useViewStore.getState().view === 'board' ? 'board' : 'app'
   const command = candidates.find(
-    (c) => (c.enabled?.() ?? true) && (!calibrating || c.group === 'Воспроизведение')
+    (c) =>
+      scopeOf(c) === scope &&
+      (c.enabled?.() ?? true) &&
+      (scope === 'board' || !calibrating || c.group === 'Воспроизведение')
   )
   if (!command) return
   e.preventDefault()

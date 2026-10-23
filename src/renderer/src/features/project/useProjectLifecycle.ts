@@ -89,7 +89,8 @@ export function useProjectLifecycle(): void {
     window.api
       .getAppInfo()
       .then((info) => {
-        if (info.testFlags.crash || info.testFlags.bench) installTestHooks(info.testFlags)
+        const t = info.testFlags
+        if (t.crash || t.bench || t.noTips) installTestHooks(t)
         if (!cancelled) offs.push(startAutosave(info.autosaveMs))
       })
       .catch(() => undefined)
