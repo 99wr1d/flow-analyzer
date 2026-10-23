@@ -1,6 +1,7 @@
 /** Типы IPC досок: список, сохранение, открытие, картинка. */
 import { z } from 'zod'
-import { BoardSchema, type Board } from './schema'
+import { LEAD_IN, HOLD_END } from './resolve'
+import { BoardSchema, MAX_FRAMES, MAX_TRANSITION, type Board } from './schema'
 
 export const MAX_BOARD_PNG_BYTES = 20 * 1024 * 1024
 
@@ -34,3 +35,32 @@ export const SaveImageRequestSchema = z.object({
   })
 })
 export type SaveImageRequest = z.infer<typeof SaveImageRequestSchema>
+
+/** Частота кадров видео доски (одна, как в рендерере). */
+export const BOARD_VIDEO_FPS = 30
+/** Самое длинное видео: 50 кадров по 5 с плюс вход (0.5 с) и пауза в конце (1 с). */
+export const MAX_BOARD_VIDEO_FRAMES = Math.ceil(
+  ((MAX_FRAMES - 1) * MAX_TRANSITION + LEAD_IN + HOLD_END) * BOARD_VIDEO_FPS
+)
+/** Кадров в одной пачке stageBoardFrames. */
+export const MAX_STAGE_BATCH = 30
+
+export const ExportVideoRequestSchema = z.object({
+  suggestedName: z.string().max(200),
+  frameCount: z.number().int().min(1).max(MAX_BOARD_VIDEO_FRAMES),
+  fps: z.literal(BOARD_VIDEO_FPS)
+})
+export type ExportVideoRequest = z.infer<typeof ExportVideoRequestSchema>
+
+export const StageFramesRequestSchema = z.object({
+  token: z.string().min(1).max(100),
+  start: z.number().int().min(0).max(MAX_BOARD_VIDEO_FRAMES),
+  pngs: z.array(z.instanceof(Uint8Array)).min(1).max(MAX_STAGE_BATCH)
+})
+export type StageFramesRequest = z.infer<typeof StageFramesRequestSchema>
+
+export interface BoardVideoProgress {
+  token: string
+  done: number
+  total: number
+}

@@ -5,13 +5,15 @@ import { dirname, extname, join, resolve } from 'path'
 import { safeFileName } from '../../shared/board/fileName'
 import {
   BoardSaveRequestSchema,
+  ExportVideoRequestSchema,
   SaveImageRequestSchema,
+  StageFramesRequestSchema,
   type BoardCard,
   type BoardOpenResult,
   type BoardSaveResult
 } from '../../shared/board/ipc'
 import { BOARD_EXTENSION } from '../../shared/board/schema'
-import { IPC_CHANNELS, type IpcResult } from '../../shared/ipc-contract'
+import { IPC_CHANNELS, IPC_EVENTS, type IpcResult } from '../../shared/ipc-contract'
 import {
   boardsFolder,
   createBoardFile,
@@ -19,6 +21,13 @@ import {
   readBoardFile,
   writeBoardFile
 } from '../board/files'
+import { getFfmpegPath } from '../ffmpeg/path'
+import {
+  beginBoardVideo,
+  cancelBoardVideo,
+  finishBoardVideo,
+  stageBoardFrames
+} from '../board/video'
 import { logWarn } from '../log/logger'
 import { resolveProjectsFolder } from '../library/folder'
 import { MEDIA_ERRORS } from '../media/validate'
@@ -122,6 +131,52 @@ async function saveImage(
   return { path: target }
 }
 
+async function exportVideo(
+  event: Electron.IpcMainInvokeEvent,
+  raw: unknown
+): Promise<{ token: string; path: string } | null> {
+  const parsed = ExportVideoRequestSchema.safeParse(raw)
+  if (!parsed.success) {
+    logWarn('board', `Запрос видео не прошёл проверку: ${parsed.error.issues[0]?.message ?? ''}`)
+    throw new Error('Запрос видео не прошёл проверку')
+  }
+  const ffmpeg = getFfmpegPath()
+  if (!ffmpeg.ok) throw new Error(ffmpeg.error)
+  const { suggestedName, frameCount, fps } = parsed.data
+  const options: Electron.SaveDialogOptions = {
+    title: 'Сохранить видео',
+    defaultPath: join(projectsFolder(), `${safeFileName(suggestedName)}.mp4`),
+    filters: [{ name: 'MP4', extensions: ['mp4'] }]
+  }
+  const parent = BrowserWindow.fromWebContents(event.sender)
+  const picked = parent
+    ? await dialog.showSaveDialog(parent, options)
+    : await dialog.showSaveDialog(options)
+  if (picked.canceled || !picked.filePath) return null
+  const target =
+    extname(picked.filePath).toLowerCase() === '.mp4' ? picked.filePath : `${picked.filePath}.mp4`
+  const job = await beginBoardVideo({ frameCount, fps, target })
+  // Окно закрыли посреди сохранения: убираем временные кадры.
+  event.sender.once?.('destroyed', () => cancelBoardVideo(job.token))
+  return { token: job.token, path: target }
+}
+
+async function finishVideo(
+  event: Electron.IpcMainInvokeEvent,
+  token: unknown
+): Promise<{ path: string }> {
+  if (typeof token !== 'string') throw new Error('Сохранение видео не найдено — начните заново')
+  const ffmpeg = getFfmpegPath()
+  if (!ffmpeg.ok) {
+    cancelBoardVideo(token)
+    throw new Error(ffmpeg.error)
+  }
+  const sender = event.sender
+  return finishBoardVideo(token, ffmpeg.path, (done, total) => {
+    if (!sender.isDestroyed?.()) sender.send(IPC_EVENTS.boardVideoProgress, { token, done, total })
+  })
+}
+
 export function registerBoardHandlers(): void {
   const strict = <A extends unknown[], T>(
     channel: string,
@@ -143,4 +198,14 @@ export function registerBoardHandlers(): void {
   strict(IPC_CHANNELS.boardDelete, (_e, path: unknown) => trash(path))
   strict(IPC_CHANNELS.boardReveal, (_e, path: unknown) => reveal(path))
   strict(IPC_CHANNELS.boardSaveImage, (e, request: unknown) => saveImage(e, request))
+  strict(IPC_CHANNELS.boardExportVideo, (e, request: unknown) => exportVideo(e, request))
+  strict(IPC_CHANNELS.boardStageFrames, async (_e, request: unknown) => {
+    const parsed = StageFramesRequestSchema.safeParse(request)
+    if (!parsed.success) throw new Error('Кадры видео не прошли проверку')
+    await stageBoardFrames(parsed.data.token, parsed.data.start, parsed.data.pngs)
+  })
+  strict(IPC_CHANNELS.boardFinishVideo, (e, token: unknown) => finishVideo(e, token))
+  strict(IPC_CHANNELS.boardCancelVideo, (_e, token: unknown) => {
+    if (typeof token === 'string') cancelBoardVideo(token)
+  })
 }

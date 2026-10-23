@@ -5,6 +5,9 @@ import type {
   BoardOpenResult,
   BoardSaveRequest,
   BoardSaveResult,
+  BoardVideoProgress,
+  ExportVideoRequest,
+  StageFramesRequest,
   SaveImageRequest
 } from './board/ipc'
 import type { CreateProjectRequest, LibraryListing } from './library'
@@ -241,4 +244,12 @@ export interface FlowApi {
   revealBoard(path: string): Promise<void>
   /** Диалог сохранения PNG. null — пользователь отменил. */
   saveBoardImage(request: SaveImageRequest): Promise<{ path: string } | null>
+  /** Диалог сохранения MP4. null — пользователь отменил (ничего не начато). Иначе token для кадров. */
+  exportBoardVideo(request: ExportVideoRequest): Promise<{ token: string; path: string } | null>
+  /** Пачка PNG-кадров по порядку, start — номер первого кадра пачки. */
+  stageBoardFrames(request: StageFramesRequest): Promise<void>
+  /** Собирает MP4 из переданных кадров. */
+  finishBoardVideo(token: string): Promise<{ path: string }>
+  cancelBoardVideo(token: string): Promise<void>
+  onBoardVideoProgress(callback: (progress: BoardVideoProgress) => void): () => void
 }

@@ -177,3 +177,35 @@ describe('IPC досок', () => {
     })
   })
 })
+
+describe('IPC видео доски', () => {
+  it('отмена диалога — null, ничего не начато', async () => {
+    showSaveDialog.mockResolvedValue({ canceled: true })
+    const r = await call('board:export-video', { suggestedName: 'Атака', frameCount: 3, fps: 30 })
+    expect(r).toEqual({ ok: true, data: null })
+  })
+
+  it('слишком много кадров и чужая частота отвергаются до диалога', async () => {
+    const tooMany = await call('board:export-video', {
+      suggestedName: 'a',
+      frameCount: 7396,
+      fps: 30
+    })
+    const badFps = await call('board:export-video', { suggestedName: 'a', frameCount: 3, fps: 25 })
+    expect(tooMany.ok).toBe(false)
+    expect(badFps.ok).toBe(false)
+    expect(showSaveDialog).not.toHaveBeenCalled()
+  })
+
+  it('кадры без выданного token отвергаются; второе видео при активном — ошибка', async () => {
+    const bad = await call('board:stage-frames', { token: 'x', start: 0, pngs: [PNG] })
+    expect(bad.ok).toBe(false)
+    showSaveDialog.mockResolvedValue({ canceled: false, filePath: join(root, 'a.mp4') })
+    const a = await call('board:export-video', { suggestedName: 'a', frameCount: 1, fps: 30 })
+    expect(a.data.path).toBe(join(root, 'a.mp4'))
+    const b = await call('board:export-video', { suggestedName: 'b', frameCount: 1, fps: 30 })
+    expect(b.ok).toBe(false)
+    expect(b.error).toMatch(/уже/)
+    await call('board:cancel-video', a.data.token)
+  })
+})

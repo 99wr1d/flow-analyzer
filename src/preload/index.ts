@@ -21,6 +21,9 @@ import type {
   BoardOpenResult,
   BoardSaveRequest,
   BoardSaveResult,
+  BoardVideoProgress,
+  ExportVideoRequest,
+  StageFramesRequest,
   SaveImageRequest
 } from '../shared/board/ipc'
 import type { AboutInfo, LicenseTexts, LogEntry } from '../shared/log'
@@ -145,6 +148,15 @@ const api: FlowApi = {
   revealBoard: (path: string) => invoke<void>(IPC_CHANNELS.boardReveal, path),
   saveBoardImage: (request: SaveImageRequest) =>
     invoke<{ path: string } | null>(IPC_CHANNELS.boardSaveImage, request),
+  exportBoardVideo: (request: ExportVideoRequest) =>
+    invoke<{ token: string; path: string } | null>(IPC_CHANNELS.boardExportVideo, request),
+  stageBoardFrames: (request: StageFramesRequest) =>
+    invoke<void>(IPC_CHANNELS.boardStageFrames, request),
+  finishBoardVideo: (token: string) =>
+    invoke<{ path: string }>(IPC_CHANNELS.boardFinishVideo, token),
+  cancelBoardVideo: (token: string) => invoke<void>(IPC_CHANNELS.boardCancelVideo, token),
+  onBoardVideoProgress: (callback: (progress: BoardVideoProgress) => void) =>
+    onEvent(IPC_EVENTS.boardVideoProgress, callback),
   importDroppedVideo(file: File): Promise<VideoSource> {
     let path: string
     try {
