@@ -1,5 +1,5 @@
 /** Файлы досок (.flowboard) в папке «Доски» внутри папки проектов. */
-import { mkdir, readFile, readdir, stat } from 'fs/promises'
+import { mkdir, readFile, readdir, stat, writeFile } from 'fs/promises'
 import { basename, dirname, extname, join } from 'path'
 import type { BoardCard } from '../../shared/board/ipc'
 import { BOARD_EXTENSION, boardToFile, parseBoardText, type Board } from '../../shared/board/schema'
@@ -27,6 +27,26 @@ export async function uniquePath(folder: string, base: string, ext: string): Pro
   return candidate
 }
 
+/** Новая доска под свободным именем: имя занимается эксклюзивно, поэтому два сохранения подряд не затрут друг друга. */
+export async function createBoardFile(folder: string, base: string, board: Board): Promise<string> {
+  try {
+    await mkdir(folder, { recursive: true })
+  } catch (error) {
+    throw new Error(writeErrorMessage(error), { cause: error })
+  }
+  for (;;) {
+    const path = await uniquePath(folder, base, BOARD_EXTENSION)
+    try {
+      await writeFile(path, '', { flag: 'wx' })
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
+      throw new Error(writeErrorMessage(error), { cause: error })
+    }
+    await writeBoardFile(path, board)
+    return path
+  }
+}
+
 export type ReadBoardResult =
   { ok: true; board: Board } | { ok: false; error: string; message: string }
 
@@ -43,8 +63,21 @@ export async function readBoardFile(path: string): Promise<ReadBoardResult> {
   return parseBoardText(text)
 }
 
+/** Понятный текст для ошибки записи (так же, как в writeTextAtomic). */
+export function writeErrorMessage(error: unknown): string {
+  const code = (error as NodeJS.ErrnoException)?.code
+  if (code === 'EACCES' || code === 'EPERM')
+    return 'Нет доступа к этой папке. Выберите другое место'
+  if (code === 'ENOSPC') return 'На диске не хватает места'
+  return 'Не удалось записать файл'
+}
+
 export async function writeBoardFile(path: string, board: Board): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
+  try {
+    await mkdir(dirname(path), { recursive: true })
+  } catch (error) {
+    throw new Error(writeErrorMessage(error), { cause: error })
+  }
   await writeTextAtomic(path, boardToFile(board))
 }
 

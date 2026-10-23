@@ -25,6 +25,7 @@ vi.mock('electron', () => ({
       handlers.set(ch, fn)
   }
 }))
+vi.mock('../log/logger', () => ({ logWarn: vi.fn(), logError: vi.fn(), logInfo: vi.fn() }))
 let trusted = true
 vi.mock('../security', () => ({ isTrustedSender: () => trusted }))
 
@@ -100,6 +101,32 @@ describe('IPC досок', () => {
     expect(
       (await call('board:save', { path: join(root, 'Доски', 'a.txt'), board: board() })).ok
     ).toBe(false)
+  })
+
+  it('регистр и разделители пути не мешают, а выход через .. отклоняется', async () => {
+    const saved = await call('board:save', { path: null, board: board('Рег') })
+    const odd = join(root, 'ДОСКИ', 'Рег.FLOWBOARD')
+    if (process.platform === 'win32') {
+      expect((await call('board:open', odd)).data).toMatchObject({ ok: true })
+    }
+    const sneaky = join(root, 'Доски', '..', 'чужой.flowboard')
+    await writeFile(join(root, 'чужой.flowboard'), '{}')
+    expect((await call('board:open', sneaky)).ok).toBe(false)
+    expect((await call('board:delete', sneaky)).ok).toBe(false)
+    expect(saved.ok).toBe(true)
+  })
+
+  it('ошибки проверки показываются по-русски, без английского текста zod', async () => {
+    const r = await call('board:save', { path: null, board: { ...board(), frameCount: 0 } })
+    expect(r.error).toBe('Данные доски не прошли проверку')
+  })
+
+  it('два сохранения подряд не затирают друг друга', async () => {
+    const [a, b] = await Promise.all([
+      call('board:save', { path: null, board: board('Гонка') }),
+      call('board:save', { path: null, board: board('Гонка') })
+    ])
+    expect(a.data.path).not.toBe(b.data.path)
   })
 
   it('повреждённый файл в папке досок открывается как ok:false с сообщением', async () => {

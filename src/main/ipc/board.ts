@@ -12,7 +12,14 @@ import {
 } from '../../shared/board/ipc'
 import { BOARD_EXTENSION } from '../../shared/board/schema'
 import { IPC_CHANNELS, type IpcResult } from '../../shared/ipc-contract'
-import { boardsFolder, listBoards, readBoardFile, uniquePath, writeBoardFile } from '../board/files'
+import {
+  boardsFolder,
+  createBoardFile,
+  listBoards,
+  readBoardFile,
+  writeBoardFile
+} from '../board/files'
+import { logWarn } from '../log/logger'
 import { resolveProjectsFolder } from '../library/folder'
 import { MEDIA_ERRORS } from '../media/validate'
 import { isTrustedSender } from '../security'
@@ -46,14 +53,17 @@ function boardPath(value: unknown): string {
 async function save(raw: unknown): Promise<BoardSaveResult> {
   const parsed = BoardSaveRequestSchema.safeParse(raw)
   if (!parsed.success) {
-    throw new Error(`Данные доски не прошли проверку: ${parsed.error.issues[0]?.message ?? ''}`)
+    logWarn('board', `Доска не прошла проверку: ${parsed.error.issues[0]?.message ?? ''}`)
+    throw new Error('Данные доски не прошли проверку')
   }
   const { path, board } = parsed.data
-  const target =
-    path === null
-      ? await uniquePath(folder(), safeFileName(board.title), BOARD_EXTENSION)
-      : boardPath(path)
-  await writeBoardFile(target, board)
+  let target: string
+  if (path === null) {
+    target = await createBoardFile(folder(), safeFileName(board.title), board)
+  } else {
+    target = boardPath(path)
+    await writeBoardFile(target, board)
+  }
   granted.add(pathKey(target))
   return { path: target }
 }
@@ -85,7 +95,8 @@ async function saveImage(
 ): Promise<{ path: string } | null> {
   const parsed = SaveImageRequestSchema.safeParse(raw)
   if (!parsed.success) {
-    throw new Error(`Картинка не прошла проверку: ${parsed.error.issues[0]?.message ?? ''}`)
+    logWarn('board', `Картинка доски не прошла проверку: ${parsed.error.issues[0]?.message ?? ''}`)
+    throw new Error('Картинка не прошла проверку: слишком большая или повреждена')
   }
   const { suggestedName, png } = parsed.data
   if (png.length < PNG_SIGNATURE.length || PNG_SIGNATURE.some((b, i) => png[i] !== b)) {
