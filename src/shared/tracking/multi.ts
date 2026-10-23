@@ -43,6 +43,7 @@ import {
   NEWCOMER_SIGMAS,
   CONVERGE_IOU,
   GATE_GROW,
+  GHOST_LINK_SLACK,
   LOST_SECONDS,
   GATE_MAX,
   MIN_NORM_HEIGHT,
@@ -242,11 +243,21 @@ export class MultiTracker {
     this.trimSince[target] = null
     // Ответ снимает подозрение, но не забывает соседей: подозреваемые цели остаются обычными безымянными следами
     // (иначе на следующем кадре, если её рамка пропадёт, сосед рядом прошёл бы молча — ответ обнуляет скорость Калмана).
-    // След, сидевший на выбранной рамке (по месту, без допуска давности), — это сама цель: он удаляется.
+    // След, который и есть выбранная рамка, — это сама цель: удаляется только он. Ищем по последней виденной рамке
+    // (не по прогнозу) среди следов, виденных на прошлом кадре или кадром раньше, — ближайший, не дальше 0,3 высоты.
     const norm = Math.max(det.box.h, MIN_NORM_HEIGHT)
-    this.ghosts = this.ghosts.filter(
-      (g) => !this.ghostPlaces(g).some((p) => apart(det.box, p.b, norm) <= CHAIN_MAX_SHIFT / 2)
-    )
+    const now = this.frame?.index ?? 0
+    let same: Ghost | null = null
+    let bestDist = CHAIN_MAX_SHIFT / 2
+    for (const g of this.ghosts) {
+      if (now - g.seen > 2) continue
+      const dist = apart(det.box, g.box, norm)
+      if (dist <= bestDist) {
+        bestDist = dist
+        same = g
+      }
+    }
+    if (same) this.ghosts = this.ghosts.filter((g) => g !== same)
     for (const g of this.ghosts) if (g.suspectOf === target) g.suspectOf = undefined
     this.slots[target] = { kind: 'user', box: { ...det.box } }
     return this.settle()
@@ -493,19 +504,26 @@ export class MultiTracker {
       }
       return best
     }
-    const pairs: Array<{ g: Ghost; d: Detection; c: number }> = []
+    const pairs: Array<{ g: Ghost; d: Detection; c: number; raw: number }> = []
     for (const g of this.ghosts) {
       for (const d of free) {
         const norm = Math.max(d.box.h, MIN_NORM_HEIGHT)
+        const places = this.ghostPlaces(g)
+        // Давно не виденный след не «перепрыгивает» на далёкую рамку: допуск давности при связывании ограничен
+        // GHOST_LINK_SLACK (иначе след соседа уезжал на чужого, а сам сосед оставался без следа).
         const c = Math.min(
-          ...this.ghostPlaces(g).map((p) => Math.max(0, apart(d.box, p.b, norm) - p.slack))
+          ...places.map((p) =>
+            Math.max(0, apart(d.box, p.b, norm) - Math.min(p.slack, GHOST_LINK_SLACK))
+          )
         )
+        const raw = Math.min(...places.map((p) => apart(d.box, p.b, norm)))
         // «Подозреваемый» цели — её соперник по определению: связывается и там, где детекция ближе к самой цели.
         if (c <= CHAIN_MAX_SHIFT && (g.suspectOf !== undefined || c < targetCost(d)))
-          pairs.push({ g, d, c })
+          pairs.push({ g, d, c, raw })
       }
     }
-    pairs.sort((a, b) => a.c - b.c)
+    // Сначала ближайшие по месту (без допуска), чтобы свежий след не уступал рамку давнему.
+    pairs.sort((a, b) => a.raw - b.raw)
     const usedG = new Set<Ghost>()
     const usedD = new Set<Detection>()
     for (const { g, d } of pairs) {
@@ -702,10 +720,11 @@ export class MultiTracker {
   }
 
   /** Цель откатывается к началу кадра и проходит его заново без детекции det (и всех прежних исключённых). */
-  private redo(i: number, det: Detection): void {
+  private redo(i: number, det: Detection, coast = false): void {
     this.excluded[i].push(det)
     this.trackers[i].restore(this.snaps[i])
-    const rest = this.dets.filter((d) => !this.excluded[i].includes(d))
+    // Откат из-за сомнения: на этом кадре цель только пережидает — без своей рамки трекер мог бы уверенно взять соседнюю.
+    const rest = coast ? [] : this.dets.filter((d) => !this.excluded[i].includes(d))
     this.slots[i] = this.toSlot(
       this.trackers[i].step({ ...(this.frame as FrameInput), detections: rest }),
       rest
@@ -769,7 +788,7 @@ export class MultiTracker {
     // Детекций меньше, чем спорящих целей: чей-то игрок пропущен детектором, вопрос мог бы остаться без правильного
     // ответа. Цель пережидает; эпизод отмечен разорванной цепочкой — при возвращении её подтвердят или спросят.
     this.chains[i] ??= this.newChain(i, true)
-    this.redo(i, det)
+    this.redo(i, det, true)
     return true
   }
 
@@ -798,6 +817,23 @@ export class MultiTracker {
       const det = s.det
       const look = this.trackers[i].appearance
       const norm = Math.max(det.box.h, MIN_NORM_HEIGHT)
+      // 0. Скачок на чужой след: цель была уверена на прошлом кадре, а взятая рамка явно продолжает другую рамку той же
+      // формы прошлого кадра (ближе к ней, чем к прошлой рамке цели, на CHAIN_RUNNER_UP), — её своя, скорее всего,
+      // пропала, а рядом стоявший игрок оказался в воротах. Молча не берём: пережидаем этот кадр.
+      if (this.lastConfIndex[i] === f - 1 && !chained) {
+        const last = this.lastConf[i]
+        const fromLast = apart(det.box, last, norm)
+        const jumped = this.prevDets.some(
+          (q) =>
+            !sameBox(q.box, last) &&
+            appearanceDistance(look, q.look) < CHAIN_SIMILAR_LOOK &&
+            apart(det.box, q.box, norm) + CHAIN_RUNNER_UP <= fromLast
+        )
+        if (jumped) {
+          this.redo(i, det, true)
+          return true
+        }
+      }
       const known = this.ownedByOthers(i)
       const explained = (d: Detection): boolean =>
         this.ghosts.some(
@@ -847,7 +883,7 @@ export class MultiTracker {
           this.episodeAsk[i] = true
           for (const d of kinNear) this.addCand(i, d)
         } else {
-          this.redo(i, det)
+          this.redo(i, det, true)
         }
         return true
       }
@@ -903,7 +939,7 @@ export class MultiTracker {
             })
           }
         }
-        this.redo(i, det)
+        this.redo(i, det, true)
         return true
       }
       this.slots[i] = { kind: 'ask', cands: [...this.generate(i, det)], det }
@@ -1109,7 +1145,7 @@ export class MultiTracker {
         // (эпизод — разорванная цепочка), кадр согласуется заново. Вопрос самого трекера (срок вышел) — безопасный стоп.
         if (!s.det) return this.die(i, 'occluded')
         this.chains[i] = this.newChain(i, true)
-        this.redo(i, s.det)
+        this.redo(i, s.det, true)
         return this.settle()
       }
       return { kind: 'ask', target: i, candidates }

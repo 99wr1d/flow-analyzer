@@ -75,6 +75,8 @@ interface Res {
   throws: number
   /** Самый долгий step() за прогон, мс. */
   maxStepMs: number
+  /** Время каждого step(), мс. */
+  stepMs: number[]
   detail: string[]
 }
 
@@ -137,6 +139,7 @@ function run(players: Player[], o: Opts): Res {
     noTruth: 0,
     throws: 0,
     maxStepMs: 0,
+    stepMs: [],
     detail: []
   }
   let wrongDone = false
@@ -180,7 +183,9 @@ function run(players: Player[], o: Opts): Res {
       .map((x) => x[1])
     const t0 = performance.now()
     let r: MultiStep = m.step({ index: f, t: (f + 0.5) / FPS, detections: dets, frameHist: WF })
-    res.maxStepMs = Math.max(res.maxStepMs, performance.now() - t0)
+    const ms = performance.now() - t0
+    res.stepMs.push(ms)
+    res.maxStepMs = Math.max(res.maxStepMs, ms)
     let guard = 0
     while (r.kind === 'ask') {
       res.asks++
@@ -464,9 +469,12 @@ const block = (nT: number, nD: number, sp: number, amp: number): Player[] =>
   })
 
 describe('многоцелевое слежение: время шага', () => {
-  it('8 целей + 4 игрока той же формы в блоке (шаг 22 и 30), пропуски 10 %: step() < 50 мс', () => {
+  it('8 целей + 4 игрока той же формы в блоке (шаг 22 и 30), пропуски 10 %: p95 step() < 20 мс, max < 250 мс', () => {
+    // Порог по p95 (и щедрый по максимуму): одиночные выбросы бывают от загрузки машины (параллельные тесты, другие
+    // проекты), а перебор назначений (раунд 4) давал секунды на каждом спорном кадре — это p95 поймает.
     let worst = 0
     let total = 0
+    const all: number[] = []
     for (const [sp, amp] of [
       [22, 15],
       [30, 10]
@@ -475,15 +483,19 @@ describe('многоцелевое слежение: время шага', () =>
       const r = run(block(8, 4, sp, amp), { J: 4, hj: 0.05, dropP: 0.1, frames: 250, seed: 104729 })
       total += performance.now() - t0
       worst = Math.max(worst, r.maxStepMs)
+      all.push(...r.stepMs)
       expect(r.swaps).toBe(0)
       expect(r.throws).toBe(0)
     }
+    const sorted = [...all].sort((a, b) => a - b)
+    const p95 = sorted[Math.floor(0.95 * (sorted.length - 1))]
     if (process.env.ADV_REPORT) {
       process.stderr
-        .write(`TIMING block 8+4: max step ${worst.toFixed(1)} ms, total 2×250 frames ${total.toFixed(0)} ms
+        .write(`TIMING block 8+4: p95 ${p95.toFixed(1)} ms, max step ${worst.toFixed(1)} ms, total 2×250 frames ${total.toFixed(0)} ms
 `)
     }
-    expect(worst).toBeLessThan(50)
+    expect(p95).toBeLessThan(20)
+    expect(worst).toBeLessThan(250)
   }, 600000)
 })
 
@@ -1041,4 +1053,144 @@ describe('вернувшийся игрок после сомнительной 
         )
     check('drift-return')
   })
+})
+
+/**
+ * Длинная сцена (6 минут): 22 игрока, 11 одной формы с целями, пропуски 5 %. Ответы всегда верные; вопрос без своего
+ * игрока или потеря — перезапуск слежения (как сделал бы пользователь). Возвращает подмены: серии подряд идущих кадров,
+ * где уверенная рамка цели на чужом игроке дальше 20 px.
+ */
+function longScene(
+  pos: (i: number, f: number) => [number, number],
+  nT: number,
+  seed: number,
+  frames = 9000
+): {
+  runs: Array<{ target: number; from: number; len: number; maxSep: number }>
+  asks: number
+  minutes: number
+} {
+  const R = rng(seed)
+  const U = (a: number): number => (R() * 2 - 1) * a
+  const src = new Map<Detection, number>()
+  const detsAt = (f: number, noisy: boolean): Detection[] => {
+    const out: Detection[] = []
+    for (let i = 0; i < 22; i++) {
+      if (noisy && R() < 0.05) continue
+      const [x, y] = pos(i, f)
+      const h = BH * (1 + (noisy ? U(0.05) : 0))
+      const w = (BW * h) / BH
+      const d: Detection = {
+        box: { x: x + (noisy ? U(3) : 0) - w / 2, y: y + (noisy ? U(3) : 0) - h / 2, w, h },
+        score: 0.9,
+        look: i < 11 ? RED : BLUE
+      }
+      src.set(d, i)
+      out.push(d)
+    }
+    return out
+  }
+  let m: MultiTracker | null = null
+  let asks = 0
+  let live = 0
+  const open: Array<{ from: number; len: number; maxSep: number } | null> = Array.from(
+    { length: nT },
+    () => null
+  )
+  const runs: Array<{ target: number; from: number; len: number; maxSep: number }> = []
+  const close = (k: number): void => {
+    const o = open[k]
+    if (o) runs.push({ target: k, ...o })
+    open[k] = null
+  }
+  for (let f = 0; f < frames; f++) {
+    const dets = detsAt(f, m !== null)
+    if (!m) {
+      const s = Array.from({ length: nT }, (_, i) => dets.find((d) => src.get(d) === i))
+      if (s.some((x) => !x)) continue
+      m = new MultiTracker(
+        s.map((det) => ({ det: det as Detection })),
+        FPS,
+        FRAME
+      )
+    }
+    let r: MultiStep = m.step({ index: f, t: (f + 0.5) / FPS, detections: dets, frameHist: WF })
+    while (r.kind === 'ask') {
+      asks++
+      const target = r.target
+      const p = r.candidates.find((c) => src.get(c) === target)
+      if (!p) {
+        r = { kind: 'lost', target, reason: 'occluded' }
+        break
+      }
+      r = m.resolve(target, p)
+    }
+    if (r.kind === 'lost') {
+      m = null
+      for (let k = 0; k < nT; k++) close(k)
+      continue
+    }
+    live++
+    const rr = r
+    for (let k = 0; k < nT; k++) {
+      const b = rr.boxes[k]
+      const d = rr.coasting[k] ? undefined : dets.find((x) => x.box.x === b.x && x.box.y === b.y)
+      const on = d ? src.get(d) : undefined
+      if (on === undefined || on === k) {
+        if (!rr.coasting[k]) close(k)
+        continue
+      }
+      const [ox, oy] = pos(k, f)
+      const [sx, sy] = pos(on, f)
+      const sep = Math.hypot(ox - sx, oy - sy)
+      if (sep <= 20) continue
+      const o = (open[k] ??= { from: f, len: 0, maxSep: 0 })
+      o.len++
+      o.maxSep = Math.max(o.maxSep, sep)
+    }
+  }
+  for (let k = 0; k < nT; k++) close(k)
+  return { runs, asks, minutes: live / FPS / 60 }
+}
+
+const wanderLong = (i: number, f: number): [number, number] => {
+  const ax = 80 + ((i * 83) % 800)
+  const ay = 80 + ((i * 47) % 380)
+  return [
+    ax + 60 * Math.sin(f / (40 + i * 3) + i) + 30 * Math.sin(f / 13 + i * 2),
+    ay + 40 * Math.cos(f / (55 + i * 2) + i) + 15 * Math.sin(f / 17 + i)
+  ]
+}
+const roamLong = (i: number, f: number): [number, number] => {
+  const ax = 480 + 380 * Math.sin(f / (300 + 37 * i) + i * 2.3)
+  const ay = 270 + 200 * Math.cos(f / (410 + 29 * i) + i * 1.7)
+  return [ax + 20 * Math.sin(f / 11 + i), ay + 12 * Math.cos(f / 13 + i)]
+}
+
+describe('длинные сцены (6 минут, 22 игрока, 11 одной формы, пропуски 5 %)', () => {
+  it('без подмен длиннее 3 кадров и дальше 30 px: wander/roam, 1 и 4 цели', () => {
+    const bad: string[] = []
+    for (const [name, pos, nT, seed] of [
+      ['wander', wanderLong, 1, 2],
+      ['wander', wanderLong, 1, 1],
+      ['roam', roamLong, 1, 2],
+      ['roam', roamLong, 4, 1],
+      ['roam', roamLong, 4, 2]
+    ] as Array<[string, typeof wanderLong, number, number]>) {
+      const r = longScene(pos, nT, seed)
+      if (process.env.ADV_REPORT) {
+        process.stderr.write(
+          `LONG ${name} ${nT}T s${seed}: ${r.minutes.toFixed(1)} min, asks ${r.asks} (${(r.asks / r.minutes).toFixed(1)}/min), swap runs ${r.runs.length}\n`
+        )
+      }
+      for (const s of r.runs) {
+        if (s.len > 3 || s.maxSep > 30) {
+          bad.push(
+            `${name} ${nT}T s${seed} t${s.target}: f${s.from} ×${s.len}, до ${s.maxSep.toFixed(0)} px`
+          )
+        }
+      }
+    }
+    expect(bad).toEqual([])
+  }, 120000)
 })
