@@ -31,6 +31,7 @@ import { appearanceDistance } from './appearance'
 import { minCostAssignment, perfectMatching } from './assign'
 import { iou, SingleTracker, type TrackerSnapshot } from './tracker'
 import {
+  ANSWER_PROVEN_SECONDS,
   ASK_MAX_CANDIDATES,
   ASK_MAX_CANDIDATES_TOTAL,
   CHAIN_COUNT_RADIUS,
@@ -176,6 +177,8 @@ export class MultiTracker {
   /** Безымянные игроки той же формы рядом с целями (см. Ghost). */
   private ghosts: Ghost[] = []
   private readonly lostFrames: number
+  /** Сколько кадров сомнение считается свежим для answerProven (ANSWER_PROVEN_SECONDS). */
+  private readonly answerProvenFrames: number
 
   constructor(starts: MultiStart[], fps: number, frame?: { w: number; h: number }) {
     this.trackers = starts.map(
@@ -194,6 +197,7 @@ export class MultiTracker {
     this.trimSeen = starts.map(() => 0)
     this.recoveryBounds = starts.map(() => [])
     this.lostFrames = Math.max(1, Math.round(LOST_SECONDS * fps))
+    this.answerProvenFrames = Math.round(ANSWER_PROVEN_SECONDS * fps)
   }
 
   get size(): number {
@@ -243,8 +247,10 @@ export class MultiTracker {
     if (this.unprovenSince[target] === null) return null
     const pi = this.provenIndex[target]
     if (pi === null) return null
-    // Без допуска на давность (в отличие от nearProven для вопроса): за долгое время цель сама может пройти рядом со
-    // старым местом, и сверка от него переписала бы верный след.
+    // Свежее сомнение — тот же допуск, что у вопроса правила 3 (свой мог уйти, пока его не было видно). Давнее — без
+    // допуска: за долгое время цель сама может пройти рядом со старым местом, и сверка от него переписала бы верный след.
+    const f = this.frame?.index ?? pi
+    if (f - pi <= this.answerProvenFrames) return this.nearProven(target, box) ? pi : null
     const pb = this.provenBox[target]
     return apart(box, pb, Math.max(pb.h, MIN_NORM_HEIGHT)) <= CHAIN_COUNT_RADIUS ? pi : null
   }
@@ -857,6 +863,7 @@ export class MultiTracker {
     if (f === undefined) return false
     for (let i = 0; i < this.slots.length; i += 1) {
       const s = this.slots[i]
+      if (s.kind === 'track' && s.coasting && this.coastBack(i)) return true
       if (s.kind !== 'track' || s.coasting || !s.det) continue
       const c = this.chains[i]
       // Цепочка доказывает непрерывность с последней уверенной рамкой, но не то, что та была её игроком: правило 2
@@ -975,18 +982,15 @@ export class MultiTracker {
       // 3. Сомнение не снято (возвращение не доказано и рядом бывали другие): новый игрок той же формы без истории рядом с
       // надёжным местом цели — возможно, вернулся её настоящий. Вопрос с обоими, без срока давности.
       if (this.unprovenSince[i] !== null) {
+        const withHistory = this.continued(det, look, norm)
         const back = this.dets.filter(
           (d) =>
             d !== det &&
             !known.some((b) => sameBox(d.box, b)) &&
             this.nearProven(i, d.box) &&
             appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
-            // Новый: на прошлом кадре рядом рамки той же формы не было (появился, а не стоял тут всё время).
-            !this.prevDets.some(
-              (q) =>
-                apart(q.box, d.box, norm) <= CHAIN_MAX_SHIFT &&
-                appearanceDistance(q.look, d.look) < CHAIN_SIMILAR_LOOK
-            ) &&
+            // Новый: не продолжает ни одной рамки прошлого кадра (появился, а не стоял тут всё время).
+            ![...withHistory].some((h) => h === d || sameBox(h.box, d.box)) &&
             !explained(d) &&
             !othersUnknown(d)
         )
@@ -1065,6 +1069,77 @@ export class MultiTracker {
       const norm = Math.max(d.box.h, MIN_NORM_HEIGHT)
       return apart(d.box, this.preds[i], norm) <= this.newcomerReach(i, norm)
     })
+  }
+
+  /**
+   * Рамки текущего кадра той же формы, что продолжают рамку прошлого кадра (не дальше CHAIN_MAX_SHIFT). Соответствие
+   * взаимно однозначное: одна прошлая рамка продолжается только одной текущей, и рамка, за которой идёт цель (own),
+   * забирает ближайшую первой. Так игрок, вышедший вплотную к тому, за кем идёт цель, — новый, а не «с историей» от
+   * чужой прошлой рамки (раунд 14).
+   */
+  private continued(own: Detection | null, look: Float32Array, norm: number): Set<Detection> {
+    const kin = (l: Float32Array): boolean => appearanceDistance(look, l) < CHAIN_SIMILAR_LOOK
+    const prev = this.prevDets.filter((q) => kin(q.look))
+    const cur = this.dets.filter((d) => d === own || kin(d.look))
+    const pairs: Array<{ d: Detection; q: Detection; dist: number }> = []
+    for (const d of cur)
+      for (const q of prev) {
+        if (appearanceDistance(q.look, d.look) >= CHAIN_SIMILAR_LOOK) continue
+        const dist = apart(q.box, d.box, norm)
+        if (dist <= CHAIN_MAX_SHIFT) pairs.push({ d, q, dist })
+      }
+    pairs.sort((a, b) => (a.d === own ? 0 : 1) - (b.d === own ? 0 : 1) || a.dist - b.dist)
+    const usedQ = new Set<Detection>()
+    const out = new Set<Detection>()
+    for (const { d, q } of pairs) {
+      if (out.has(d) || usedQ.has(q)) continue
+      out.add(d)
+      usedQ.add(q)
+    }
+    return out
+  }
+
+  /**
+   * Правило 3 для пережидающей цели: возвращение не доказано, цель пережидает (рядом несколько рамок её формы), а у её
+   * надёжного места появилась новая рамка той же формы (не продолжает ни одной рамки прошлого кадра, см. continued) —
+   * возможно, вернулся её игрок, вплотную к тому, за кем шло кольцо. Вопрос с новой рамкой и соседями её формы (раунд 14).
+   */
+  private coastBack(i: number): boolean {
+    if (this.unprovenSince[i] === null) return false
+    const look = this.trackers[i].appearance
+    const pred = this.preds[i]
+    const norm = Math.max(pred.h, MIN_NORM_HEIGHT)
+    const kin = (d: Detection): boolean => appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK
+    const known = this.ownedByOthers(i)
+    const free = this.dets.filter((d) => kin(d) && !known.some((b) => sameBox(d.box, b)))
+    const withHistory = this.continued(null, look, norm)
+    const explained = (d: Detection): boolean =>
+      this.ghosts.some(
+        (g) =>
+          Math.min(
+            ...this.ghostPlaces(g).map((p) => Math.max(0, apart(d.box, p.b, norm) - p.slack))
+          ) <= CHAIN_MAX_SHIFT
+      )
+    // Двойная рамка детектора на одном месте — одна рамка: с историей, если с историей её двойник.
+    const hasHistory = (d: Detection): boolean =>
+      [...withHistory].some((h) => h === d || sameBox(h.box, d.box))
+    // Пережидание из-за соседства: у прогноза стоит рамка её формы, продолжающая прошлую (за ней кольцо и шло). Если её
+    // нет (своя просто пропала), новичок у надёжного места — не повод для вопроса: настоящего игрока в нём может не быть.
+    if (!free.some((d) => hasHistory(d) && apart(d.box, pred, norm) <= CHAIN_COUNT_RADIUS))
+      return false
+    const back = free.filter((d) => this.nearProven(i, d.box) && !hasHistory(d) && !explained(d))
+    if (back.length === 0) return false
+    const cands = this.generate(i, null)
+    for (const d of free) {
+      const near =
+        apart(d.box, pred, norm) <= CHAIN_COUNT_RADIUS ||
+        back.some((b) => apart(d.box, b.box, norm) <= CHAIN_COUNT_RADIUS)
+      if (near && !cands.includes(d)) cands.push(d)
+    }
+    this.slots[i] = { kind: 'ask', cands, det: null }
+    this.episodeAsk[i] = true
+    this.recoveredAt[i] = null
+    return true
   }
 
   /** Рядом с надёжным местом цели (CHAIN_COUNT_RADIUS плюс допуск, растущий с давностью, но не дальше радиуса эпизода). */

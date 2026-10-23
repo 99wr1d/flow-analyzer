@@ -1313,3 +1313,82 @@ describe('сверка ответа: от последнего доказанн�
       }
     })
 })
+
+describe('сверка ответа: свой ушёл, пока его не было видно; чужой вернулся вплотную к своему', () => {
+  /** Ответ — вариант, ближайший к своему игроку (x = own(f)); проверяет, что свой среди вариантов. */
+  const answerOwn =
+    (own: (f: number) => number, asked: number[]) =>
+    (t: number, candidates: Array<{ x: number; w: number }>): Promise<number> => {
+      const f = Math.round(t * FPS - 0.5)
+      asked.push(f)
+      let best = 0
+      const err = (j: number): number =>
+        Math.abs((candidates[j].x + candidates[j].w / 2) * W - own(f))
+      candidates.forEach((_, j) => {
+        if (err(j) < err(best)) best = j
+      })
+      expect(err(best), `вопрос на кадре ${f} без своего`).toBeLessThan(10)
+      return Promise.resolve(best)
+    }
+
+  for (const moved of [110, 220])
+    it(`свой ушёл на ${moved} px за 40 кадров невидимым, чужой взял кольцо и сам пропадал: ответ верный — чужих отсчётов нет`, async () => {
+      const own = (f: number): number => 340 - moved * Math.min(1, Math.max(0, (f - 20) / 40))
+      const det = scripted((f) => {
+        const out: Detection[] = []
+        if (f < 20 || f >= 60) out.push(person(own(f), 270))
+        if (f >= 22 && !(f >= 40 && f < 42)) out.push(person(300 + 2 * f + 15, 272))
+        return out
+      })
+      const asked: number[] = []
+      const out = await runTrackingJob(
+        options({
+          frames: frames(90),
+          createDetector: () => Promise.resolve(det),
+          anchors: [{ x: 340 / W, y: 315 / H }],
+          onAsk: answerOwn(own, asked)
+        })
+      )
+      expect(out.kind).toBe('done')
+      if (out.kind !== 'done') return
+      expect(asked.length).toBeGreaterThan(0)
+      for (const [f, s] of out.samples[0].entries()) {
+        expect(Math.abs(s.foot.x * W - own(f)), `кадр ${f}`).toBeLessThan(27)
+      }
+    })
+
+  for (const after of ['stay', 'leave'] as const)
+    it(`чужой вернулся вплотную к своему на 55-м (${after === 'stay' ? 'и стоит' : 'и уходит'}): вопрос со своим, чужих отсчётов нет`, async () => {
+      // Свой стоит невидимым с 20-го по 54-й; чужой той же формы с 22-го уходит на 60 px и возвращается к своему (12 px)
+      // ровно когда тот появляется.
+      const back = 55
+      const own = (f: number): number => 300 + 2 * Math.min(f, 20)
+      const sx = (f: number): number =>
+        f <= back
+          ? 340 + 60 * Math.sin(Math.PI * Math.min(1, (f - 22) / (back - 22)))
+          : after === 'stay'
+            ? 340
+            : 340 + 3 * (f - back)
+      const det = scripted((f) => {
+        const out: Detection[] = []
+        if (f < 20 || f >= back) out.push(person(own(f), 270))
+        if (f >= 22) out.push(person(sx(f) + 12, 272))
+        return out
+      })
+      const asked: number[] = []
+      const out = await runTrackingJob(
+        options({
+          frames: frames(back + 40),
+          createDetector: () => Promise.resolve(det),
+          anchors: [{ x: 300 / W, y: 315 / H }],
+          onAsk: answerOwn(own, asked)
+        })
+      )
+      expect(out.kind).toBe('done')
+      if (out.kind !== 'done') return
+      expect(asked.length).toBeGreaterThan(0)
+      for (const [f, s] of out.samples[0].entries()) {
+        expect(Math.abs(s.foot.x * W - own(f)), `кадр ${f}`).toBeLessThan(27)
+      }
+    })
+})
