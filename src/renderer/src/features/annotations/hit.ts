@@ -81,7 +81,9 @@ export function hitAnnotation(
   p: PxPoint,
   size: Size,
   measure: (text: string, fontPx: number) => number,
-  tolerance: number = HIT_TOLERANCE
+  tolerance: number = HIT_TOLERANCE,
+  /** Наклон колец у ног связки (как при рисовании): без него — 0.35. */
+  ringRatio?: (at: { x: number; y: number }) => number
 ): boolean {
   if (a.type === 'text') {
     const r = textRect(a, size, measure(a.text, a.style.size * size.h))
@@ -93,7 +95,7 @@ export function hitAnnotation(
     )
   }
   if (isScreenTool(a)) {
-    return paintScreenTool(a, size).hit.some((poly) => distToPolygon(p, poly) <= tolerance)
+    return paintScreenTool(a, size, undefined, ringRatio).hit.some((poly) => distToPolygon(p, poly) <= tolerance)
   }
   const p1 = toPx(a.p1, size)
   const p2 = toPx(a.p2, size)
@@ -113,10 +115,11 @@ export function topHit(
   list: readonly ScreenAnnotation[],
   p: PxPoint,
   size: Size,
-  measure: (text: string, fontPx: number) => number
+  measure: (text: string, fontPx: number) => number,
+  ringRatio?: (at: { x: number; y: number }) => number
 ): ScreenAnnotation | null {
   for (let i = list.length - 1; i >= 0; i--) {
-    if (hitAnnotation(list[i], p, size, measure)) return list[i]
+    if (hitAnnotation(list[i], p, size, measure, HIT_TOLERANCE, ringRatio)) return list[i]
   }
   return null
 }

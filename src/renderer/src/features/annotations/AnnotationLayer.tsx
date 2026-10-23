@@ -29,7 +29,7 @@ import {
   resolveAt
 } from '../../../../shared/animation'
 import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
-import { groundEllipseRatio, ringCalibrationAt } from '../../../../shared/pitch/ground'
+import { groundEllipseRatio, groundEllipseRatioIn, ringCalibrationAt } from '../../../../shared/pitch/ground'
 import {
   handleAnchor,
   moveWorld,
@@ -349,6 +349,12 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
     return cal ? (projectors.get(cal.id) ?? undefined) : undefined
   }
 
+  /** Наклон колец у ног связки по разметке поля — тот же, что при рисовании (попадание по кольцам совпадает с картинкой). */
+  const ringRatioOf = (a: Annotation): ((at: Point) => number) | undefined => {
+    const proj = ringProjector(a)
+    return proj ? (at) => groundEllipseRatioIn(proj, size.w / size.h, at) : undefined
+  }
+
   const { visible, staleIds } = useMemo(() => {
     const keys = visibleKey ? visibleKey.split(',') : []
     const ids = new Set(keys.map((k) => k.replace('!', '')))
@@ -396,7 +402,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
       if (isPitchAnnotation(a)) {
         const paint = paintOf(a, lookup, size, measureTextWidth)
         if (paint && hitPaint(paint, px)) return a
-      } else if (topHit([a], px, size, measureTextWidth)) {
+      } else if (topHit([a], px, size, measureTextWidth, ringRatioOf(a))) {
         return a
       }
     }
