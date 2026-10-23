@@ -176,23 +176,36 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     /** Номер кадра каждого отсчёта (у всех целей одинаковые). */
     const sampleFrames: number[] = []
     /** Стоп: все цели обрезаются до общей длины len (последний надёжный кадр у всех). */
-    const stopAt = (len: number, t: number, reason: StopReason, target: number): TrackingOutcome => ({
+    const stopAt = (
+      len: number,
+      t: number,
+      reason: StopReason,
+      target: number
+    ): TrackingOutcome => ({
       kind: 'done',
       samples: samples.map((s) => s.slice(0, len)),
       stop: { t, reason, target },
       backend: (detector as Detector).backend
     })
-    /** Самый ранний «последний уверенный» отсчёт среди целей: длина и время. */
-    const commonGood = (fallbackT: number): { len: number; t: number } => {
+    /**
+     * Длина вывода при остановке (потеря, «моего тут нет»): у каждой цели — до её последнего уверенного отсчёта и не
+     * дальше provenUntil (последний уверенный кадр перед недоказанным возвращением: перед остановкой могла быть короткая
+     * подмена на неотличимом новичке). У всех целей одна длина — наименьшая; время — последнего оставленного кадра.
+     */
+    const trustedLen = (
+      tr: MultiTracker,
+      fallbackT: number,
+      /** strict — до любого недоказанного возвращения; relaxed — «чистое» возвращение снято; none — только уверенные. */
+      mode: 'strict' | 'relaxed' | 'none'
+    ): { len: number; t: number } => {
       let len = Infinity
-      let t = fallbackT
-      for (const g of lastGood) {
-        const l = g?.len ?? 0
-        if (l < len) {
-          len = l
-          t = g?.t ?? fallbackT
-        }
-      }
+      lastGood.forEach((g, k) => {
+        const proven = mode === 'none' ? Infinity : tr.provenUntil(k, mode === 'strict')
+        const upTo = proven === null ? 0 : sampleFrames.filter((f) => f <= proven).length
+        len = Math.min(len, g?.len ?? 0, upTo)
+      })
+      if (!Number.isFinite(len)) len = 0
+      const t = len > 0 ? samples[0][len - 1].t : fallbackT
       return { len, t }
     }
 
@@ -245,15 +258,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         )
         if (signal.aborted) return { kind: 'cancelled' }
         if (index === 'none') {
-          // «Моего игрока тут нет»: стоп на последнем надёжном кадре. У спрошенной цели это кадр перед её последним
-          // недоказанным возвращением (перед вопросом могла быть короткая подмена на неотличимом новичке).
-          let { len, t } = commonGood(frame.t)
-          const proven = tracker.provenUntil(target)
-          const keep = proven === null ? 0 : sampleFrames.filter((f) => f <= proven).length
-          if (keep < len) {
-            len = keep
-            t = keep > 0 ? samples[target][keep - 1].t : frame.t
-          }
+          // «Моего игрока тут нет»: стоп на последнем надёжном кадре (см. trustedLen).
+          const { len, t } = trustedLen(tracker, frame.t, 'relaxed')
           return stopAt(len, t, 'not-here', target)
         }
         // Пустой или неверный ответ без отмены — сбой: интерфейс не должен ждать итога вечно.
@@ -263,8 +269,12 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         forceFull = true
       }
       if (step.kind === 'lost') {
-        // Стоп — на последнем кадре, где уверены все цели (спека, п. 8): отсчёты «пережидания» после него отбрасываем.
-        const { len, t } = commonGood(frame.t)
+        // Стоп — на последнем надёжном кадре всех целей (спека, п. 8): отсчёты «пережидания» и недоказанных
+        // возвращений после него отбрасываем.
+        // Строго (до любого недоказанного возвращения) — при потере цели (закрыта, ушла из кадра): она могла кончиться
+        // на чужом игроке. Смена плана теряет всех сразу и о личности ничего не говорит — как раньше, до последнего
+        // уверенного кадра; иначе безобидное пережидание (за игроком другой формы) обрезало бы всё слежение до него.
+        const { len, t } = trustedLen(tracker, frame.t, step.reason === 'cut' ? 'none' : 'strict')
         return stopAt(len, t, step.reason, step.target)
       }
       coasting = step.coasting.some(Boolean)

@@ -44,6 +44,8 @@ import {
   CONVERGE_IOU,
   GATE_GROW,
   GHOST_LINK_SLACK,
+  HISTORY_DIST,
+  LONG_SEARCH_FRAMES,
   LOST_SECONDS,
   GATE_MAX,
   MIN_NORM_HEIGHT,
@@ -196,10 +198,15 @@ export class MultiTracker {
   /**
    * До какого кадра (номер, включительно) рамкам цели можно верить: до последнего уверенного кадра перед возвращением после
    * пропуска, не подтверждённым ответом (короткая подмена на неотличимом новичке могла начаться там), иначе — до последнего
-   * уверенного кадра. null — уверенных кадров ещё не было. Только чтение (для ответа «моего тут нет»).
+   * уверенного кадра. null — уверенных кадров ещё не было. Только чтение.
+   * strict = false (ответ «моего тут нет»): «чистое» возвращение без соседей рядом через LOST_SECONDS считается доказанным
+   * (trimSince снят), чтобы безобидный пропуск не обрезал всё далеко назад. strict = true (потеря и прочие остановки —
+   * страховка): любое возвращение, не подтверждённое ответом (unprovenSince), — граница; одиночный новичок на месте цели
+   * неотличим от её же игрока, и если слежение кончилось потерей, кадры после такого возвращения выбрасываются.
    */
-  provenUntil(target: number): number | null {
-    if (this.trimSince[target] !== null) return this.provenIndex[target]
+  provenUntil(target: number, strict = false): number | null {
+    const since = strict ? this.unprovenSince[target] : this.trimSince[target]
+    if (since !== null) return this.provenIndex[target]
     return this.lastConfIndex[target]
   }
 
@@ -554,7 +561,7 @@ export class MultiTracker {
       const isNew = !this.prevDets.some(
         (q) =>
           appearanceDistance(q.look, d.look) < CHAIN_SIMILAR_LOOK &&
-          apart(q.box, d.box, norm) <= CHAIN_MAX_SHIFT
+          apart(q.box, d.box, norm) <= HISTORY_DIST
       )
       const owner = unknown.find((i) =>
         this.places(i).some(
@@ -860,6 +867,43 @@ export class MultiTracker {
       )
       const last = this.lastConfIndex[i]
       const missed = last === null ? 0 : f - last - 1
+      // 0а. Рамка без истории (на прошлом кадре рядом той же формы никого, кроме самой цели) дальше NEWCOMER_SIGMAS от прогноза: даже без
+      // пропуска (missed = 0) это может быть вышедший из-за спины в кадр, когда свой пропал. Молча не берём: пережидаем.
+      if (
+        !chained &&
+        !explained(det) &&
+        !this.prevDets.some(
+          (q) =>
+            !sameBox(q.box, this.lastConf[i]) &&
+            apart(q.box, det.box, norm) <= HISTORY_DIST &&
+            appearanceDistance(q.look, det.look) < CHAIN_SIMILAR_LOOK
+        ) &&
+        apart(det.box, this.preds[i], norm) > this.newcomerReach(i, norm)
+      ) {
+        this.redo(i, det, true)
+        return true
+      }
+      // 0б. Долгий поиск (LONG_SEARCH_FRAMES и больше без уверенной рамки): прогноз уплыл, ворота широкие, а следов у
+      // стоящих рядом игроков той же формы уже может не быть. Возвращение молча — только если рядом с взятой рамкой нет
+      // других рамок той же формы (не занятых целями с известным местом); иначе вопрос со всеми (раунд 9, B).
+      if (!chained && missed >= LONG_SEARCH_FRAMES) {
+        // Рядом со взятой рамкой или с местом, где цель видели последний раз.
+        const lastSeen = this.lastConf[i]
+        const rivals = this.dets.filter(
+          (d) =>
+            d !== det &&
+            !known.some((b) => sameBox(d.box, b)) &&
+            appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
+            (apart(d.box, det.box, norm) <= CHAIN_COUNT_RADIUS ||
+              apart(d.box, lastSeen, norm) <= CHAIN_COUNT_RADIUS)
+        )
+        if (rivals.length > 0) {
+          this.slots[i] = { kind: 'ask', cands: [...this.generate(i, det)], det }
+          this.episodeAsk[i] = true
+          for (const d of rivals) this.addCand(i, d)
+          return true
+        }
+      }
       if (
         !chained &&
         missed > 0 &&

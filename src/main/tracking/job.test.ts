@@ -817,3 +817,32 @@ describe('runTrackingJob: ответ «моего игрока тут нет»',
     expect(out.samples[0]).toHaveLength(10)
   })
 })
+
+describe('runTrackingJob: потеря после недоказанного возвращения', () => {
+  it('стоп из-за потери обрезает до последнего надёжного кадра: кадры на неотличимом новичке не остаются', async () => {
+    // Своя рамка пропадает с кадра 20 навсегда; на кадре 22 рядом с прогнозом (dx=20) выходит игрок той же формы и через
+    // несколько кадров уходит из кадра — кольцо успевает уйти на него (неотличим), затем цель теряется.
+    const own = (f: number): number => 300 + 2 * f
+    const det = scripted((f) => {
+      const out: Detection[] = []
+      if (f < 20) out.push(person(own(f), 270))
+      if (f >= 22 && f < 40) out.push(person(own(f) + 20, 270))
+      return out
+    })
+    const out = await runTrackingJob(
+      options({
+        frames: frames(100),
+        createDetector: () => Promise.resolve(det),
+        anchors: [{ x: 300 / W, y: 300 / H }]
+      })
+    )
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(out.stop?.reason).toBe('occluded')
+    // последний надёжный кадр — 19-й (дальше — возвращение на чужого, не доказанное)
+    expect(out.samples[0]).toHaveLength(20)
+    for (const [k, s] of out.samples[0].entries()) {
+      expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k}`).toBeLessThan(10)
+    }
+  })
+})

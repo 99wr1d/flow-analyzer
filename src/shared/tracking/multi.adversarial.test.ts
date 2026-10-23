@@ -1003,7 +1003,9 @@ describe('вопрос только когда игрок цели может б
               { J: 3, hj: 0.05, dropP },
               6,
               S2,
-              undefined,
+              // Одиночный новичок в пределах разброса прогноза (±25 px) неотличим от своего, пока свой не появится (известный
+              // предел, как drift); с кадра возвращения своего подмена — провал.
+              off <= 25 ? win[1] : undefined,
               // Цель пережидает среди новичков до срока трекера; на сроке он спрашивает сам, и если её игрок как раз не
               // виден, вопрос без него возможен (известный предел, считается в отчёте); подмен быть не должно.
               true
@@ -1069,6 +1071,9 @@ function longScene(
   runs: Array<{ target: number; from: number; len: number; maxSep: number }>
   asks: number
   minutes: number
+  stops: number
+  /** Остановки, после которых в обрезанном до надёжного кадра выводе остался бы кадр на чужом игроке. */
+  keptWrong: string[]
 } {
   const R = rng(seed)
   const U = (a: number): number => (R() * 2 - 1) * a
@@ -1093,6 +1098,10 @@ function longScene(
   let m: MultiTracker | null = null
   let asks = 0
   let live = 0
+  let stops = 0
+  const keptWrong: string[] = []
+  // Кадры текущего слежения, где уверенная рамка цели была на чужом игроке (по целям).
+  let wrong: number[][] = []
   const open: Array<{ from: number; len: number; maxSep: number } | null> = Array.from(
     { length: nT },
     () => null
@@ -1113,19 +1122,35 @@ function longScene(
         FPS,
         FRAME
       )
+      wrong = Array.from({ length: nT }, () => [])
     }
     let r: MultiStep = m.step({ index: f, t: (f + 0.5) / FPS, detections: dets, frameHist: WF })
+    // Вопрос без своего: пользователь ответил бы «моего тут нет» (обрезка нестрогая); иначе — потеря (строгая).
+    let lostStop = true
     while (r.kind === 'ask') {
       asks++
       const target = r.target
       const p = r.candidates.find((c) => src.get(c) === target)
       if (!p) {
+        lostStop = false
         r = { kind: 'lost', target, reason: 'occluded' }
         break
       }
       r = m.resolve(target, p)
     }
     if (r.kind === 'lost') {
+      // Остановка (потеря или вопрос без своего — пользователь ответил бы «моего тут нет»): вывод обрезается у всех
+      // целей до общего надёжного кадра. В оставшемся не должно быть ни одного кадра на чужом игроке.
+      stops++
+      const tm = m
+      const bound = Math.min(
+        ...Array.from({ length: nT }, (_, k) => tm.provenUntil(k, lostStop) ?? -1)
+      )
+      for (let k = 0; k < nT; k++) {
+        const bad = wrong[k].filter((x) => x <= bound)
+        if (bad.length > 0)
+          keptWrong.push(`t${k} f${bad[0]}…f${bad[bad.length - 1]} (до f${bound})`)
+      }
       m = null
       for (let k = 0; k < nT; k++) close(k)
       continue
@@ -1144,13 +1169,14 @@ function longScene(
       const [sx, sy] = pos(on, f)
       const sep = Math.hypot(ox - sx, oy - sy)
       if (sep <= 20) continue
+      wrong[k].push(f)
       const o = (open[k] ??= { from: f, len: 0, maxSep: 0 })
       o.len++
       o.maxSep = Math.max(o.maxSep, sep)
     }
   }
   for (let k = 0; k < nT; k++) close(k)
-  return { runs, asks, minutes: live / FPS / 60 }
+  return { runs, asks, minutes: live / FPS / 60, stops, keptWrong }
 }
 
 const wanderLong = (i: number, f: number): [number, number] => {
@@ -1168,21 +1194,25 @@ const roamLong = (i: number, f: number): [number, number] => {
 }
 
 describe('длинные сцены (6 минут, 22 игрока, 11 одной формы, пропуски 5 %)', () => {
-  it('без подмен длиннее 3 кадров и дальше 30 px: wander/roam, 1 и 4 цели', () => {
+  it('без подмен длиннее 3 кадров и дальше 30 px, без чужих кадров в обрезанном выводе: wander/roam, 1/4/8 целей', () => {
     const bad: string[] = []
     for (const [name, pos, nT, seed] of [
       ['wander', wanderLong, 1, 2],
       ['wander', wanderLong, 1, 1],
       ['roam', roamLong, 1, 2],
       ['roam', roamLong, 4, 1],
-      ['roam', roamLong, 4, 2]
+      ['roam', roamLong, 4, 2],
+      ['wander', wanderLong, 8, 5],
+      ['roam', roamLong, 8, 3]
     ] as Array<[string, typeof wanderLong, number, number]>) {
       const r = longScene(pos, nT, seed)
       if (process.env.ADV_REPORT) {
         process.stderr.write(
-          `LONG ${name} ${nT}T s${seed}: ${r.minutes.toFixed(1)} min, asks ${r.asks} (${(r.asks / r.minutes).toFixed(1)}/min), swap runs ${r.runs.length}\n`
+          `LONG ${name} ${nT}T s${seed}: ${r.minutes.toFixed(1)} min, asks ${r.asks} (${(r.asks / r.minutes).toFixed(1)}/min), stops ${r.stops}, swap runs ${r.runs.length}\n`
         )
       }
+      for (const w of r.keptWrong)
+        bad.push(`${name} ${nT}T s${seed}: в выводе после остановки ${w}`)
       for (const s of r.runs) {
         if (s.len > 3 || s.maxSep > 30) {
           bad.push(
@@ -1192,5 +1222,34 @@ describe('длинные сцены (6 минут, 22 игрока, 11 одно�
       }
     }
     expect(bad).toEqual([])
-  }, 120000)
+  }, 240000)
+})
+
+describe('товарищ возвращается в ворота, когда цель пропала', () => {
+  it('скрывался 1–2 с и вышел в 40–90 px от цели в кадр её пропуска: молча не берётся', () => {
+    const J3 = { J: 3, hj: 0.05 }
+    for (const hide of [25, 40, 50])
+      for (const off of [40, 55, 90])
+        for (const tdrop of [0, 1, 2])
+          for (const ang of [0, 1]) {
+            const back = 30 + hide
+            const tx = (f: number): number => 200 + 2 * f
+            family(
+              'reappear',
+              `hide ${hide} off=${off} ${ang ? 'below' : 'ahead'} targetDrop=${tdrop}`,
+              () => [
+                T(tx, at(270), tdrop ? { dropWin: [back, back + tdrop] } : {}),
+                D(
+                  (f) => (f < back ? tx(f) : tx(f) + (ang ? 0 : off)),
+                  (f) => (f < back ? 340 : 270 + (ang ? off : 6)),
+                  { vis: (f) => f < 30 || f >= back }
+                )
+              ],
+              J3,
+              6,
+              S2
+            )
+          }
+    check('reappear')
+  })
 })
