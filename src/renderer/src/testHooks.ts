@@ -1,5 +1,5 @@
 // Тестовые функции для автотестов и замеров. Подключаются только если main включил флаги (см. src/main/testFlags.ts),
-// то есть при запуске с FLOW_USER_DATA и FLOW_BENCH=1 / FLOW_TEST_CRASH=1 / FLOW_NO_TIPS=1 (его ставит каждый e2e-запуск).
+// то есть при запуске с FLOW_USER_DATA и FLOW_BENCH=1 / FLOW_TEST_CRASH=1 (подсказки FLOW_NO_TIPS хуков не включают).
 // В обычной работе этого кода нет в window.
 import type { AppInfo } from '../../shared/ipc-contract'
 import { useCrashStore, type CrashAreaName } from './app/crashStore'
@@ -16,7 +16,7 @@ export interface FlowTestHooks {
   snapshot?: () => { ms: number; bytes: number; episodes: number; annotations: number }
   /** Замер: собрать снимок и отправить автосохранение; миллисекунды всего круга. */
   autosave?: () => Promise<{ buildMs: number; totalMs: number }>
-  /** Открыть новую пустую доску тренера (пока на начальном экране нет кнопки «Новая доска» — Task 12). */
+  /** Открыть новую пустую доску тренера (только с FLOW_BENCH / FLOW_TEST_CRASH; e2e открывают доску кнопкой). */
   openBoard?: () => void
 }
 
@@ -28,7 +28,7 @@ declare global {
 
 export function installTestHooks(flags: AppInfo['testFlags']): void {
   const hooks: FlowTestHooks = {}
-  if (flags.noTips || flags.bench || flags.crash) hooks.openBoard = openNewBoard
+  if (flags.bench || flags.crash) hooks.openBoard = openNewBoard
   if (flags.crash) {
     hooks.crash = (area) => useCrashStore.getState().arm(area)
   }
