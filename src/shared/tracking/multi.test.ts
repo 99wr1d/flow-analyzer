@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { lookOf } from './appearance'
 import { MultiTracker, type MultiStep } from './multi'
+import { SingleTracker } from './tracker'
 import { frameHistOf } from './sceneCut'
-import type { Box, Detection, FrameInput } from './types'
+import type { Box, Detection, FrameInput, StepResult } from './types'
 
 const FPS = 25
 const FRAME = { w: 960, h: 540 }
@@ -384,5 +385,132 @@ describe('MultiTracker: отскок, близкий проход, скорос�
     const r = m.step(frame(1, [det(225, 270, near)]))
     expect(r.kind).toBe('track')
     expect(Array.from(m.lookOf(1))).toEqual(Array.from(before))
+  })
+})
+
+/** Ход одиночного трекера и MultiTracker с одной целью в одной строке (для сравнения). */
+function stepKey(r: StepResult | MultiStep): string {
+  const box = (b: Box): string => `${b.x.toFixed(2)},${b.y.toFixed(2)},${b.w.toFixed(2)}`
+  if (r.kind === 'lost') return `lost:${r.reason}`
+  if (r.kind === 'ask') return `ask:${r.candidates.map((c) => box(c.box)).join('|')}`
+  if ('boxes' in r) return `track:${r.coasting[0] ? 'c' : ''}${box(r.boxes[0])}`
+  return `track:${r.coasting ? 'c' : ''}${box(r.box)}`
+}
+
+/** Одна цель: MultiTracker ведёт себя ровно как SingleTracker (решения, вопросы с теми же вариантами, рамки). */
+function parity(
+  start: Detection,
+  detsAt: (f: number) => Detection[],
+  frames: number
+): { asks: number; steps: number } {
+  const s = new SingleTracker(start, FPS, { frame: FRAME })
+  const m = new MultiTracker([{ det: start }], FPS, FRAME)
+  let asks = 0
+  let steps = 0
+  for (let f = 1; f < frames; f += 1) {
+    const fi = frame(f, detsAt(f))
+    const a = s.step(fi)
+    const b = m.step(fi)
+    steps += 1
+    expect(stepKey(b), `кадр ${f}`).toBe(stepKey(a))
+    if (a.kind === 'ask') {
+      asks += 1
+      s.resolve(a.candidates[0])
+      expect(stepKey(m.resolve(0, (b as { candidates: Detection[] }).candidates[0]))).toMatch(
+        /^track:/
+      )
+    }
+    if (a.kind === 'lost') break
+  }
+  return { asks, steps }
+}
+
+describe('MultiTracker с одной целью = SingleTracker', () => {
+  it('скрылся и вернулся рядом с двойником одной формы и игроками другой формы (40 вариантов)', () => {
+    let asks = 0
+    for (let sc = 0; sc < 40; sc += 1) {
+      const r = parity(
+        det(200, 270, RED),
+        (f) => {
+          const x = 200 + 3 * f
+          if (f < 20) return [det(x, 270, RED), det(x + 150, 270, BLUE)]
+          if (f < 20 + (sc % 30)) return [det(x + 150, 270, BLUE), det(x - 40 - sc, 300, BLUE)]
+          return [
+            det(x, 270, RED),
+            det(x + 30 + sc, 280, RED),
+            det(x - 60, 270, BLUE),
+            det(x + 100, 260, BLUE),
+            det(x - 150, 270, RED)
+          ]
+        },
+        80
+      )
+      asks += r.asks
+    }
+    // сценарий действительно доходит до вопросов
+    expect(asks).toBeGreaterThan(0)
+  })
+
+  it('проход мимо игрока такой же формы, сосед другой формы вплотную, пропуски рамок', () => {
+    const rnd = ((): (() => number) => {
+      let a = 12345
+      return () => {
+        a = (a * 1103515245 + 12345) & 0x7fffffff
+        return a / 0x7fffffff
+      }
+    })()
+    const drops = Array.from({ length: 120 }, () => rnd() < 0.15)
+    parity(
+      det(200, 270, RED),
+      (f) => {
+        const out = [det(440 - 3 * f, 280, RED), det(200 + 3 * f + 25, 265, BLUE)]
+        if (!drops[f]) out.push(det(200 + 3 * f, 270, RED))
+        return out
+      },
+      120
+    )
+    parity(
+      det(200, 270, RED),
+      (f) => [det(200 + 3 * f, 270, RED), det(200 + 3 * Math.min(f, 40) + 30, 275, BLUE)],
+      90
+    )
+  })
+})
+
+describe('MultiTracker: варианты вопроса', () => {
+  it('в эпизоде одинаковой формы игроки другой формы в вопрос не добавляются; вариантов не больше пяти', () => {
+    const M = 40
+    const xa = (f: number): number => 300 + 3 * Math.min(f, M) - 3 * Math.max(0, f - M)
+    const xb = (f: number): number => 540 - 3 * Math.min(f, M) + 3 * Math.max(0, f - M)
+    const m = new MultiTracker(
+      [{ det: det(xa(0), 270, RED) }, { det: det(xb(0), 280, RED) }],
+      FPS,
+      FRAME
+    )
+    let asks = 0
+    for (let f = 1; f < 100; f += 1) {
+      const dets = [
+        det(xa(f), 270, RED),
+        det(xb(f), 280, RED),
+        det(420, 200, BLUE),
+        det(380, 350, BLUE),
+        det(460, 350, BLUE)
+      ]
+      let r = m.step(frame(f, dets))
+      while (r.kind === 'ask') {
+        asks += 1
+        expect(r.candidates.length).toBeLessThanOrEqual(5)
+        expect(r.candidates.every((c) => c.look === RED)).toBe(true)
+        const want = r.target === 0 ? xa(f) : xb(f)
+        r = m.resolve(
+          r.target,
+          r.candidates.reduce((a, b) =>
+            Math.abs(cx(a.box) - want) < Math.abs(cx(b.box) - want) ? a : b
+          )
+        )
+      }
+      expect(r.kind).toBe('track')
+    }
+    expect(asks).toBeGreaterThan(0)
   })
 })

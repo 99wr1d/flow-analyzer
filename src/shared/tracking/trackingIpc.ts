@@ -3,6 +3,7 @@
 import { z } from 'zod'
 import type { TrackSample } from './keys'
 import type { DetectorBackend } from './detectorIpc'
+import { ASK_MAX_CANDIDATES_TOTAL } from './tuning'
 
 /** Самый длинный отрезок за одну задачу (секунды): защита от случайного «на всё видео». */
 export const MAX_TRACK_SECONDS = 600
@@ -29,7 +30,12 @@ export const TrackingStartSchema = z
 
 export const TrackingResolveSchema = z.object({
   jobId: z.string().min(1).max(100),
-  index: z.number().int().min(0).max(100),
+  /** Номер варианта в списке вопроса (не больше ASK_MAX_CANDIDATES_TOTAL вариантов). */
+  index: z
+    .number()
+    .int()
+    .min(0)
+    .max(ASK_MAX_CANDIDATES_TOTAL - 1),
   /** Цель, на вопрос по которой отвечаем (должна совпасть с задаваемой); без неё — цель 0 (одиночное слежение). */
   target: z
     .number()

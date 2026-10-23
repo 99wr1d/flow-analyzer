@@ -1,6 +1,8 @@
-// Состязательные сценарии многоцелевого слежения: шум рамок, пропуски, слияния, три игрока одной формы.
-// Детерминировано (сид). Инвариант: ни одной молчаливой подмены (уверенная рамка чужого игрока при расстоянии между
-// игроками больше SEP), и в каждом вопросе среди кандидатов есть настоящий игрок цели. Вопросы и безопасные остановки допустимы.
+// Состязательные сценарии многоцелевого слежения: шум рамок, пропуски (окном и случайные), слияния, три игрока одной
+// формы, две пары одновременно, линия обороны из четырёх, ошибочный ответ пользователя.
+// Детерминировано (сиды). Инвариант: ни одной молчаливой подмены (уверенная рамка чужого игрока при расстоянии между
+// игроками больше SEP), в каждом вопросе есть настоящий игрок цели (иначе — стоп, а не вопрос), ответ из списка вопроса
+// всегда принимается (исключение при resolve — провал). Вопросы и безопасные остановки допустимы.
 import { describe, expect, it } from 'vitest'
 import { lookOf } from './appearance'
 import { MultiTracker, type MultiStep } from './multi'
@@ -44,23 +46,33 @@ interface Opts {
   hj: number
   seed: number
   frames?: number
+  /** Окно пропуска рамки одного игрока пары вокруг сближения. */
   drop?: { len: number; who: number }
+  /** Окно слияния пары в одну рамку вокруг сближения. */
   merge?: { len: number }
   pair?: [number, number]
+  /** Случайный пропуск каждой рамки с этой вероятностью. */
+  dropP?: number
+  /** 'wrong': один раз за прогон пользователь ошибается (выбирает игрока другой цели) и дальше считает так. */
+  policy?: 'correct' | 'wrong'
 }
 interface Res {
-  swapFrames: number
+  swaps: number
   firstSwap: number
   asks: number
-  lost: string | null
-  userNull: number
-  mergedConf: number
-  endWrong: boolean
+  stop: string | null
+  /** Вопрос без настоящего игрока среди вариантов (правильного ответа нет). */
+  noTruth: number
+  /** Ответ из списка вопроса отвергнут (исключение). */
+  throws: number
+  detail: string[]
 }
+
+const SEP = 20
 
 function run(players: Player[], o: Opts): Res {
   const R = rng(o.seed)
-  const U = (a: number) => (R() * 2 - 1) * a
+  const U = (a: number): number => (R() * 2 - 1) * a
   const src = new Map<Detection, number[]>()
   const mk = (cx: number, cy: number, s: number[], noisy = true): Detection => {
     const h = BH * (1 + (noisy ? U(o.hj) : 0)),
@@ -73,7 +85,7 @@ function run(players: Player[], o: Opts): Res {
   }
   const frames = o.frames ?? 110
   const pair = o.pair ?? [0, 1]
-  // closest approach of pair
+  // кадр наибольшего сближения пары (окна пропуска и слияния — вокруг него)
   let cf = 0,
     best = Infinity
   for (let f = 0; f < frames; f++) {
@@ -87,21 +99,23 @@ function run(players: Player[], o: Opts): Res {
     }
   }
   const tIdx = players.map((p, i) => (p.target ? i : -1)).filter((i) => i >= 0)
+  // Кто чей игрок, по мнению пользователя (меняется только при ошибочном ответе).
+  const own = [...tIdx]
   const m = new MultiTracker(
     tIdx.map((i) => ({ det: mk(players[i].x(0), players[i].y(0), [i], false) })),
     FPS,
     FRAME
   )
   const res: Res = {
-    swapFrames: 0,
+    swaps: 0,
     firstSwap: -1,
     asks: 0,
-    lost: null,
-    userNull: 0,
-    mergedConf: 0,
-    endWrong: false
+    stop: null,
+    noTruth: 0,
+    throws: 0,
+    detail: []
   }
-  let lastOwn: boolean[] = tIdx.map(() => true)
+  let wrongDone = false
   for (let f = 1; f < frames; f++) {
     let dets: Detection[] = []
     const inMerge =
@@ -115,6 +129,7 @@ function run(players: Player[], o: Opts): Res {
     players.forEach((p, i) => {
       if (inMerge && pair.includes(i)) return
       if (inDrop && i === pair[o.drop!.who]) return
+      if (o.dropP && R() < o.dropP) return
       dets.push(mk(p.x(f), p.y(f), [i]))
     })
     if (inMerge) {
@@ -132,90 +147,94 @@ function run(players: Player[], o: Opts): Res {
       src.set(d, [...pair])
       dets.push(d)
     }
-    // shuffle detection order (detector order is arbitrary)
+    // порядок детекций произвольный
     dets = dets
       .map((d) => [R(), d] as const)
       .sort((a, b) => a[0] - b[0])
       .map((x) => x[1])
     let r: MultiStep = m.step({ index: f, t: (f + 0.5) / FPS, detections: dets, frameHist: WF })
     let guard = 0
-    while (r.kind === 'ask' && guard++ < 20) {
+    while (r.kind === 'ask') {
       res.asks++
-      const own = tIdx[r.target]
+      if (++guard > 20) {
+        res.stop = `ask-loop@${f}`
+        res.throws++
+        res.detail.push(res.stop)
+        break
+      }
+      const k = r.target
+      const ownK = own[k]
       const exact = r.candidates.find((c) => {
         const s = src.get(c)
-        return s && s.length === 1 && s[0] === own
+        return s && s.length === 1 && s[0] === ownK
       })
-      const merged = r.candidates.find((c) => {
-        const s = src.get(c)
-        return s && s.includes(own)
-      })
-      const pick = exact ?? merged
-      if (DEBUG)
-        console.log(
-          `  ask f${f} target${r.target} cands=${r.candidates.map((c) => src.get(c)!.join('+')).join(',')}`
+      const merged = r.candidates.find((c) => src.get(c)?.includes(ownK))
+      if (!exact && !merged) {
+        res.noTruth++
+        res.detail.push(
+          `f${f} t${k}: вопрос без настоящего игрока (варианты ${r.candidates.map((c) => src.get(c)?.join('+')).join(',')})`
         )
+      }
+      let pick = exact ?? merged
+      if (o.policy === 'wrong' && !wrongDone) {
+        // Пользователь ошибся: назвал игрока другой цели. Дальше он считает, что эти двое поменялись.
+        const wrong = r.candidates.find((c) => {
+          const s = src.get(c)
+          return s && s.length === 1 && s[0] !== ownK && tIdx.includes(s[0])
+        })
+        if (wrong) {
+          wrongDone = true
+          const p = src.get(wrong)![0]
+          const other = own.indexOf(p)
+          if (other >= 0) own[other] = ownK
+          own[k] = p
+          pick = wrong
+        }
+      }
       if (!pick) {
-        res.userNull++
-        res.lost = `user-null@${f}`
+        res.stop = `user-null@${f}`
         break
       }
       try {
-        r = m.resolve(r.target, pick)
+        r = m.resolve(k, pick)
       } catch (e) {
-        res.lost = `resolve-throw@${f}:${(e as Error).message}`
+        res.throws++
+        res.stop = `resolve-throw@${f}`
+        res.detail.push(`f${f} t${k}: ответ из списка отвергнут (${(e as Error).message})`)
         break
       }
     }
-    if (res.lost) break
+    if (res.stop) break
     if (r.kind === 'lost') {
-      res.lost = `lost t${r.target} ${r.reason}@${f}`
+      res.stop = `lost t${r.target} ${r.reason}@${f}`
       break
     }
     if (r.kind !== 'track') break
     const rr = r
-    if (DEBUG && f >= 34 && f <= 52)
-      console.log(
-        `  f${f} truth=${players.map((p) => `(${p.x(f).toFixed(0)},${p.y(f).toFixed(0)})`).join(' ')} dets=${dets.map((d) => `${src.get(d)!.join('+')}@${(d.box.x + d.box.w / 2).toFixed(0)}`).join(' ')} out=${rr.boxes.map((b, k) => `${(b.x + b.w / 2).toFixed(0)}${rr.coasting[k] ? 'c' : ''}`).join(' ')}`
-      )
-    lastOwn = tIdx.map((own, k) => {
-      if (rr.coasting[k]) return lastOwn[k]
+    tIdx.forEach((_, k) => {
+      if (rr.coasting[k]) return
+      const b = rr.boxes[k]
       const d = dets.find(
-        (x) =>
-          x.box.x === rr.boxes[k].x &&
-          x.box.y === rr.boxes[k].y &&
-          x.box.w === rr.boxes[k].w &&
-          x.box.h === rr.boxes[k].h
+        (x) => x.box.x === b.x && x.box.y === b.y && x.box.w === b.w && x.box.h === b.h
       )
-      if (!d) return true // user-confirmed copy
+      if (!d) return // копия рамки, подтверждённой пользователем
       const s = src.get(d)!
-      if (s.length > 1) {
-        res.mergedConf++
-        return s.includes(own)
-      }
-      if (s[0] !== own) {
-        const sep = Math.hypot(
-          players[own].x(f) - players[s[0]].x(f),
-          players[own].y(f) - players[s[0]].y(f)
+      if (s.includes(own[k])) return
+      const sep = Math.min(
+        ...s.map((p) =>
+          Math.hypot(players[own[k]].x(f) - players[p].x(f), players[own[k]].y(f) - players[p].y(f))
         )
-        if (sep > SEP) {
-          res.swapFrames++
-          if (res.firstSwap < 0) res.firstSwap = f
-        }
-        if (DEBUG)
-          console.log(`  wrong f${f} target${k} own=${own} took=${s[0]} sep=${sep.toFixed(1)}`)
-        return false
+      )
+      if (sep > SEP) {
+        res.swaps++
+        if (res.firstSwap < 0) res.firstSwap = f
       }
-      return true
     })
   }
-  res.endWrong = lastOwn.some((x) => !x)
   return res
 }
 
 const M = 40
-const SEP = Number(process.env.SEP ?? 20)
-const DEBUG = false
 const pass = (v: number, dy: number, vb = v): Player[] => [
   { x: (f) => 200 + v * f, y: () => 270, target: true },
   { x: (f) => 200 + v * M + vb * M - vb * f, y: () => 270 + dy, target: true }
@@ -228,20 +247,20 @@ const bounce = (v: number, dy: number): Player[] => [
     target: true
   }
 ]
-// diagonal: A moves (+v, +0.5v), B moves (-0.4v, -v); both at (200+vM + 0, 270+...) at f=M
+// диагональ: A идёт (+v, +0.5v), B (-0.4v, -v); встреча на кадре M
 const diag = (v: number, dy: number, rev: boolean): Player[] => {
-  const g = (f: number) => (rev ? Math.min(f, M) - Math.max(0, f - M) : f) - M
+  const g = (f: number): number => (rev ? Math.min(f, M) - Math.max(0, f - M) : f) - M
   return [
     { x: (f) => 400 + v * g(f), y: (f) => 270 + 0.5 * v * g(f), target: true },
     { x: (f) => 400 - 0.4 * v * g(f), y: (f) => 270 + dy - v * g(f), target: true }
   ]
 }
-// A walks to the meeting point and stops there forever; B passes through
+// A доходит до точки встречи и стоит; B проходит насквозь
 const stopPass = (v: number, dy: number): Player[] => [
   { x: (f) => 200 + v * Math.min(f, M), y: () => 270, target: true },
   { x: (f) => 200 + 2 * v * M - v * f, y: () => 270 + dy, target: true }
 ]
-// A stands still, B walks up, stands next to A for 15 frames, walks back
+// A стоит; B подходит, стоит рядом 15 кадров и уходит обратно
 const standBounce = (v: number, dy: number): Player[] => [
   { x: () => 400, y: () => 270, target: true },
   {
@@ -255,59 +274,113 @@ const standBounce = (v: number, dy: number): Player[] => [
     target: true
   }
 ]
-// three: A from left, B from right, C from top-left diagonal, all meet near (400,270)
-const three = (
-  v: number,
-  dys: [number, number, number],
-  rev: boolean,
-  cTarget = true
-): Player[] => {
-  const g = (f: number) => (rev ? Math.min(f, M) - Math.max(0, f - M) : f) - M
+// три игрока: A слева, B справа, C по диагонали сверху-слева; встреча около (400,270)
+const three = (v: number, dys: number[], rev: boolean, cTarget = true): Player[] => {
+  const g = (f: number): number => (rev ? Math.min(f, M) - Math.max(0, f - M) : f) - M
   return [
     { x: (f) => 400 + v * g(f), y: () => 270 + dys[0], target: true },
     { x: (f) => 400 - v * g(f), y: () => 270 + dys[1], target: true },
     { x: (f) => 400 + 0.3 * v * g(f), y: (f) => 270 + dys[2] + 0.8 * v * g(f), target: cTarget }
   ]
 }
+// две пары с отскоком одновременно (вопросы по нескольким целям в одном кадре)
+const twoPairs = (v: number, dy: number): Player[] => [
+  ...bounce(v, dy),
+  ...bounce(v, dy).map((p) => ({ ...p, y: (f: number) => p.y(f) + 150 }))
+]
+// линия обороны: 4 игрока одной формы с шагом sp, общее движение и покачивание;
+// swap12 — 1 и 2 меняются местами (f30..60), bounce12 — сходятся и расходятся, all — ещё и 0 пробегает вдоль линии.
+const line = (
+  sp: number,
+  vx: number,
+  shuffle: 'none' | 'swap12' | 'bounce12' | 'all',
+  wob: number
+): Player[] => {
+  const base = (i: number) => (f: number) => 200 + sp * i + vx * f + wob * Math.sin(f / 7 + i * 1.3)
+  const P: Player[] = [0, 1, 2, 3].map((i) => ({
+    x: base(i),
+    y: (f: number) => 270 + 0.5 * vx * Math.sin(f / 15) * 10 + (wob ? 3 * Math.sin(f / 5 + i) : 0),
+    target: true
+  }))
+  const tt = (f: number): number => Math.min(1, Math.max(0, (f - 30) / 30))
+  const bb = (f: number): number =>
+    (f < 30 ? 0 : f < 45 ? (f - 30) / 15 : f < 60 ? (60 - f) / 15 : 0) * 0.8
+  if (shuffle === 'swap12' || shuffle === 'all') {
+    const b1 = base(1),
+      b2 = base(2)
+    P[1] = { ...P[1], x: (f) => b1(f) + sp * tt(f) }
+    P[2] = {
+      ...P[2],
+      x: (f) => b2(f) - sp * tt(f),
+      y: (f) => P[1].y(f) + 15 * Math.sin(Math.PI * tt(f))
+    }
+  }
+  if (shuffle === 'bounce12') {
+    const b1 = base(1),
+      b2 = base(2)
+    P[1] = { ...P[1], x: (f) => b1(f) + sp * bb(f) * 0.5 }
+    P[2] = { ...P[2], x: (f) => b2(f) - sp * bb(f) * 0.5 }
+  }
+  if (shuffle === 'all') {
+    const b0 = base(0),
+      b3 = base(3)
+    const t2 = (f: number): number => Math.min(1, Math.max(0, (f - 70) / 25))
+    P[0] = {
+      ...P[0],
+      x: (f) => b0(f) + 3 * sp * t2(f),
+      y: (f) => 270 + 25 * Math.sin(Math.PI * t2(f))
+    }
+    P[3] = { ...P[3], x: (f) => b3(f) - sp * t2(f) }
+  }
+  return P
+}
 
 interface Tally {
+  runs: number
   swapRuns: number
-  unanswerable: number
+  noTruth: number
+  throws: number
   asks: number
   stops: number
-  runs: number
+  stopList: string[]
   detail: string[]
 }
 const TOTAL: Record<string, Tally> = {}
 
-/** Прогон семейства сценариев по нескольким сидам; итоги копятся в TOTAL (для отчёта). */
+/** Прогон семейства по сидам seed = s·base (s = 1..seeds); итоги копятся в TOTAL. */
 function family(
   group: string,
   name: string,
   mkP: () => Player[],
   base: Omit<Opts, 'seed'>,
   seeds: number,
-  pair?: [number, number]
+  seedBase = 7919
 ): void {
   const t = (TOTAL[group] ??= {
+    runs: 0,
     swapRuns: 0,
-    unanswerable: 0,
+    noTruth: 0,
+    throws: 0,
     asks: 0,
     stops: 0,
-    runs: 0,
+    stopList: [],
     detail: []
   })
   for (let s = 1; s <= seeds; s += 1) {
-    const r = run(mkP(), { ...base, seed: s * 7919, pair })
+    const r = run(mkP(), { ...base, seed: s * seedBase })
     t.runs += 1
     t.asks += r.asks
-    t.unanswerable += r.userNull
-    if (r.lost) t.stops += 1
-    if (r.swapFrames > 0) {
-      t.swapRuns += 1
-      t.detail.push(`${name} s${s}:f${r.firstSwap}x${r.swapFrames}`)
+    t.noTruth += r.noTruth
+    t.throws += r.throws
+    if (r.stop) {
+      t.stops += 1
+      t.stopList.push(`${name} s${s}: ${r.stop}`)
     }
-    if (r.userNull > 0) t.detail.push(`${name} s${s}: вопрос без настоящего игрока (${r.lost})`)
+    if (r.swaps > 0) {
+      t.swapRuns += 1
+      t.detail.push(`${name} s${s}: подмена с кадра ${r.firstSwap} (${r.swaps} кадров)`)
+    }
+    for (const d of r.detail) t.detail.push(`${name} s${s}: ${d}`)
   }
 }
 
@@ -315,13 +388,18 @@ function check(group: string): void {
   const t = TOTAL[group]
   if (process.env.ADV_REPORT) {
     process.stderr.write(
-      `ADV ${group}: runs ${t.runs} swapRuns ${t.swapRuns} unanswerable ${t.unanswerable} asks ${t.asks} stops ${t.stops}\n`
+      `ADV ${group}: runs ${t.runs} swapRuns ${t.swapRuns} noTruth ${t.noTruth} throws ${t.throws} asks ${t.asks} stops ${t.stops}\n`
     )
+    if (process.env.ADV_REPORT === 'stops') {
+      for (const x of t.stopList) process.stderr.write(`  stop ${x}\n`)
+    }
   }
   expect(t.detail).toEqual([])
 }
 
 const jit = (J: number): Pick<Opts, 'J' | 'hj'> => ({ J, hj: J ? 0.05 : 0 })
+/** Сиды семейств второго зонда ревью (s·104729): среди них — найденные провалы (s=1, 2, 3). */
+const S2 = 104729
 
 describe('состязательные сценарии: нет молчаливых подмен', () => {
   it('отскок с шумом рамок v=4/6/8, dy=0/10, J=2/4', () => {
@@ -364,7 +442,7 @@ describe('состязательные сценарии: нет молчалив
         for (const dys of [
           [0, 10, 20],
           [0, 30, -30]
-        ] as Array<[number, number, number]>)
+        ])
           for (const J of [0, 3]) {
             const g = rev ? 'three-bounce' : 'three-pass'
             family(g, `three v=${v} dys=${dys} J=${J}`, () => three(v, dys, rev), jit(J), J ? 6 : 1)
@@ -429,5 +507,120 @@ describe('состязательные сценарии: нет молчалив
           )
         }
     for (const g of ['pass', 'diag', 'speeds', 'stops']) check(g)
+  })
+
+  it('сильный шум рамок J=6: проход и отскок двух, три игрока', () => {
+    const J6 = { J: 6, hj: 0.08 }
+    for (const kind of ['pass', 'bounce'] as const)
+      for (const v of [2, 4, 6, 8])
+        for (const dy of [0, 10, 30])
+          family(
+            'jitter6',
+            `${kind} v=${v} dy=${dy} J=6`,
+            () => (kind === 'pass' ? pass(v, dy) : bounce(v, dy)),
+            J6,
+            6,
+            S2
+          )
+    for (const rev of [false, true])
+      for (const v of [3, 6])
+        family(
+          'jitter6',
+          `three rev=${rev} v=${v} J=6`,
+          () => three(v, [0, 10, 20], rev),
+          J6,
+          6,
+          S2
+        )
+    check('jitter6')
+  })
+
+  it('случайные пропуски 10 % рамок (детектор не видит своего игрока, сосед рядом)', () => {
+    const o = { J: 4, hj: 0.05, dropP: 0.1 }
+    for (const kind of ['pass', 'bounce'] as const)
+      for (const v of [3, 6])
+        for (const dy of [0, 10])
+          family(
+            'random-drop',
+            `${kind} v=${v} dy=${dy} J=4 drop10%`,
+            () => (kind === 'pass' ? pass(v, dy) : bounce(v, dy)),
+            o,
+            6,
+            S2
+          )
+    for (const rev of [false, true])
+      family(
+        'random-drop',
+        `three rev=${rev} v=4 J=4 drop10%`,
+        () => three(4, [0, 10, 20], rev),
+        o,
+        6,
+        S2
+      )
+    check('random-drop')
+  })
+
+  it('две пары с отскоком одновременно', () => {
+    for (const v of [3, 6])
+      for (const dy of [0, 10])
+        for (const J of [0, 3])
+          family(
+            'two-pairs',
+            `twoPairs v=${v} dy=${dy} J=${J}`,
+            () => twoPairs(v, dy),
+            jit(J),
+            J ? 6 : 1,
+            S2
+          )
+    check('two-pairs')
+  })
+
+  it('линия обороны из четырёх одной формы: шаг 25/35/50, перестроения, J=0/3/6', () => {
+    for (const sp of [25, 35, 50])
+      for (const sh of ['none', 'swap12', 'bounce12', 'all'] as const)
+        for (const J of [0, 3, 6])
+          family(
+            'line',
+            `line sp=${sp} ${sh} J=${J}`,
+            () => line(sp, 2, sh, J ? 4 : 0),
+            { J, hj: J ? 0.05 : 0, frames: 110 },
+            J ? 6 : 1,
+            S2
+          )
+    check('line')
+  })
+
+  it('пользователь один раз ошибся: дальше без подмен относительно его ответа и без вопросов без правильного варианта', () => {
+    const o = { J: 3, hj: 0.05, policy: 'wrong' as const }
+    for (const kind of ['pass', 'bounce'] as const)
+      for (const v of [3, 6])
+        for (const dy of [0, 10])
+          family(
+            'wrong-answer',
+            `${kind} v=${v} dy=${dy} J=3 WRONG`,
+            () => (kind === 'pass' ? pass(v, dy) : bounce(v, dy)),
+            o,
+            6,
+            S2
+          )
+    for (const rev of [false, true])
+      family(
+        'wrong-answer',
+        `three rev=${rev} v=4 J=3 WRONG`,
+        () => three(4, [0, 10, 20], rev),
+        o,
+        6,
+        S2
+      )
+    for (const sp of [25, 35])
+      family(
+        'wrong-answer',
+        `line sp=${sp} swap12 J=3 WRONG`,
+        () => line(sp, 2, 'swap12', 4),
+        o,
+        6,
+        S2
+      )
+    check('wrong-answer')
   })
 })
