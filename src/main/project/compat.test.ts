@@ -24,7 +24,7 @@ import { readProjectFile } from './files'
 import { openProjectFile, saveToPath, videoFacts } from './session'
 
 const DIR = resolve('tests/fixtures/projects')
-const CURRENT_APP_VERSION = '0.18.0'
+const CURRENT_APP_VERSION = '0.19.0'
 
 interface Era {
   file: string
@@ -127,6 +127,17 @@ const ERAS: Era[] = [
     grassKey: true,
     types: ['ring', 'circle', 'text', 'arrow', 'pspot', 'spot'],
     animated: 1
+  },
+  {
+    file: 'v0.19.0.flowproj',
+    appVersion: '0.19.0',
+    annotations: 8,
+    calibrations: 1,
+    episodes: 2,
+    meta: true,
+    grassKey: true,
+    types: ['ring', 'circle', 'text', 'arrow', 'pspot', 'spot', 'link', 'plink'],
+    animated: 2
   }
 ]
 
