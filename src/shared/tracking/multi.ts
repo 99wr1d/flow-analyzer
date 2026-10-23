@@ -39,6 +39,8 @@ import {
   CHAIN_NEIGHBOUR_DIST,
   CHAIN_RUNNER_UP,
   CHAIN_SIMILAR_LOOK,
+  KALMAN_R,
+  NEWCOMER_SIGMAS,
   CONVERGE_IOU,
   GATE_GROW,
   LOST_SECONDS,
@@ -87,6 +89,11 @@ interface Ghost {
   vy: number
   seen: number
   look: Float32Array
+  /**
+   * След заведён на «подозрительной» рамке цели (возможно, новичок, возможно, её же игрок вернулся не там): для
+   * вопросов этой цели он не считается отдельным игроком — иначе вопрос с её собственным игроком был бы невозможен.
+   */
+  suspectOf?: number
 }
 
 /** Возможное место игрока цели: рамка и допуск вокруг неё (в высотах). */
@@ -117,6 +124,8 @@ export class MultiTracker {
   private slots: Slot[] = []
   private preds: Box[] = []
   private dets: Detection[] = []
+  /** Детекции прошлого кадра: «новая» рамка — та, которой рядом на прошлом кадре не было. */
+  private prevDets: Detection[] = []
   private frame: FrameInput | null = null
   private snaps: TrackerSnapshot[] = []
   private excluded: Detection[][] = []
@@ -128,6 +137,12 @@ export class MultiTracker {
   /** Вопрос по цели в этом кадре рождён эпизодом одинаковой формы (цепочкой): только к нему добавляются игроки вокруг. */
   private episodeAsk: boolean[] = []
   private dead: MultiStep | null = null
+  /**
+   * Кадр, когда цель вернулась уверенно после «пережидания» (игрок не был виден), не подтверждённая цепочкой или ответом:
+   * её личность после возвращения не доказана. Пока не прошло LOST_SECONDS, новый игрок той же формы без истории рядом
+   * с ней — сомнение (см. newcomerDoubt).
+   */
+  private readonly recoveredAt: Array<number | null>
   /** Безымянные игроки той же формы рядом с целями (см. Ghost). */
   private ghosts: Ghost[] = []
   private readonly lostFrames: number
@@ -139,6 +154,7 @@ export class MultiTracker {
     this.chains = starts.map(() => null)
     this.lastConf = starts.map((s) => ({ ...s.det.box }))
     this.lastConfIndex = starts.map(() => null)
+    this.recoveredAt = starts.map(() => null)
     this.lostFrames = Math.max(1, Math.round(LOST_SECONDS * fps))
   }
 
@@ -164,6 +180,7 @@ export class MultiTracker {
     this.lastConfIndex.forEach((v, i) => {
       if (v === null) this.lastConfIndex[i] = f.index - 1
     })
+    this.prevDets = this.dets
     this.dets = f.detections
     this.preds = this.predictBoxes(f.index)
     this.snaps = this.trackers.map((t) => t.snapshot())
@@ -184,6 +201,8 @@ export class MultiTracker {
     }
     this.trackers[target].resolve(det)
     this.chains[target] = null
+    this.recoveredAt[target] = null
+    this.ghosts = this.ghosts.filter((g) => g.suspectOf !== target)
     this.slots[target] = { kind: 'user', box: { ...det.box } }
     return this.settle()
   }
@@ -308,6 +327,7 @@ export class MultiTracker {
       if (j !== i && this.uncertain(j) && this.similar(i, j)) candidates.push(this.places(j))
     }
     for (const g of this.ghosts) {
+      if (det === null && g.suspectOf === i) continue
       if (appearanceDistance(look, g.look) < CHAIN_SIMILAR_LOOK)
         candidates.push(this.ghostPlaces(g))
     }
@@ -319,7 +339,6 @@ export class MultiTracker {
     }
     const group = members.map((_, k) => k)
     const cost = (k: number, d: Detection): number => costOf(members[k], d)
-    if (group.length === 1) return { margin: Infinity, full: true }
     const known = this.ownedByOthers(i)
     const pool = this.dets.filter(
       (d) =>
@@ -328,6 +347,11 @@ export class MultiTracker {
           appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
           group.some((j) => cost(j, d) <= CHAIN_COUNT_RADIUS))
     )
+    // Соперников нет: запас бесконечен, но и тогда вопрос задаётся, только если игрок цели может быть на кадре
+    // (какая-то детекция рядом объясняет его дешевле пропуска).
+    if (group.length === 1) {
+      return { margin: Infinity, full: pool.some((d) => cost(0, d) < CHAIN_MISS_COST) }
+    }
     // Матрица назначения: строки — цели группы (i первая), столбцы — детекции pool и по одному «пропуску» на цель.
     // Детекция дальше CHAIN_COUNT_RADIUS от мест цели ей запрещена. Венгерский алгоритм — O((g+P)³), без перебора.
     const reach = group.map((j) =>
@@ -431,7 +455,9 @@ export class MultiTracker {
         const c = Math.min(
           ...this.ghostPlaces(g).map((p) => Math.max(0, apart(d.box, p.b, norm) - p.slack))
         )
-        if (c <= CHAIN_MAX_SHIFT && c < targetCost(d)) pairs.push({ g, d, c })
+        // «Подозреваемый» цели — её соперник по определению: связывается и там, где детекция ближе к самой цели.
+        if (c <= CHAIN_MAX_SHIFT && (g.suspectOf !== undefined || c < targetCost(d)))
+          pairs.push({ g, d, c })
       }
     }
     pairs.sort((a, b) => a.c - b.c)
@@ -453,8 +479,35 @@ export class MultiTracker {
     const nearTarget = (b: Box): boolean =>
       this.lastConf.some((c) => apart(b, c, Math.max(c.h, MIN_NORM_HEIGHT)) <= CHAIN_NEIGHBOUR_DIST)
     for (const d of free) {
-      if (usedD.has(d) || !nearTarget(d.box) || targetCost(d) <= CHAIN_COUNT_RADIUS) continue
-      this.ghosts.push({ box: { ...d.box }, vx: 0, vy: 0, seen: f.index, look: d.look })
+      if (usedD.has(d) || !nearTarget(d.box)) continue
+      if (targetCost(d) > CHAIN_COUNT_RADIUS) {
+        this.ghosts.push({ box: { ...d.box }, vx: 0, vy: 0, seen: f.index, look: d.look })
+        continue
+      }
+      // Рядом с целью, чьё место неизвестно, появился новый игрок той же формы (на прошлом кадре рядом никого не было):
+      // это может быть её игрок, а может — вышедший из-за спины чужой. Он становится её «подозреваемым» соперником:
+      // молча она его не возьмёт, а в её вопросах он не считается отдельным игроком.
+      const norm = Math.max(d.box.h, MIN_NORM_HEIGHT)
+      const isNew = !this.prevDets.some(
+        (q) =>
+          appearanceDistance(q.look, d.look) < CHAIN_SIMILAR_LOOK &&
+          apart(q.box, d.box, norm) <= CHAIN_MAX_SHIFT
+      )
+      const owner = unknown.find((i) =>
+        this.places(i).some(
+          (p) => Math.max(0, apart(d.box, p.b, norm) - p.slack) <= CHAIN_COUNT_RADIUS
+        )
+      )
+      if (isNew && owner !== undefined) {
+        this.ghosts.push({
+          box: { ...d.box },
+          vx: 0,
+          vy: 0,
+          seen: f.index,
+          look: d.look,
+          suspectOf: owner
+        })
+      }
     }
     this.ghosts = this.ghosts.filter(
       (g) => f.index - g.seen <= this.lostFrames && (g.seen === f.index || nearTarget(g.box))
@@ -556,6 +609,13 @@ export class MultiTracker {
         if (!unsettled(i)) this.chains[i] = null
         continue
       }
+      // Цепочка разорвана, но ни одна цель с неизвестным местом и ни один безымянный игрок той же формы до рамки не
+      // достают (рамку прошла проверка новичка): спорить не с кем — как у одиночной цели. Цепочка разорвалась из-за
+      // пропуска детектора, а не из-за соседа; личность после возвращения проверяется новичками (recoveredAt).
+      if (c.broken && det && this.joint(i, det, this.places(i)).margin === Infinity) {
+        this.chains[i] = null
+        continue
+      }
       // Цепочка разорвана или ведёт к другой детекции, чем прогноз: молча не выбираем.
       this.chains[i] = null
       const cands = !c.broken && c.det && det ? [det, c.det] : this.generate(i, det)
@@ -639,6 +699,7 @@ export class MultiTracker {
    * раз (с наименьшим запасом), затем всё пересчитывается: откаченная цель сама становится «неизвестной».
    */
   private demoteContested(): boolean {
+    if (this.newcomerDoubt()) return true
     let worst: { i: number; det: Detection; full: boolean } | null = null
     let worstMargin = Infinity
     for (let i = 0; i < this.slots.length; i += 1) {
@@ -653,7 +714,7 @@ export class MultiTracker {
     }
     if (!worst) return false
     const { i, det, full } = worst
-    if (full) {
+    if (full && this.ownVisible(i)) {
       // У каждой спорящей цели может быть свой игрок на кадре: настоящий игрок цели есть среди детекций — спрашиваем.
       this.chains[i] = null
       this.slots[i] = { kind: 'ask', cands: this.generate(i, det), det }
@@ -665,6 +726,156 @@ export class MultiTracker {
     this.chains[i] ??= this.newChain(i, true)
     this.redo(i, det)
     return true
+  }
+
+  /**
+   * Игрок той же формы, впервые появившийся рядом с целью, пока её игрок не виден, — «новичок» без истории: безымянного
+   * следа у него нет (рядом с целью, чьё место неизвестно, след не заводится, иначе он «съел» бы игрока самой цели).
+   * Два правила:
+   *  1. Цель возвращается после пропуска на рамку дальше NEWCOMER_DIST от прогноза, у которой нет безымянной истории:
+   *     это может быть новичок, а игрок цели всё ещё не виден. Если рядом есть ещё детекция той же формы — вопрос (оба
+   *     на кадре), иначе цель пережидает; на сроке трекера — вопрос (его проверит askList).
+   *  2. Цель недавно вернулась без доказательства (recoveredAt, не дольше LOST_SECONDS): если рядом с ней появилась
+   *     новая детекция той же формы без истории (не цель, не безымянный, не по силам цели с неизвестным местом), одна из
+   *     двух — возможно, её настоящий игрок: вопрос с обеими.
+   * Цель, просто вернувшаяся у прогноза, без новичков рядом, подтверждается молча.
+   */
+  private newcomerDoubt(): boolean {
+    const f = this.frame?.index
+    if (f === undefined) return false
+    for (let i = 0; i < this.slots.length; i += 1) {
+      const s = this.slots[i]
+      if (s.kind !== 'track' || s.coasting || !s.det) continue
+      const c = this.chains[i]
+      // Цепочка доказывает непрерывность с последней уверенной рамкой, но не то, что та была её игроком: правило 2
+      // (новичок рядом после возвращения) действует и при согласной цепочке, правило 1 — нет.
+      const chained = !!(c && !c.broken && c.det && sameBox(c.det.box, s.det.box))
+      const det = s.det
+      const look = this.trackers[i].appearance
+      const norm = Math.max(det.box.h, MIN_NORM_HEIGHT)
+      const known = this.ownedByOthers(i)
+      const explained = (d: Detection): boolean =>
+        this.ghosts.some(
+          (g) =>
+            Math.min(
+              ...this.ghostPlaces(g).map((p) => Math.max(0, apart(d.box, p.b, norm) - p.slack))
+            ) <= CHAIN_MAX_SHIFT
+        )
+      const othersUnknown = (d: Detection): boolean =>
+        this.slots.some(
+          (_, j) =>
+            j !== i &&
+            this.uncertain(j) &&
+            this.places(j).some(
+              (p) => Math.max(0, apart(d.box, p.b, norm) - p.slack) <= CHAIN_COUNT_RADIUS
+            )
+        )
+      const kinNear = this.dets.filter(
+        (d) =>
+          d !== det &&
+          !known.some((b) => sameBox(d.box, b)) &&
+          appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
+          apart(d.box, det.box, norm) <= CHAIN_COUNT_RADIUS
+      )
+      const last = this.lastConfIndex[i]
+      const missed = last === null ? 0 : f - last - 1
+      if (
+        !chained &&
+        missed > 0 &&
+        !explained(det) &&
+        apart(det.box, this.preds[i], norm) > this.newcomerReach(i, norm)
+      ) {
+        // Подозрительная рамка становится безымянным следом: если это новичок, он и дальше будет соперником цели
+        // (её допуск со временем растёт, и иначе новичок прошёл бы позже); свой игрок, вернувшись у прогноза, его обойдёт.
+        if (!explained(det)) {
+          this.ghosts.push({
+            box: { ...det.box },
+            vx: 0,
+            vy: 0,
+            seen: f,
+            look: det.look,
+            suspectOf: i
+          })
+        }
+        if (kinNear.length > 0 || missed + 1 >= this.lostFrames) {
+          this.slots[i] = { kind: 'ask', cands: [...this.generate(i, det)], det }
+          this.episodeAsk[i] = true
+          for (const d of kinNear) this.addCand(i, d)
+        } else {
+          this.redo(i, det)
+        }
+        return true
+      }
+      const since = this.recoveredAt[i]
+      if (missed === 0 && (since === null || f - since > this.lostFrames)) continue
+      const fresh = kinNear.filter((d) => !explained(d) && !othersUnknown(d))
+      if (fresh.length === 0) continue
+      if (missed > 0) {
+        // Новый игрок дальше разброса прогноза цели её игроком быть не может: сомнения нет (он станет обычным безымянным).
+        const reach = this.newcomerReach(i, norm)
+        if (!fresh.some((d) => apart(d.box, this.preds[i], norm) <= reach)) continue
+        // Цель возвращается, а рядом сразу несколько новых игроков той же формы: какой из них её (и есть ли её среди них)
+        // — неизвестно. Все новые рамки (и взятая) становятся её «подозреваемыми» соперниками, цель пережидает; свой
+        // игрок, появившись у прогноза, обойдёт их с запасом, иначе будет вопрос.
+        for (const d of [det, ...fresh]) {
+          if (!explained(d)) {
+            this.ghosts.push({
+              box: { ...d.box },
+              vx: 0,
+              vy: 0,
+              seen: f,
+              look: d.look,
+              suspectOf: i
+            })
+          }
+        }
+        this.redo(i, det)
+        return true
+      }
+      this.slots[i] = { kind: 'ask', cands: [...this.generate(i, det)], det }
+      this.episodeAsk[i] = true
+      for (const d of fresh) this.addCand(i, d)
+      this.recoveredAt[i] = null
+      return true
+    }
+    return false
+  }
+
+  /**
+   * Насколько далеко от прогноза (в единицах norm) рамка цели после пропуска ещё объяснима самой целью: NEWCOMER_SIGMAS
+   * стандартных отклонений расхождения по фильтру Калмана на этот кадр (в начале слежения и после долгого пропуска
+   * скорость плохо известна — допуск шире; при устоявшемся движении — узкий).
+   */
+  private newcomerReach(i: number, norm: number): number {
+    const snap = this.snaps[i]
+    const f = this.frame?.index ?? 0
+    const dt = Math.max(1, f - (snap.lastIndex ?? f - 1))
+    const kx = snap.kx.clone()
+    const ky = snap.ky.clone()
+    kx.predict(dt)
+    ky.predict(dt)
+    // Разброс расхождения «рамка − прогноз»: неопределённость прогноза плюс шум измерения по обеим осям.
+    return (NEWCOMER_SIGMAS * Math.sqrt(kx.variance + ky.variance + 2 * KALMAN_R)) / norm
+  }
+
+  /**
+   * Игрок цели может быть на кадре: есть детекция той же формы там, где его ждёт фильтр Калмана (в пределах
+   * NEWCOMER_SIGMAS разброса). Назначение с допуском, растущим с пропуском, тут слишком широко: незнакомый игрок той же
+   * формы, которого никто не ведёт, «объяснил» бы цель, и вопрос остался бы без правильного варианта.
+   */
+  private ownVisible(i: number): boolean {
+    const look = this.trackers[i].appearance
+    return this.dets.some((d) => {
+      if (appearanceDistance(look, d.look) >= CHAIN_SIMILAR_LOOK) return false
+      const norm = Math.max(d.box.h, MIN_NORM_HEIGHT)
+      return apart(d.box, this.preds[i], norm) <= this.newcomerReach(i, norm)
+    })
+  }
+
+  /** Добавить вариант в вопрос цели (без повторов). */
+  private addCand(i: number, d: Detection): void {
+    const s = this.slots[i]
+    if (s.kind === 'ask' && !s.cands.includes(d)) s.cands.push(d)
   }
 
   /**
@@ -744,6 +955,18 @@ export class MultiTracker {
     // Рядом цели той же формы с неизвестным местом, а детекций на всех не хватает: игрок цели мог быть пропущен
     // детектором, и правильного варианта в вопросе может не быть — безопасный стоп (одна цель: проверка не действует).
     if (!this.joint(i, null, this.places(i), out).full) return null
+    // «Подозреваемые» цели (новые игроки той же формы, появившиеся рядом, пока её не было видно): её игрок — один из них
+    // или не виден. Если хоть один из них сейчас не виден детектору, им мог быть как раз её игрок: не спрашиваем.
+    const suspects = this.ghosts.filter((g) => g.suspectOf === i)
+    const visible = suspects.filter((g) =>
+      this.dets.some((d) => {
+        const norm = Math.max(d.box.h, MIN_NORM_HEIGHT)
+        return this.ghostPlaces(g).some(
+          (p) => Math.max(0, apart(d.box, p.b, norm) - p.slack) <= CHAIN_MAX_SHIFT
+        )
+      })
+    )
+    if (visible.length < suspects.length) return null
     // Вариантов больше, чем помещается в вопрос: настоящий игрок мог выпасть при обрезке — не спрашиваем.
     if (out.length > ASK_MAX_CANDIDATES_TOTAL) return null
     return out
@@ -773,8 +996,11 @@ export class MultiTracker {
         boxes.push(s.box)
         coasting.push(s.coasting)
         if (!s.coasting) {
+          const f = this.frame?.index ?? null
+          const prev = this.lastConfIndex[i]
+          if (f !== null && prev !== null && prev < f - 1) this.recoveredAt[i] = f
           this.lastConf[i] = { ...s.box }
-          this.lastConfIndex[i] = this.frame?.index ?? null
+          this.lastConfIndex[i] = f
         }
       } else if (s.kind === 'user') {
         boxes.push({ ...s.box })

@@ -29,6 +29,11 @@ export class Kalman1D {
     return k
   }
 
+  /** Дисперсия положения (пиксели²): неопределённость прогноза (только чтение). */
+  get variance(): number {
+    return this.pp
+  }
+
   /** Прогноз на dt кадров вперёд. */
   predict(dt = 1): void {
     this.p += this.v * dt
