@@ -427,7 +427,10 @@ test.describe('анимация рисунков', () => {
   })
 
   test('экспорт всего видео: кольцо в готовых кадрах там, где его считает анимация (±2 px)', async () => {
-    const ctx = await launch()
+    // Своя временная папка приложения (TEMP/TMP): параллельные процессы на машине (vitest) в неё ничего не кладут.
+    const tmpDir = join(makeUserData(), 'tmp')
+    mkdirSync(tmpDir)
+    const ctx = await launch({ env: { TEMP: tmpDir, TMP: tmpDir } })
     const { win, app } = ctx
     const out = join(makeUserData(), 'out')
     mkdirSync(out)
@@ -488,7 +491,7 @@ test.describe('анимация рисунков', () => {
         ])
       }
       // Временные файлы убраны.
-      const left = readdirSync(process.env.TEMP ?? process.env.TMP ?? '.').filter(
+      const left = readdirSync(tmpDir).filter(
         (n) => n.startsWith('flow-overlays-') || n.startsWith('flow-export-')
       )
       console.log('Временных папок после экспорта:', left.length)
@@ -617,8 +620,17 @@ test.describe('анимация рисунков', () => {
         if (w >= 1440) expect(inner).toBe(w)
         await win.waitForTimeout(400)
         let first: { x: number; y: number; width: number; height: number } | null = null
-        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler', 'spot']) {
+        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler', 'spot', 'link']) {
           await win.getByTestId(`tool-${tool}`).click()
+          if (tool === 'link') {
+            // Самая широкая панель «Связки»: «Область» и «Свечение» включены (кнопки Линия/Область/Кольца и свечение в одной строке).
+            await win.getByTestId('link-area').click()
+            if ((await win.getByTestId('glow-toggle').getAttribute('aria-pressed')) !== 'true') {
+              await win.getByTestId('glow-toggle').click()
+            }
+            await expect(win.getByTestId('link-area')).toHaveAttribute('aria-pressed', 'true')
+            await expect(win.getByTestId('glow-toggle')).toHaveAttribute('aria-pressed', 'true')
+          }
           await win.waitForTimeout(100)
           const info = await win.getByTestId('style-bar').evaluate((el) => {
             const box = el.getBoundingClientRect()

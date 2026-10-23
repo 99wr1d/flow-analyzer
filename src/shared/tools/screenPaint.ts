@@ -5,6 +5,7 @@ import {
   DEFAULT_SPOT_RADIUS,
   type Chain,
   type Curve,
+  type Link,
   type Loupe,
   type Pen,
   type Spotlight,
@@ -23,10 +24,12 @@ import {
   trimEnd
 } from './curve'
 import { catmullRom } from './simplify'
+import { GROUND_RATIO_FALLBACK } from '../pitch/ground'
+import { LINK_RING_RX, LINK_RING_STROKE, LINK_WIDTH_SCALE } from './linkLook'
 
-export type ScreenToolAnnotation = Spotlight | Curve | Pen | Zone | Loupe | Chain
+export type ScreenToolAnnotation = Spotlight | Curve | Pen | Zone | Loupe | Chain | Link
 
-export const SCREEN_TOOL_TYPES = ['spot', 'curve', 'pen', 'zone', 'loupe', 'chain'] as const
+export const SCREEN_TOOL_TYPES = ['spot', 'curve', 'pen', 'zone', 'loupe', 'chain', 'link'] as const
 
 export const isScreenTool = (a: { type: string }): a is ScreenToolAnnotation =>
   (SCREEN_TOOL_TYPES as readonly string[]).includes(a.type)
@@ -105,7 +108,9 @@ function nodesOf(points: readonly PxPt[], size: PaintSize): { nodes: PxPt[]; rad
 export function paintScreenTool(
   a: ScreenToolAnnotation,
   size: PaintSize,
-  time?: number
+  time?: number,
+  /** Отношение высоты к ширине эллипса у ног в точке кадра (доли кадра); нет — 0.35, как без разметки поля. */
+  ringRatio?: (at: { x: number; y: number }) => number
 ): PitchPaint {
   const out = emptyPaint()
   const w = Math.max(1, a.style.width * size.h)
@@ -160,8 +165,7 @@ export function paintScreenTool(
       // Проявление: путь обрезается по длине; наконечник появляется, когда линия дошла до конца.
       const frac = time === undefined ? 1 : revealFraction(a, time)
       const shaftLen = polylineLength(parts.shaft)
-      const shown =
-        frac >= 1 ? parts.shaft : polylinePrefix(parts.shaft, frac * shaftLen)
+      const shown = frac >= 1 ? parts.shaft : polylinePrefix(parts.shaft, frac * shaftLen)
       if (frac >= 1) out.body.push(parts.head)
       if (shown.length >= 2) {
         out.strokes.push({
@@ -218,6 +222,34 @@ export function paintScreenTool(
       ...pts.map((p) => ellipsePolygon(p.x, p.y, nodes.radius, nodes.radius, 12)),
       ...(a.fill && pts.length >= 3 ? [pts] : [])
     ]
+    out.handles = pts.map((p, i) => ({ id: `v${i}`, point: p }))
+  } else if (a.type === 'link') {
+    const pts = a.points.map((p) => px(p, size))
+    // «Область» из двух точек — просто линия: заливать нечего.
+    const closed = a.closed && pts.length >= 3
+    const lw = Math.max(1, w * LINK_WIDTH_SCALE)
+    if (closed) {
+      out.fills.push(pts)
+      out.fillOpacity = a.fillOpacity
+    }
+    out.strokes.push({ points: pts, closed, widthPx: lw, dash })
+    out.hit = [...lineHit(pts, Math.max(lw / 2, 4), closed), ...(closed ? [pts] : [])]
+    if (a.rings) {
+      const rx = LINK_RING_RX * size.h
+      for (const [i, p] of pts.entries()) {
+        const ry = rx * (ringRatio ? ringRatio(a.points[i]) : GROUND_RATIO_FALLBACK)
+        out.strokes.push({
+          points: ellipsePolygon(p.x, p.y, rx, ry, 40),
+          closed: true,
+          widthPx: Math.max(1.3, lw * LINK_RING_STROKE),
+          dash: 'solid',
+          ring: true,
+          glow: true
+        })
+        out.hit.push(ellipsePolygon(p.x, p.y, rx + 3, ry + 3, 16))
+      }
+    }
+    if (a.glow === true) out.lineGlow = true
     out.handles = pts.map((p, i) => ({ id: `v${i}`, point: p }))
   } else {
     // loupe

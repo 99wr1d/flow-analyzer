@@ -27,6 +27,7 @@ import {
   PALETTE,
   TEXT_SIZES,
   isLineType,
+  isLinkType,
   levelOf,
   textLevelOf,
   type CurrentStyle,
@@ -41,6 +42,8 @@ function useShownStyle(): CurrentStyle {
   const tool = useAnnotationsStore((s) => s.tool)
   if (!selected) {
     if (tool === 'circle') return { ...style, level: style.ringLevel }
+    // Связка рисуется своим цветом и толщиной: тонкая белая по умолчанию.
+    if (tool === 'link') return { ...style, color: style.linkColor, level: style.linkLevel }
     // Для новой подписи показан цвет подписей (он запоминается отдельно).
     return tool === 'text' ? { ...style, color: style.textColor } : style
   }
@@ -67,15 +70,23 @@ function useShownStyle(): CurrentStyle {
         ? selected.pulse === true
         : style.pulse,
     // Свечение и проявление выбранной линии — её собственные (у старой линии полей нет — значит, выключены).
-    lineGlow: isLineType(selected.type)
-      ? (selected as { glow?: boolean }).glow === true
-      : style.lineGlow,
+    lineGlow:
+      isLineType(selected.type) || isLinkType(selected.type)
+        ? (selected as { glow?: boolean }).glow === true
+        : style.lineGlow,
     reveal: isLineType(selected.type)
       ? ((selected as { reveal?: number }).reveal ?? null)
       : style.reveal,
     revealSecs: isLineType(selected.type)
       ? ((selected as { reveal?: number }).reveal ?? style.revealSecs)
       : style.revealSecs,
+    // Связка: «Область» и кольца — её собственные.
+    linkClosed: isLinkType(selected.type)
+      ? (selected as { closed?: boolean }).closed === true
+      : style.linkClosed,
+    linkRings: isLinkType(selected.type)
+      ? (selected as { rings?: boolean }).rings !== false
+      : style.linkRings,
     // Вид выбранного прожектора — его собственный (у старого поля нет — значит, «овал»).
     form:
       selected.type === 'spot' || selected.type === 'pspot' ? (selected.form ?? 'oval') : style.form
@@ -208,7 +219,8 @@ function GlowToggle({ shown }: { shown: CurrentStyle }): React.JSX.Element {
   const tool = useAnnotationsStore((s) => s.tool)
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const type = selected ? selected.type : tool
-  const line = isLineType(type)
+  // Связка светится так же, как линии (общее «Свечение линий»).
+  const line = isLineType(type) || isLinkType(type)
   const enabled = type === 'circle' || type === 'ring' || line
   const value = line ? shown.lineGlow : shown.glow
   const on = enabled && value
@@ -280,6 +292,52 @@ function LookControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
       >
         {ru.annotations.pulse}
       </button>
+    </>
+  )
+}
+
+/** Сейчас настраивается связка (выбранный рисунок или инструмент). */
+function useLinkContext(): boolean {
+  const selected = useAnnotationsStore(selectedAnnotation)
+  const tool = useAnnotationsStore((s) => s.tool)
+  return isLinkType(selected ? selected.type : tool)
+}
+
+/** «Линия / Область» и «Кольца» связки: у выбранной — её значения, иначе — для новых. */
+function LinkControls({ shown }: { shown: CurrentStyle }): React.JSX.Element {
+  const setStyle = useAnnotationsStore((s) => s.setStyle)
+  const chip = (
+    on: boolean,
+    testId: string,
+    title: string,
+    label: string,
+    patch: Partial<CurrentStyle>
+  ): React.JSX.Element => (
+    <button
+      type="button"
+      className={on ? 'chip-btn chip-btn--tight chip-btn--active' : 'chip-btn chip-btn--tight'}
+      aria-pressed={on}
+      title={title}
+      data-testid={testId}
+      onClick={(e) => {
+        setStyle(patch)
+        e.currentTarget.blur()
+      }}
+    >
+      {label}
+    </button>
+  )
+  return (
+    <>
+      {chip(!shown.linkClosed, 'link-line', ru.annotations.linkLineHint, ru.annotations.linkLine, {
+        linkClosed: false
+      })}
+      {chip(shown.linkClosed, 'link-area', ru.annotations.linkAreaHint, ru.annotations.linkArea, {
+        linkClosed: true
+      })}
+      {chip(shown.linkRings, 'link-rings', ru.annotations.linkRingsHint, ru.annotations.linkRings, {
+        linkRings: !shown.linkRings
+      })}
     </>
   )
 }
@@ -435,6 +493,7 @@ export function StyleBar(): React.JSX.Element {
   const ringContext = useRingContext()
   const spotContext = useSpotContext()
   const lineContext = useLineContext()
+  const linkContext = useLinkContext()
   const setStyle = useAnnotationsStore((s) => s.setStyle)
   const canUndo = useCanUndo()
   const canRedo = useCanRedo()
@@ -535,7 +594,7 @@ export function StyleBar(): React.JSX.Element {
           </button>
         ))}
       </div>
-      {!ringContext && !spotContext && !lineContext && (
+      {!ringContext && !spotContext && !lineContext && !linkContext && (
         <>
           <button
             type="button"
@@ -579,6 +638,7 @@ export function StyleBar(): React.JSX.Element {
       {ringContext && <LookControls shown={shown} />}
       {spotContext && <FormControls shown={shown} />}
       {lineContext && <RevealControls shown={shown} />}
+      {linkContext && <LinkControls shown={shown} />}
       <PitchControls />
       <span className="style-bar__sep" />
       <div className="style-bar__group">

@@ -330,24 +330,58 @@ export function PaintParts({
           />
         ))}
       {ground &&
+        paint.strokes.map((s, i) =>
+          s.glow
+            ? glowStack(s.widthPx, s.widthPx).map((l, k) => (
+                <path
+                  key={`ring-glow-${i}-${k}`}
+                  data-part="glow"
+                  d={strokeD(s)}
+                  fill="none"
+                  stroke={color}
+                  strokeOpacity={l.opacity}
+                  strokeWidth={l.width}
+                  strokeLinejoin="round"
+                />
+              ))
+            : null
+        )}
+      {ground &&
+        paint.rings &&
+        paint.rings.length > 0 &&
+        glowStack(0, paint.ringGlowPx ?? 0).map((l, i) => (
+          <path
+            key={`pring-glow-${i}`}
+            data-part="glow"
+            d={pathOf(paint.rings ?? [])}
+            fill="none"
+            stroke={color}
+            strokeOpacity={l.opacity}
+            strokeWidth={l.width}
+            strokeLinejoin="round"
+          />
+        ))}
+      {ground &&
         paint.lineGlow === true &&
-        paint.strokes.map((s, i) => {
-          const ds = strokeDash(s)
-          return lineGlowStack(s.widthPx).map((l, k) => (
-            <path
-              key={`line-glow-${i}-${k}`}
-              data-part="glow"
-              d={strokeD(s)}
-              fill="none"
-              stroke={color}
-              strokeOpacity={l.opacity}
-              strokeWidth={l.width}
-              strokeLinejoin="round"
-              strokeLinecap={ds.cap}
-              strokeDasharray={ds.array}
-            />
-          ))
-        })}
+        paint.strokes
+          .filter((s) => !s.ring)
+          .map((s, i) => {
+            const ds = strokeDash(s)
+            return lineGlowStack(s.widthPx).map((l, k) => (
+              <path
+                key={`line-glow-${i}-${k}`}
+                data-part="glow"
+                d={strokeD(s)}
+                fill="none"
+                stroke={color}
+                strokeOpacity={l.opacity}
+                strokeWidth={l.width}
+                strokeLinejoin="round"
+                strokeLinecap={ds.cap}
+                strokeDasharray={ds.array}
+              />
+            ))
+          })}
       {ground && paint.disc.length > 0 && paint.target && (
         <defs>
           <TargetGradient id={id} color={color} />
@@ -388,7 +422,7 @@ export function PaintParts({
           return (
             <path
               key={`stroke-${i}`}
-              data-part="stroke"
+              data-part={s.ring ? 'ring' : 'stroke'}
               d={strokeD(s)}
               fill="none"
               stroke={color}
@@ -404,22 +438,34 @@ export function PaintParts({
       )}
       {ground &&
         paint.lineGlow === true &&
-        paint.strokes.map((s, i) => {
-          const ds = strokeDash(s)
-          return (
-            <path
-              key={`line-core-${i}`}
-              data-part="core"
-              d={strokeD(s)}
-              fill="none"
-              stroke={lineCoreColor(color)}
-              strokeWidth={s.widthPx * LINE_CORE_SCALE}
-              strokeLinejoin="round"
-              strokeLinecap={ds.cap}
-              strokeDasharray={ds.array}
-            />
-          )
-        })}
+        paint.strokes
+          .filter((s) => !s.ring)
+          .map((s, i) => {
+            const ds = strokeDash(s)
+            return (
+              <path
+                key={`line-core-${i}`}
+                data-part="core"
+                d={strokeD(s)}
+                fill="none"
+                stroke={lineCoreColor(color)}
+                strokeWidth={s.widthPx * LINE_CORE_SCALE}
+                strokeLinejoin="round"
+                strokeLinecap={ds.cap}
+                strokeDasharray={ds.array}
+              />
+            )
+          })}
+      {ground && paint.rings && paint.rings.length > 0 && (
+        <path
+          data-part="ring"
+          d={pathOf(paint.rings)}
+          fill={color}
+          stroke={color}
+          strokeWidth={minStroke}
+          strokeLinejoin="round"
+        />
+      )}
       {ground && paint.wave && paint.wave.body.length > 0 && (
         <path
           data-part="wave"

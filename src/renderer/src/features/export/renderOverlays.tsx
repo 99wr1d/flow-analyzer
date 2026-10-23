@@ -17,6 +17,7 @@ import {
   projectorFor,
   type Calibration
 } from '../../../../shared/pitch/calibration'
+import { ringCalibrationAt } from '../../../../shared/pitch/ground'
 import { pitchLabelShifts } from '../../../../shared/pitch/labelNudge'
 import type { Projector } from '../../../../shared/pitch/projector'
 import { ShapeView } from '../annotations/ShapeView'
@@ -52,6 +53,12 @@ export interface OverlaySvgOptions {
   dimmedIds?: ReadonlySet<string>
   /** Время видео (секунды) — для пульса. */
   time?: number
+}
+
+/** Проектор разметки, по которой считается наклон колец у ног связки на экране (нет подходящей — null). */
+function ringProjector(calibrations: readonly Calibration[], time: number): Projector | null {
+  const cal = ringCalibrationAt(calibrations, time)
+  return cal ? projectorFor(cal) : null
 }
 
 /** SVG с набором рисунков на кадре width×height (в пикселях видео). Порядок рисунков — порядок слоёв. */
@@ -95,7 +102,13 @@ export function buildOverlaySvg(
             size={size}
             selected={false}
             showHandles={false}
-            projector={cal ? projectorFor(cal) : null}
+            projector={
+              cal
+                ? projectorFor(cal)
+                : a.type === 'link'
+                  ? ringProjector(calibrations, a.timing.start)
+                  : null
+            }
             labelShift={labelShift}
             time={options.time}
             dimmed={
@@ -119,7 +132,7 @@ export function buildOverlaySvg(
 }
 
 /** У рисунка «под игроками» есть часть, которая всегда поверх: подпись, луч прожектора (затемнение — отдельно). */
-const HAS_TOP_PART = new Set(['ruler', 'pzone', 'pchain', 'pspot'])
+const HAS_TOP_PART = new Set(['ruler', 'pzone', 'pchain', 'plink', 'pspot'])
 
 /** Какие слои нужны набору рисунков. */
 export function layersFor(items: readonly Annotation[]): { under: boolean; over: boolean } {

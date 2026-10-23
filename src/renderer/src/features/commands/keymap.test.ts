@@ -116,6 +116,7 @@ describe('команды приложения', () => {
       'draw:pen': 'KeyD',
       'draw:zone': 'KeyZ',
       'draw:chain': 'KeyN',
+      'draw:link': 'KeyK',
       'draw:loupe': 'KeyG',
       'draw:finish': 'Enter'
     }
@@ -126,6 +127,21 @@ describe('команды приложения', () => {
       expect(command.defaults.map((b) => b.code)).toEqual([code])
       expect(command.defaults[0].ctrl).toBe(false)
     }
+  })
+
+  it('клавиша пользователя сильнее новой стандартной: «Связка» (K) не перехватывает чужое назначение', () => {
+    const all = allCommands(DEFAULT_TAGS)
+    // Пользователь повесил на K «Лупу» (она в списке после «Связки»): нажатие K должно запускать лупу.
+    const map = buildKeymap(all, { 'draw:loupe': [makeBinding('KeyK')] })
+    expect(map.get('KeyK')?.map((c) => c.id)).toEqual(['draw:loupe', 'draw:link'])
+    // Без назначений K — «Связка».
+    expect(
+      buildKeymap(all, {})
+        .get('KeyK')
+        ?.map((c) => c.id)
+    ).toEqual(['draw:link'])
+    // Пользователь снял K со «Связки» — клавиша свободна.
+    expect(buildKeymap(all, { 'draw:link': [] }).has('KeyK')).toBe(false)
   })
 
   it('автоповтор разрешён только для покадрового шага', () => {

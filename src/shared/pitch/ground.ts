@@ -1,5 +1,11 @@
 // «Лежит на траве»: во сколько раз круг на земле выглядит ниже, чем шире (отношение высоты к ширине на экране).
-import { projectorFor, type Calibration } from './calibration'
+import {
+  nearestCalibration,
+  isCalibrationFresh,
+  projectorFor,
+  type Calibration
+} from './calibration'
+import type { Projector } from './projector'
 
 /** Отношение высоты к ширине эллипса у ног, когда разметки поля нет. */
 export const GROUND_RATIO_FALLBACK = 0.35
@@ -18,7 +24,27 @@ export function groundEllipseRatio(
   at: { x: number; y: number }
 ): number {
   if (!cal) return GROUND_RATIO_FALLBACK
-  const proj = projectorFor(cal)
+  return groundEllipseRatioIn(projectorFor(cal), cal.aspect, at)
+}
+
+/** Разметка, по которой считается эллипс у ног рисунка на экране в момент time: ближайшая рабочая и не устаревшая; нет — null. */
+export function ringCalibrationAt(
+  calibrations: readonly Calibration[],
+  time: number
+): Calibration | null {
+  const near = nearestCalibration(
+    calibrations.filter((c) => projectorFor(c) !== null),
+    time
+  )
+  return near && isCalibrationFresh(near.calibration, time) ? near.calibration : null
+}
+
+/** То же по готовому проектору; aspect — отношение ширины кадра к высоте. */
+export function groundEllipseRatioIn(
+  proj: Projector | null | undefined,
+  aspect: number,
+  at: { x: number; y: number }
+): number {
   const center = proj?.toWorld(at)
   if (!proj || !center) return GROUND_RATIO_FALLBACK
   let minX = Infinity
@@ -37,7 +63,7 @@ export function groundEllipseRatio(
     minY = Math.min(minY, p.y)
     maxY = Math.max(maxY, p.y)
   }
-  const w = (maxX - minX) * cal.aspect
+  const w = (maxX - minX) * aspect
   const h = maxY - minY
   if (!(w > 0) || !(h > 0)) return GROUND_RATIO_FALLBACK
   return Math.min(MAX_RATIO, Math.max(MIN_RATIO, h / w))

@@ -11,6 +11,8 @@
 //   players[].from/until — игрок виден только в этом интервале времени (по умолчанию всегда);
 //   cuts               — моменты «смены плана»: на каждом гистограмма кадра меняется скачком.
 // Игроки различаются «приметой» (цветом): номер игрока = его место в списке.
+// Сценарии для слежения за несколькими игроками (Связка): tests/fixtures/stub-three.json (три разных игрока),
+// stub-three-lost.json (средний пропадает на 1,0 с), stub-same-cross.json (два игрока с одной приметой идут навстречу).
 import { z } from 'zod'
 import type { Box, Detection } from '../../shared/tracking/types'
 import type { DetectOutput, Detector, DetectorFrame } from './detectorWindow'
@@ -76,7 +78,10 @@ export function loadStubPattern(json: string): StubPattern {
 
 export interface StubOptions {
   pattern?: StubPattern
-  /** Пауза на каждый запрос (мс): чтобы тесты успевали отменить расчёт. */
+  /**
+   * Пауза на запрос (мс) для выреза 640×384; на другой размер пропорциональна площади входа сети (стороны кратны 32, как в
+   * prepareInput): целый кадр 960×540 стоит ×2,1 выреза. Так тесты видят цену целого кадра против выреза.
+   */
   delayMs?: number
 }
 
@@ -87,9 +92,13 @@ export function createStubDetector(options: StubOptions = {}): Detector {
 
   const detect = async (frame: DetectorFrame, roi?: Box): Promise<DetectOutput> => {
     if (closed) throw new Error('Детектор закрыт')
-    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
-    if (closed) throw new Error('Детектор закрыт')
     const { width: W, height: H } = frame
+    if (delayMs > 0) {
+      const inW = Math.ceil((roi ? Math.min(CROP_W, W) : W) / 32) * 32
+      const inH = Math.ceil((roi ? Math.min(CROP_H, H) : H) / 32) * 32
+      await new Promise((resolve) => setTimeout(resolve, (delayMs * inW * inH) / (CROP_W * CROP_H)))
+    }
+    if (closed) throw new Error('Детектор закрыт')
     const t = frame.t ?? 0
     const crop = roi
       ? (() => {

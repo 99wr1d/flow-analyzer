@@ -71,7 +71,7 @@ const pointsOf = async (win: Page, type: string, index = 0): Promise<Pts['points
   (await geo<Pts>(shapes(win, type).nth(index))).points
 
 test.describe('рейка инструментов и клавиши', () => {
-  test('три группы, подсказки с клавишами, все 12 инструментов помещаются при высоте окна 700', async () => {
+  test('три группы, подсказки с клавишами, все 13 инструментов помещаются при высоте окна 700', async () => {
     const ctx = await launch()
     const { app, win } = ctx
     try {
@@ -93,6 +93,7 @@ test.describe('рейка инструментов и клавиши', () => {
         spot: 'S',
         zone: 'Z',
         chain: 'N',
+        link: 'K',
         pen: 'D',
         loupe: 'G'
       }
@@ -115,7 +116,7 @@ test.describe('рейка инструментов и клавиши', () => {
         }
       })
       console.log('Рейка при окне 700 px:', JSON.stringify(fits))
-      expect(fits.count).toBe(12)
+      expect(fits.count).toBe(13)
       expect(fits.scrolls).toBe(false)
       expect(fits.lowest).toBeLessThanOrEqual(fits.navBottom)
       expect(fits.lowest).toBeLessThanOrEqual(fits.viewport)
@@ -132,7 +133,7 @@ test.describe('рейка инструментов и клавиши', () => {
       await screenProject(ctx)
       await win.getByTestId('open-settings').click()
       await win.getByTestId('settings-tab-keys').click()
-      for (const id of ['spot', 'curve', 'pen', 'zone', 'chain', 'loupe']) {
+      for (const id of ['spot', 'curve', 'pen', 'zone', 'chain', 'link', 'loupe']) {
         const row = win.locator(`[data-testid="keys-row"][data-command="draw:${id}"]`)
         await expect(row).toHaveCount(1)
         await expect(row).toBeVisible()

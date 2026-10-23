@@ -82,7 +82,16 @@ export interface CurrentStyle {
   revealSecs: number
   /** Тень под текстом новой подписи. */
   textShadow: boolean
+  /** «Связка» (0.19): свой цвет и толщина (белая тонкая, как в образце), «Область» и кольца у ног. */
+  linkColor: string
+  linkLevel: Level
+  linkClosed: boolean
+  linkRings: boolean
 }
+
+/** Цвет и толщина новой связки по умолчанию: тонкие белые линии, как в образце. */
+export const DEFAULT_LINK_COLOR = '#ffffff'
+export const DEFAULT_LINK_LEVEL: Level = 0
 
 export const DEFAULT_STYLE: CurrentStyle = {
   color: '#ffd60a',
@@ -100,8 +109,15 @@ export const DEFAULT_STYLE: CurrentStyle = {
   lineGlow: false,
   reveal: null,
   revealSecs: DEFAULT_REVEAL,
-  textShadow: true
+  textShadow: true,
+  linkColor: DEFAULT_LINK_COLOR,
+  linkLevel: DEFAULT_LINK_LEVEL,
+  linkClosed: false,
+  linkRings: true
 }
+
+/** Связка на экране или на поле. */
+export const isLinkType = (type: string): boolean => type === 'link' || type === 'plink'
 
 export function shapeStyleOf(s: CurrentStyle): ShapeStyle {
   return { color: s.color, width: LEVELS[s.level].width, dash: s.dash }
@@ -142,6 +158,8 @@ export function newDrawingFx(type: string, s: CurrentStyle): Record<string, unkn
   if (LINE_TYPES.has(type)) {
     return { glow: s.lineGlow, ...(s.reveal !== null ? { reveal: s.reveal } : {}) }
   }
+  // Связка: свечение, «Область» и кольца у ног — по выбору в панели (заливку и подписи ставит создание).
+  if (isLinkType(type)) return { glow: s.lineGlow, closed: s.linkClosed, rings: s.linkRings }
   return {}
 }
 
@@ -158,6 +176,11 @@ export function applyFxPatch(a: Annotation, patch: Partial<CurrentStyle>): Annot
     if (patch.pulse !== undefined) out.pulse = patch.pulse
   }
   if ((a.type === 'spot' || a.type === 'pspot') && patch.form !== undefined) out.form = patch.form
+  if (isLinkType(a.type)) {
+    if (patch.lineGlow !== undefined) out.glow = patch.lineGlow
+    if (patch.linkClosed !== undefined) out.closed = patch.linkClosed
+    if (patch.linkRings !== undefined) out.rings = patch.linkRings
+  }
   if (LINE_TYPES.has(a.type)) {
     if (patch.lineGlow !== undefined) out.glow = patch.lineGlow
     if (patch.reveal !== undefined) {

@@ -37,7 +37,8 @@ export function moveWorld(a: PitchAnnotation, dx: number, dy: number): PitchAnno
     a.type === 'pcurve' ||
     a.type === 'ppen' ||
     a.type === 'pzone' ||
-    a.type === 'pchain'
+    a.type === 'pchain' ||
+    a.type === 'plink'
   ) {
     return mapToolPoints(a, sh)
   }
@@ -66,7 +67,7 @@ export function moveWorldHandle(
     return a
   }
   if (a.type === 'ppen') return a
-  if (a.type === 'pzone' || a.type === 'pchain') {
+  if (a.type === 'pzone' || a.type === 'pchain' || a.type === 'plink') {
     const i = vertexIndex(handle)
     if (i === null || i >= a.points.length) return a
     const points = a.points.map((q, k) => (k === i ? clampWorld(to) : q))
@@ -87,7 +88,7 @@ export function moveWorldHandle(
 /** Точка, которую «держит» ручка (метры): нужна, чтобы Shift привязывал угол относительно противоположной точки. */
 export function handleAnchor(a: PitchAnnotation, handle: PitchHandleId): Pt | null {
   if (a.type === 'pcurve') return handle === 'p1' ? a.p2 : handle === 'p2' ? a.p1 : null
-  if (a.type === 'pzone' || a.type === 'pchain') {
+  if (a.type === 'pzone' || a.type === 'pchain' || a.type === 'plink') {
     const i = vertexIndex(handle)
     if (i === null) return null
     // Привязка угла Shift — относительно соседней вершины (предыдущей, у первой — следующей).

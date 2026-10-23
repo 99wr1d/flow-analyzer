@@ -11,12 +11,18 @@ export type TrackingPhase = 'idle' | 'confirm' | 'running' | 'asking'
 export interface PickState {
   /** Рамки игроков на кадре вопроса, доли кадра. */
   candidates: FractionBox[]
+  /** Номер точки связки, о которой вопрос (с нуля); null — одиночное слежение. */
+  point: number | null
+  /** Где эта точка стоит на кадре вопроса (доли кадра): ею подсвечивается точка связки на картинке. */
+  marker: { x: number; y: number } | null
 }
 
 export interface TrackingState {
   phase: TrackingPhase
   /** Рисунок, за которым идёт слежение. */
   annotationId: string | null
+  /** Рисунок — связка: слежение ведёт все её точки. */
+  link: boolean
   done: number
   total: number
   confirmText: string | null
@@ -28,7 +34,7 @@ export interface TrackingState {
 }
 
 export interface TrackingActions {
-  enter: (annotationId: string) => void
+  enter: (annotationId: string, link?: boolean) => void
   askConfirm: (text: string) => void
   startRunning: () => void
   setProgress: (done: number, total: number) => void
@@ -40,6 +46,7 @@ export interface TrackingActions {
 const initial: Omit<TrackingState, 'runs'> = {
   phase: 'idle',
   annotationId: null,
+  link: false,
   done: 0,
   total: 0,
   confirmText: null,
@@ -50,7 +57,7 @@ const initial: Omit<TrackingState, 'runs'> = {
 export const useTrackingStore = create<TrackingState & TrackingActions>()((set) => ({
   ...initial,
   runs: 0,
-  enter: (annotationId) => set({ ...initial, phase: 'confirm', annotationId }),
+  enter: (annotationId, link = false) => set({ ...initial, phase: 'confirm', annotationId, link }),
   askConfirm: (confirmText) => set({ phase: 'confirm', confirmText }),
   startRunning: () => set({ phase: 'running', confirmText: null, pick: null, done: 0, total: 0 }),
   setProgress: (done, total) => set({ done, total }),

@@ -192,6 +192,7 @@ export const STATIC_COMMANDS: readonly Command[] = [
   tool('pen', 'Перо', 'KeyD'),
   tool('zone', 'Зона', 'KeyZ'),
   tool('chain', 'Связи игроков', 'KeyN'),
+  tool('link', 'Связка', 'KeyK'),
   tool('loupe', 'Лупа', 'KeyG'),
   {
     id: 'anim:key-prev',

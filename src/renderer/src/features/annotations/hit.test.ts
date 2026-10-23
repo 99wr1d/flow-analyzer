@@ -75,3 +75,29 @@ describe('попадание', () => {
     expect(handleAt(text, { x: 100, y: 350 }, size)).toBeNull()
   })
 })
+
+describe('связка: попадание по кольцу у ног учитывает наклон по разметке поля', () => {
+  const link: Annotation = {
+    ...base,
+    space: 'screen',
+    type: 'link',
+    points: [
+      { x: 0.2, y: 0.5 },
+      { x: 0.8, y: 0.5 }
+    ],
+    closed: false,
+    fillOpacity: 0.12,
+    rings: true,
+    glow: false,
+    underPlayers: true,
+    timing: { mode: 'range', start: 0, duration: 3 }
+  }
+  // Над кольцом, далеко от линии: вверх от точки на 15 px (по высоте кадра 500 px).
+  const above = { x: 200, y: 250 - 15 }
+  it('кольцо круче (отношение 0.9) — попадание есть, по умолчанию (0.35) — нет', () => {
+    expect(hitAnnotation(link, above, size, measure)).toBe(false)
+    expect(hitAnnotation(link, above, size, measure, undefined, () => 0.9)).toBe(true)
+    expect(topHit([link], above, size, measure, () => 0.9)).toBe(link)
+    expect(topHit([link], above, size, measure)).toBe(null)
+  })
+})

@@ -50,12 +50,18 @@ async function prepare(app: ElectronApplication, win: Page): Promise<string> {
 const seen = (win: Page): Promise<Seen> =>
   win.evaluate(() => (window as unknown as { __seen: Seen }).__seen)
 
-const start = (win: Page, videoId: string, anchor = ANCHOR, from = 0, to = 3): Promise<string> =>
+const start = (
+  win: Page,
+  videoId: string,
+  anchor: { x: number; y: number } | Array<{ x: number; y: number }> = ANCHOR,
+  from = 0,
+  to = 3
+): Promise<string> =>
   win.evaluate(async (a) => (await window.api.startTracking(a)).jobId, {
     videoId,
     from,
     to,
-    anchor
+    anchors: Array.isArray(anchor) ? anchor : [anchor]
   })
 
 test('слежение по заглушке: отсчёт на каждый кадр, ход работы и итог', async () => {
@@ -68,18 +74,20 @@ test('слежение по заглушке: отсчёт на каждый к�
     expect(s.done).toHaveLength(1)
     const done = s.done[0] as {
       jobId: string
-      samples: Array<{ t: number; foot: { x: number; y: number }; height: number }>
+      samples: Array<Array<{ t: number; foot: { x: number; y: number }; height: number }>>
       stop: unknown
     }
     expect(done.jobId).toBe(jobId)
     expect(done.stop).toBeNull()
-    expect(done.samples).toHaveLength(75)
-    expect(done.samples[0].t).toBeCloseTo(0.5 / 25, 6)
-    expect(done.samples[74].t).toBeCloseTo(74.5 / 25, 6)
+    expect(done.samples).toHaveLength(1)
+    expect(done.samples[0]).toHaveLength(75)
+    const own = done.samples[0]
+    expect(own[0].t).toBeCloseTo(0.5 / 25, 6)
+    expect(own[74].t).toBeCloseTo(74.5 / 25, 6)
     // рамка стандартного сценария: ноги посередине нижней кромки, высота 0,30
-    expect(done.samples[0].foot.y).toBeCloseTo(0.65, 2)
-    expect(done.samples[0].height).toBeCloseTo(0.3, 2)
-    expect(done.samples[74].foot.x).toBeGreaterThan(done.samples[0].foot.x)
+    expect(own[0].foot.y).toBeCloseTo(0.65, 2)
+    expect(own[0].height).toBeCloseTo(0.3, 2)
+    expect(own[74].foot.x).toBeGreaterThan(own[0].foot.x)
     expect(s.progress.at(-1)).toEqual({ jobId, done: 75, total: 75 })
     expect(ffmpegCount()).toBe(0)
     // после окончания можно начать новую задачу
@@ -96,7 +104,7 @@ test('нет игрока под рисунком: итог no-player', async ()
     await start(win, id, { x: 0.9, y: 0.9 })
     await waitFor(async () => (await seen(win)).done.length > 0)
     const s = await seen(win)
-    expect(s.done[0]).toMatchObject({ error: 'no-player' })
+    expect(s.done[0]).toMatchObject({ error: 'no-player', target: 0 })
     expect(ffmpegCount()).toBe(0)
   } finally {
     await app.close()
@@ -114,11 +122,11 @@ test('вторая задача при идущей первой отклоня�
           () => 'ok',
           (e: Error) => e.message
         ),
-      { videoId: id, from: 0, to: 3, anchor: ANCHOR }
+      { videoId: id, from: 0, to: 3, anchors: [ANCHOR] }
     )
     expect(second).toMatch(/уже идёт/)
     const bad = await win.evaluate(() =>
-      window.api.startTracking({ videoId: 'x', from: 2, to: 1, anchor: { x: 2, y: 0 } }).then(
+      window.api.startTracking({ videoId: 'x', from: 2, to: 1, anchors: [{ x: 2, y: 0 }] }).then(
         () => 'ok',
         (e: Error) => e.message
       )
@@ -258,8 +266,10 @@ test('вопрос «Кто из них ваш?»: ask по IPC, ответ, с�
     const ask = (await seen(win)).ask[0] as {
       jobId: string
       t: number
+      target: number
       candidates: Array<{ x: number; y: number; w: number; h: number }>
     }
+    expect(ask.target).toBe(0)
     expect(ask.candidates).toHaveLength(2)
     expect(ask.t).toBeGreaterThan(1.2)
     // до ответа итога нет
@@ -267,18 +277,18 @@ test('вопрос «Кто из них ваш?»: ask по IPC, ответ, с�
     expect((await seen(win)).done).toHaveLength(0)
     const mine = ask.candidates.findIndex((c) => c.y > 0.4)
     await win.evaluate(
-      ([j, i]) => window.api.resolveTracking(j as string, i as number),
-      [ask.jobId, mine]
+      ([j, i, k]) => window.api.resolveTracking(j as string, i as number, k as number),
+      [ask.jobId, mine, ask.target]
     )
     await waitFor(async () => (await seen(win)).done.length > 0, 30_000)
     const done = (await seen(win)).done[0] as {
-      samples: Array<{ t: number; foot: { x: number; y: number } }>
+      samples: Array<Array<{ t: number; foot: { x: number; y: number } }>>
       stop: unknown
     }
     expect(done.stop).toBeNull()
-    expect(done.samples).toHaveLength(75)
+    expect(done.samples[0]).toHaveLength(75)
     // последние отсчёты — у нижнего игрока (ноги на y = 0,77), не у верхнего (0,53)
-    expect(done.samples[74].foot.y).toBeCloseTo(0.77, 1)
+    expect(done.samples[0][74].foot.y).toBeCloseTo(0.77, 1)
   } finally {
     await app.close()
   }
@@ -300,5 +310,90 @@ test('закрытие окна во время слежения: приложе
     await waitFor(() => ffmpegCount() === 0, 10_000)
   } finally {
     await app.close().catch(() => undefined)
+  }
+})
+
+type MultiDone = {
+  samples: Array<Array<{ t: number; foot: { x: number; y: number }; height: number }>>
+  stop: unknown
+}
+
+test('связка: три цели одной задачей, отсчёты по целям (stub-three.json)', async () => {
+  const { app, win } = await launch({
+    env: { ...STUB_ENV, FLOW_DETECTOR_STUB_PATTERN: fixture('stub-three.json') }
+  })
+  try {
+    const id = await prepare(app, win)
+    await start(win, id, [
+      { x: 0.13, y: 0.18 },
+      { x: 0.43, y: 0.5 },
+      { x: 0.73, y: 0.82 }
+    ])
+    await waitFor(async () => (await seen(win)).done.length > 0)
+    const done = (await seen(win)).done[0] as unknown as MultiDone
+    expect(done.stop).toBeNull()
+    expect(done.samples).toHaveLength(3)
+    done.samples.forEach((s) => expect(s).toHaveLength(75))
+    // первая и вторая цели идут вправо, третья — влево; каждая остаётся на своей полосе
+    expect(done.samples[0][74].foot.x).toBeGreaterThan(done.samples[0][0].foot.x)
+    expect(done.samples[1][74].foot.x).toBeGreaterThan(done.samples[1][0].foot.x)
+    expect(done.samples[2][74].foot.x).toBeLessThan(done.samples[2][0].foot.x)
+    expect(done.samples[0][74].foot.y).toBeCloseTo(0.32, 1)
+    expect(done.samples[1][74].foot.y).toBeCloseTo(0.64, 1)
+    expect(done.samples[2][74].foot.y).toBeCloseTo(0.96, 1)
+    expect(ffmpegCount()).toBe(0)
+  } finally {
+    await app.close()
+  }
+})
+
+test('связка: две цели одной формы пересекаются — без обмена (stub-same-cross.json)', async () => {
+  const { app, win } = await launch({
+    env: { ...STUB_ENV, FLOW_DETECTOR_STUB_PATTERN: fixture('stub-same-cross.json') }
+  })
+  try {
+    const id = await prepare(app, win)
+    await start(win, id, [
+      { x: 0.23, y: 0.45 },
+      { x: 0.53, y: 0.55 }
+    ])
+    await waitFor(async () => (await seen(win)).done.length > 0)
+    const s = await seen(win)
+    expect(s.ask).toHaveLength(0)
+    const done = s.done[0] as unknown as MultiDone
+    expect(done.stop).toBeNull()
+    // верхний игрок (ноги на 0,6) остаётся целью 0, нижний (0,7) — целью 1; к концу они поменялись сторонами
+    done.samples[0].forEach((p) => expect(p.foot.y).toBeCloseTo(0.6, 1))
+    done.samples[1].forEach((p) => expect(p.foot.y).toBeCloseTo(0.7, 1))
+    expect(done.samples[0][74].foot.x).toBeGreaterThan(done.samples[1][74].foot.x)
+  } finally {
+    await app.close()
+  }
+})
+
+test('связка: потеря одной цели останавливает всю задачу, stop.target — номер цели', async () => {
+  const { app, win } = await launch({
+    env: { ...STUB_ENV, FLOW_DETECTOR_STUB_PATTERN: fixture('stub-three-lost.json') }
+  })
+  try {
+    const id = await prepare(app, win)
+    await start(win, id, [
+      { x: 0.13, y: 0.18 },
+      { x: 0.43, y: 0.5 },
+      { x: 0.73, y: 0.82 }
+    ])
+    await waitFor(async () => (await seen(win)).done.length > 0)
+    const done = (await seen(win)).done[0] as unknown as MultiDone & {
+      stop: { t: number; reason: string; target: number }
+    }
+    expect(done.stop).toMatchObject({ reason: 'occluded', target: 1 })
+    // средняя цель пропала с 1,0 с: отсчёты всех целей одной длины и не дальше последнего уверенного кадра
+    expect(done.stop.t).toBeLessThanOrEqual(1.0)
+    const n = done.samples[0].length
+    expect(n).toBeGreaterThan(0)
+    expect(n).toBeLessThan(75)
+    done.samples.forEach((s) => expect(s).toHaveLength(n))
+  } finally {
+    await app.close()
   }
 })

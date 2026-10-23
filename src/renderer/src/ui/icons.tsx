@@ -403,6 +403,21 @@ export const ChainToolIcon = (p: IconProps): React.JSX.Element => (
   </Svg>
 )
 
+/** «Связка»: треугольник из трёх точек с маленькими кольцами у ног. */
+export const LinkToolIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path
+      d="M5.500 16.500 12 6l6.500 10.500Z"
+      strokeWidth="1.600"
+      fill="currentColor"
+      fillOpacity=".16"
+    />
+    <ellipse cx="5.500" cy="16.500" rx="2.600" ry="1.500" strokeWidth="1.300" />
+    <ellipse cx="12" cy="6" rx="2.600" ry="1.500" strokeWidth="1.300" />
+    <ellipse cx="18.500" cy="16.500" rx="2.600" ry="1.500" strokeWidth="1.300" />
+  </Svg>
+)
+
 export const HelpIcon = (p: IconProps): React.JSX.Element => (
   <Svg {...p}>
     <circle cx="12" cy="12" r="9" />

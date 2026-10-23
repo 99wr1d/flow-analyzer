@@ -223,7 +223,7 @@ export function moveHandle(
     }
     return a
   }
-  if (a.type === 'zone' || a.type === 'chain') {
+  if (a.type === 'zone' || a.type === 'chain' || a.type === 'link') {
     const i = vertexIndex(handle)
     if (i === null || i >= a.points.length) return a
     return { ...a, points: a.points.map((q, k) => (k === i ? p : q)) }

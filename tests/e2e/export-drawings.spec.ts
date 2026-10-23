@@ -3,7 +3,6 @@
 import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdirSync, readdirSync, statSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   countFrames,
@@ -42,11 +41,17 @@ function makeOutDir(): string {
   return dir
 }
 
-/** Сколько папок с временными картинками сейчас в системной временной папке (после экспорта новых быть не должно). */
-const tempLeftovers = (): number =>
-  readdirSync(tmpdir()).filter(
-    (n) => n.startsWith('flow-overlays-') || n.startsWith('flow-export-')
-  ).length
+/**
+ * Приложение работает со своей временной папкой (TEMP/TMP), а не с общей системной: параллельные процессы на машине
+ * (другие тесты, vitest) в неё ничего не кладут. Сколько в ней папок с временными картинками (после экспорта быть не должно).
+ */
+function ownTemp(): { dir: string; env: Record<string, string> } {
+  const dir = join(makeUserData(), 'tmp')
+  mkdirSync(dir)
+  return { dir, env: { TEMP: dir, TMP: dir } }
+}
+const tempLeftovers = (dir: string): number =>
+  readdirSync(dir).filter((n) => n.startsWith('flow-overlays-') || n.startsWith('flow-export-')).length
 
 async function openVideo(ctx: Ctx, video = fixture('cfr25.mp4')): Promise<void> {
   await stubDialog(ctx.app, video)
@@ -95,10 +100,11 @@ const CIRCLE_PX = [Math.round(0.55 * W) - 1, Math.round(0.725 * H) - 1] as const
 
 test.describe('экспорт с рисунками', () => {
   test('отдельные файлы: рисунок-отрезок, стоп-кадр «Только кадр», длительность и пиксели', async () => {
-    const ctx = await launch()
+    const tmp = ownTemp()
+    const ctx = await launch({ env: tmp.env })
     const { app, win } = ctx
     const out = makeOutDir()
-    const before = tempLeftovers()
+    const before = tempLeftovers(tmp.dir)
     try {
       await openVideo(ctx)
       await addEpisode(win, 1.0, 3.0, 1)
@@ -174,7 +180,7 @@ test.describe('экспорт с рисунками', () => {
       expect(isDark(pixelAt(early, W, CIRCLE_PX[0], CIRCLE_PX[1]))).toBe(false)
 
       // Временные файлы убраны.
-      expect(tempLeftovers()).toBe(before)
+      expect(tempLeftovers(tmp.dir)).toBe(before)
     } finally {
       await app.close()
     }

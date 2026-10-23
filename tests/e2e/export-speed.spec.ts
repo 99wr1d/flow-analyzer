@@ -5,7 +5,6 @@ import { expect, test } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { execFileSync } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync } from 'fs'
-import { tmpdir } from 'os'
 import { join } from 'path'
 import ffmpegPath from 'ffmpeg-static'
 import {
@@ -30,10 +29,14 @@ function makeOutDir(): string {
   return dir
 }
 
-const tempLeftovers = (): string[] =>
-  readdirSync(tmpdir()).filter(
-    (n) => n.startsWith('flow-overlays-') || n.startsWith('flow-export-')
-  )
+/** Своя временная папка приложения (TEMP/TMP): параллельные процессы на машине в неё ничего не кладут. */
+function ownTemp(extra: Record<string, string> = {}): { dir: string; env: Record<string, string> } {
+  const dir = join(makeUserData(), 'tmp')
+  mkdirSync(dir)
+  return { dir, env: { ...extra, TEMP: dir, TMP: dir } }
+}
+const tempLeftovers = (dir: string): string[] =>
+  readdirSync(dir).filter((n) => n.startsWith('flow-overlays-') || n.startsWith('flow-export-'))
 
 async function openVideo(ctx: Ctx, video = fixture('cfr25.mp4')): Promise<void> {
   await stubDialog(ctx.app, video)
@@ -223,10 +226,11 @@ test.describe('быстрый экспорт: кодер', () => {
 
 test.describe('быстрый экспорт: параллельные куски', () => {
   test('отдельный файл с рисунками кусками по секунде: кадры, стоп-кадр и рисунки как у обычного экспорта', async () => {
-    const ctx = await launch({ env: { FLOW_EXPORT_CHUNK_SEC: '1' } })
+    const tmp = ownTemp({ FLOW_EXPORT_CHUNK_SEC: '1' })
+    const ctx = await launch({ env: tmp.env })
     const { app, win, userData } = ctx
     const out = makeOutDir()
-    const before = tempLeftovers().length
+    const before = tempLeftovers(tmp.dir).length
     try {
       await openVideo(ctx)
       await addEpisode(win, 1.0, 3.0, 1)
@@ -257,17 +261,18 @@ test.describe('быстрый экспорт: параллельные куск�
 
       // Экспорт шёл кусками, а временные файлы убраны.
       expect(logText(userData)).toMatch(/Экспорт кусками: \d+ шт\./)
-      expect(tempLeftovers().length).toBe(before)
+      expect(tempLeftovers(tmp.dir).length).toBe(before)
     } finally {
       await app.close()
     }
   })
 
   test('отмена посреди экспорта кусками: итоговой папке чисто, временных папок не осталось', async () => {
-    const ctx = await launch({ env: { FLOW_EXPORT_CHUNK_SEC: '2' } })
+    const tmp = ownTemp({ FLOW_EXPORT_CHUNK_SEC: '2' })
+    const ctx = await launch({ env: tmp.env })
     const { app, win, userData } = ctx
     const out = makeOutDir()
-    const before = tempLeftovers().length
+    const before = tempLeftovers(tmp.dir).length
     try {
       await openVideo(ctx, makeLongVideo(userData, 40))
       await stubDialog(app, out)
@@ -285,7 +290,7 @@ test.describe('быстрый экспорт: параллельные куск�
         timeout: 30_000
       })
       expect(readdirSync(out)).toEqual([])
-      await expect.poll(() => tempLeftovers().length, { timeout: 10_000 }).toBe(before)
+      await expect.poll(() => tempLeftovers(tmp.dir).length, { timeout: 10_000 }).toBe(before)
     } finally {
       await app.close()
     }

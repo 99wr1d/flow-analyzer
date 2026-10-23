@@ -12,6 +12,7 @@ import {
   CircleToolIcon,
   CurveToolIcon,
   LineToolIcon,
+  LinkToolIcon,
   LoupeToolIcon,
   PenToolIcon,
   RulerToolIcon,
@@ -34,7 +35,8 @@ const ICONS: Record<Tool, () => React.JSX.Element> = {
   pen: () => <PenToolIcon size={20} />,
   zone: () => <ZoneToolIcon size={20} />,
   loupe: () => <LoupeToolIcon size={20} />,
-  chain: () => <ChainToolIcon size={20} />
+  chain: () => <ChainToolIcon size={20} />,
+  link: () => <LinkToolIcon size={20} />
 }
 
 function ToolButton({ tool }: { tool: Tool }): React.JSX.Element {

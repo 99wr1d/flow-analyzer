@@ -110,9 +110,11 @@ test.describe('слежение за игроком (заглушка детек
 
       await runTracking(win)
 
-      // Остановка на смене плана (время — последний уверенный кадр, 2.34 с, а не кадр смены): тост с причиной и временем; ключи — сплошной полосой, ромбиков нет.
+      // Остановка на смене плана (2.34 с). Слежение обрезается до последнего надёжного кадра: на 1.2–1.75 с бегун пережидает за
+      // игроком другой формы, и возвращение после этого не доказано (одиночный новичок на его месте неотличим) — время
+      // остановки 1.3 с, а не 2.3 с. Тост с причиной и временем; ключи — сплошной полосой, ромбиков нет.
       const toast = win.getByTestId('toast')
-      await expect(toast).toContainText('Игрок потерян на 00:02.3 — смена плана')
+      await expect(toast).toContainText('Игрок потерян на 00:01.3 — смена плана')
       await expect(toast).toContainText('Поставьте рисунок на игрока и нажмите «Следить» ещё раз.')
       await shot(win, 'tracking-lost-toast')
       const keys = Number(await trackItem(win).getAttribute('data-keys'))
@@ -124,12 +126,12 @@ test.describe('слежение за игроком (заглушка детек
       await expect(win.getByTestId('track-key')).toHaveCount(0)
       await shot(win, 'tracking-band')
 
-      // Кольцо на последнем кадре (2.38 с) у ног бегуна: центр рамки 0.05 + 0.25 · 2.38 + 0.03, ноги на 0.74 (±3 % кадра).
-      await seekVideo(win, (59 + 0.5) / FPS)
+      // Кольцо на последнем надёжном кадре (1.3 с) у ног бегуна: центр рамки 0.05 + 0.25 · 1.3 + 0.03, ноги на 0.74 (±3 % кадра).
+      await seekVideo(win, (32 + 0.5) / FPS)
       const end = await ringCenter(win)
-      expect(Math.abs(end.x - (0.05 + 0.25 * (59.5 / FPS) + 0.03 - 0.005))).toBeLessThan(0.03)
+      expect(Math.abs(end.x - (0.05 + 0.25 * (32.5 / FPS) + 0.03 - 0.005))).toBeLessThan(0.03)
       expect(Math.abs(end.y - 0.74)).toBeLessThan(0.03)
-      expect(end.x).toBeGreaterThan(before.x + 0.4)
+      expect(end.x).toBeGreaterThan(before.x + 0.25)
 
       // Один Ctrl+Z убирает всё слежение.
       await win.keyboard.press('Control+z')
@@ -285,10 +287,11 @@ test.describe('слежение за игроком (заглушка детек
       expect(Number(await trackItem(win).getAttribute('data-auto-keys'))).toBeGreaterThanOrEqual(
         autoBefore - 1
       )
-      // Поправка сохранилась как смещение: на 1.5 с кольцо правее ног бегуна примерно на 0.015 + 0.005 (первоначальный сдвиг).
-      await seekVideo(win, (37 + 0.5) / FPS)
+      // Поправка сохранилась как смещение: на 1.18 с (до пережидания за игроком другой формы; дальше слежение обрезано до
+      // надёжного кадра) кольцо правее ног бегуна примерно на 0.015 + 0.005 (первоначальный сдвиг).
+      await seekVideo(win, (29 + 0.5) / FPS)
       const later = await ringCenter(win)
-      const foot = 0.05 + 0.25 * (37.5 / FPS) + 0.03
+      const foot = 0.05 + 0.25 * (29.5 / FPS) + 0.03
       expect(later.x - foot).toBeGreaterThan(0.005)
       expect(later.x - foot).toBeLessThan(0.04)
     } finally {
@@ -315,9 +318,10 @@ test.describe('слежение за игроком (заглушка детек
       await expect(win.getByTestId('track-button')).toHaveAttribute('data-mode', 'continue')
       await runTracking(win)
       await expect(win.getByTestId('toast')).toContainText('смена плана')
-      // Всё та же одна полоса, но длиннее; начало слежения не тронуто.
+      // Всё та же одна полоса, но длиннее; начало слежения не тронуто. Конец — последний надёжный кадр (1.3 с): после
+      // пережидания за игроком другой формы возвращение не доказано, и смена плана обрезает до него.
       await expect(win.getByTestId('track-band')).toHaveCount(1)
-      expect(await lastKey()).toBeGreaterThan(2.3)
+      expect(await lastKey()).toBeGreaterThan(1.2)
       await expect(win.getByTestId('track-key')).toHaveCount(0)
     } finally {
       await app.close()
@@ -525,7 +529,8 @@ test.describe('время ключей слежения и кадры', () => {
       await drawRing(win, { duration: 2.9 })
       await runTracking(win)
       // Кадры без перекрытия синим: бегун на 0.05..0.36 и правее 0.48 (t < 1.2 и t > 1.75). Кольцо при старте слежения встаёт центром на ноги (центр рамки по x).
-      for (const n of [3, 10, 20, 46, 50, 55, 58]) {
+      // После 1.2 с слежение обрезано до надёжного кадра (возвращение после пережидания не доказано, затем смена плана).
+      for (const n of [3, 10, 20, 25, 29]) {
         await seekVideo(win, (n + 0.5) / FPS)
         const red = await redCentre(win)
         expect(red).toBeGreaterThan(0)

@@ -8,6 +8,7 @@ import {
   type ScreenAnnotation
 } from '../../../../shared/annotations'
 import type { LabelShift } from '../../../../shared/pitch/labelNudge'
+import { groundEllipseRatioIn } from '../../../../shared/pitch/ground'
 import type { Projector } from '../../../../shared/pitch/projector'
 import {
   paintScreenTool,
@@ -82,7 +83,8 @@ function ScreenToolBody({
   selected,
   shadowClass,
   part,
-  time
+  time,
+  projector
 }: {
   annotation: ScreenToolAnnotation
   size: Size
@@ -90,8 +92,19 @@ function ScreenToolBody({
   shadowClass?: string
   part?: DrawPart
   time?: number
+  projector?: Projector | null
 }): React.JSX.Element {
-  const paint = useMemo(() => paintScreenTool(a, size, time), [a, size, time])
+  // Кольца у ног связки на экране — плоские эллипсы «на траве»: наклон по разметке поля, если она есть.
+  const paint = useMemo(
+    () =>
+      paintScreenTool(
+        a,
+        size,
+        time,
+        projector ? (at) => groundEllipseRatioIn(projector, size.w / size.h, at) : undefined
+      ),
+    [a, size, time, projector]
+  )
   return (
     <PaintParts
       paint={paint}
@@ -136,7 +149,8 @@ function ShapeBody({
   selected,
   shadowClass,
   part = 'all',
-  time
+  time,
+  projector
 }: ShapeProps & { annotation: ScreenAnnotation; shadowClass?: string }): React.JSX.Element {
   if (isScreenTool(a)) {
     return (
@@ -147,6 +161,7 @@ function ShapeBody({
         shadowClass={shadowClass}
         part={part}
         time={isTimeVarying(a) ? time : undefined}
+        projector={projector}
       />
     )
   }
@@ -470,8 +485,10 @@ function geometryOf(a: Annotation): string {
       return JSON.stringify({ points: a.points, arrow: a.arrow })
     case 'zone':
     case 'chain':
+    case 'link':
     case 'pzone':
     case 'pchain':
+    case 'plink':
       return JSON.stringify({ points: a.points })
     case 'loupe':
       return JSON.stringify({ pos: a.pos, src: a.src, radius: a.radius, zoom: a.zoom })
@@ -481,7 +498,7 @@ function geometryOf(a: Annotation): string {
 }
 
 /** Виды рисунков с полупрозрачной подложкой (заливка зоны и связей, луч прожектора). */
-const HAS_UNDERLAY = new Set(['zone', 'chain', 'pzone', 'pchain', 'spot', 'pspot'])
+const HAS_UNDERLAY = new Set(['zone', 'chain', 'link', 'pzone', 'pchain', 'plink', 'spot', 'pspot'])
 
 export const ShapeView = memo(function ShapeView(props: ShapeProps): React.JSX.Element | null {
   const a = props.annotation

@@ -159,7 +159,7 @@ test.describe('настройки', () => {
     }
   })
 
-  test('воспроизведение на K: K переключает, Пробел нет; замена клавиши у другой команды', async () => {
+  test('воспроизведение на U: U переключает, Пробел нет; замена клавиши у другой команды', async () => {
     const ctx = await launch()
     const { app, win } = ctx
     try {
@@ -167,41 +167,41 @@ test.describe('настройки', () => {
       await openSettings(win)
       await win.getByTestId('settings-tab-keys').click()
       await hotkeyEdit(win, 'playback:toggle').click()
-      await win.keyboard.press('KeyK')
-      await expect(hotkeyValue(win, 'playback:toggle')).toHaveText('K')
+      await win.keyboard.press('KeyU')
+      await expect(hotkeyValue(win, 'playback:toggle')).toHaveText('U')
       await expect(
         win.locator(
           '[data-testid="keys-row"][data-command="playback:toggle"] [data-testid="key-reset"]'
         )
       ).toBeEnabled()
 
-      // Назначаем на «Метку Начало» клавишу K: конфликт → «Заменить» снимает K у воспроизведения.
+      // Назначаем на «Метку Начало» клавишу U: конфликт → «Заменить» снимает U у воспроизведения.
       await hotkeyEdit(win, 'episodes:in').click()
-      await win.keyboard.press('KeyK')
+      await win.keyboard.press('KeyU')
       await expect(win.getByTestId('hotkey-conflict')).toContainText('«Пуск / пауза»')
       await win.getByTestId('hotkey-replace').click()
-      await expect(hotkeyValue(win, 'episodes:in')).toHaveText('K')
+      await expect(hotkeyValue(win, 'episodes:in')).toHaveText('U')
       await expect(hotkeyValue(win, 'playback:toggle')).toHaveText('Не назначена')
-      // Возвращаем K воспроизведению (с заменой), а «Начало» — сбросом к стандартной клавише.
+      // Возвращаем U воспроизведению (с заменой), а «Начало» — сбросом к стандартной клавише.
       await hotkeyEdit(win, 'playback:toggle').click()
-      await win.keyboard.press('KeyK')
+      await win.keyboard.press('KeyU')
       await win.getByTestId('hotkey-replace').click()
       await win
         .locator('[data-testid="keys-row"][data-command="episodes:in"] [data-testid="key-reset"]')
         .click()
       await expect(hotkeyValue(win, 'episodes:in')).toHaveText('I')
-      await expect(hotkeyValue(win, 'playback:toggle')).toHaveText('K')
+      await expect(hotkeyValue(win, 'playback:toggle')).toHaveText('U')
       await save(win)
 
-      await win.keyboard.press('KeyK')
+      await win.keyboard.press('KeyU')
       await expect.poll(async () => (await videoState(win))?.paused).toBe(false)
-      await win.keyboard.press('KeyK')
+      await win.keyboard.press('KeyU')
       await expect.poll(async () => (await videoState(win))?.paused).toBe(true)
       await win.keyboard.press('Space')
       await win.waitForTimeout(250)
       expect((await videoState(win))?.paused).toBe(true)
       // Подсказка на кнопке следует за переназначением.
-      await expect(win.getByTestId('play-toggle')).toHaveAttribute('title', 'Воспроизвести (K)')
+      await expect(win.getByTestId('play-toggle')).toHaveAttribute('title', 'Воспроизвести (U)')
       // Остальное не пострадало.
       await win.keyboard.press('ArrowRight')
       await expect.poll(async () => (await videoState(win))?.currentTime).toBeGreaterThan(0)
@@ -349,7 +349,7 @@ test.describe('настройки', () => {
       await first.win.keyboard.press('KeyQ')
       await first.win.getByTestId('settings-tab-keys').click()
       await hotkeyEdit(first.win, 'playback:toggle').click()
-      await first.win.keyboard.press('KeyK')
+      await first.win.keyboard.press('KeyU')
       await save(first.win)
     } finally {
       await first.app.close()
@@ -366,7 +366,7 @@ test.describe('настройки', () => {
       await seekVideo(second.win, 2.0)
       await second.win.keyboard.press('KeyQ')
       await expect(rows(second.win)).toHaveCount(1)
-      await second.win.keyboard.press('KeyK')
+      await second.win.keyboard.press('KeyU')
       await expect.poll(async () => (await videoState(second.win))?.paused).toBe(false)
       await openSettings(second.win)
       await expect(second.win.getByTestId('tag-name').nth(6)).toHaveValue('Гол!')

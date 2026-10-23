@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   DEFAULT_DIM,
   canBeUnder,
+  DEFAULT_LINK_FILL,
   DEFAULT_RING_FILL,
   newUnderDefault,
   DEFAULT_LOUPE_ZOOM,
@@ -31,7 +32,14 @@ import {
   undo,
   type HistoryState
 } from './history'
-import { DEFAULT_STYLE, LEVELS, TEXT_SIZES, applyFxPatch, type CurrentStyle } from './styles'
+import {
+  DEFAULT_STYLE,
+  LEVELS,
+  TEXT_SIZES,
+  applyFxPatch,
+  isLinkType,
+  type CurrentStyle
+} from './styles'
 
 export type Tool =
   | 'select'
@@ -46,6 +54,7 @@ export type Tool =
   | 'zone'
   | 'loupe'
   | 'chain'
+  | 'link'
 export const TOOLS: Tool[] = [
   'select',
   'arrow',
@@ -57,13 +66,14 @@ export const TOOLS: Tool[] = [
   'spot',
   'zone',
   'chain',
+  'link',
   'pen',
   'loupe'
 ]
 /** Инструменты рейки по группам: основные, разметка поля и анализ, дополнительные. */
 export const TOOL_GROUPS: Array<{ id: string; tools: Tool[] }> = [
   { id: 'basic', tools: ['select', 'arrow', 'curve', 'line', 'circle', 'text'] },
-  { id: 'field', tools: ['ruler', 'spot', 'zone', 'chain'] },
+  { id: 'field', tools: ['ruler', 'spot', 'zone', 'chain', 'link'] },
   { id: 'advanced', tools: ['pen', 'loupe'] }
 ]
 
@@ -79,6 +89,8 @@ export interface ToolOptions {
   labels: boolean
   /** Заливка нового круга и кольца. */
   fillOpacity: number
+  /** Заливка «Области» новой связки. */
+  linkFill: number
 }
 export const DEFAULT_OPTIONS: ToolOptions = {
   dim: DEFAULT_DIM,
@@ -89,7 +101,8 @@ export const DEFAULT_OPTIONS: ToolOptions = {
   arrow: false,
   fill: false,
   labels: true,
-  fillOpacity: DEFAULT_RING_FILL
+  fillOpacity: DEFAULT_RING_FILL,
+  linkFill: DEFAULT_LINK_FILL
 }
 /** Свойство рисунка → поле в ToolOptions. */
 const PROP_TO_OPTION: Record<string, keyof ToolOptions> = {
@@ -297,7 +310,9 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
       if (!target) return {}
       const options = { ...s.options }
       for (const [prop, value] of Object.entries(patch)) {
-        const option = PROP_TO_OPTION[prop]
+        // Заливка «Области» связки запоминается отдельно от заливки круга и кольца.
+        const option =
+          prop === 'fillOpacity' && isLinkType(target.type) ? 'linkFill' : PROP_TO_OPTION[prop]
         if (option) (options as Record<string, unknown>)[option] = value
       }
       const items = s.items.map((a) => (a.id === id ? ({ ...a, ...patch } as Annotation) : a))
@@ -344,10 +359,18 @@ export const useAnnotationsStore = create<AnnotationsState & AnnotationsActions>
       const textContext = target
         ? target.type === 'text' || target.type === 'ptext'
         : s.tool === 'text'
+      // Цвет и толщина связки — тоже отдельно (по умолчанию белая и тонкая).
+      const linkContext = target ? isLinkType(target.type) : s.tool === 'link'
       let style: CurrentStyle =
         ringContext && patch.level !== undefined
           ? { ...s.style, ...patch, level: s.style.level, ringLevel: patch.level }
           : { ...s.style, ...patch }
+      if (linkContext) {
+        if (patch.color !== undefined)
+          style = { ...style, color: s.style.color, linkColor: patch.color }
+        if (patch.level !== undefined)
+          style = { ...style, level: s.style.level, linkLevel: patch.level }
+      }
       if (textContext && patch.color !== undefined) {
         style = { ...style, color: s.style.color, textColor: patch.color }
       }

@@ -68,6 +68,10 @@ export interface StrokePaint {
    * Нет — по длине самой линии.
    */
   layoutLength?: number
+  /** Кольцо у ног точки связки (а не линия рисунка): в разметке помечается data-part="ring". */
+  ring?: true
+  /** Слабое свечение вокруг обводки (кольцо у ног 0.18), независимо от «Свечения» линий. */
+  glow?: true
 }
 
 /** «Луч» над светлым пятном прожектора: силуэт и границы по вертикали (для градиента). */
@@ -132,6 +136,10 @@ export interface PitchPaint {
   target?: boolean
   /** Световой столб (прожектор вида «Столб»): рисует общий рисовальщик; обводки, пятна и луча при нём нет. */
   pillar?: PillarPaint
+  /** Кольца у ног связки на траве (внешний контур и дырка); рисуются отдельно от линий и светятся сами (ringGlowPx). */
+  rings?: PxPt[][]
+  /** Средняя ширина обводки колец у ног, пиксели: от неё считается их слабое свечение. */
+  ringGlowPx?: number
   /** Волна пульса (кольцо, расходящееся от центра) и её непрозрачность. */
   wave?: { body: PxPt[][]; opacity: number }
 }
@@ -317,19 +325,21 @@ export const worldWidthOf = (a: PitchAnnotation): number => {
         ? WORLD_WIDTH_FACTOR.line
         : a.type === 'pchain'
           ? WORLD_WIDTH_FACTOR.line * 1.4
-          : a.type === 'pzone'
-            ? WORLD_WIDTH_FACTOR.line * 0.8
-            : a.type === 'pspot'
-              ? WORLD_WIDTH_FACTOR.ring * 0.7
-              : a.type === 'parrow'
-                ? WORLD_WIDTH_FACTOR.arrow
-                : a.type === 'pline'
-                  ? WORLD_WIDTH_FACTOR.line
-                  : a.type === 'ring'
-                    ? WORLD_WIDTH_FACTOR.ring
-                    : a.type === 'ruler'
-                      ? WORLD_WIDTH_FACTOR.ruler
-                      : 0
+          : a.type === 'plink'
+            ? WORLD_WIDTH_FACTOR.line * 0.4
+            : a.type === 'pzone'
+              ? WORLD_WIDTH_FACTOR.line * 0.8
+              : a.type === 'pspot'
+                ? WORLD_WIDTH_FACTOR.ring * 0.7
+                : a.type === 'parrow'
+                  ? WORLD_WIDTH_FACTOR.arrow
+                  : a.type === 'pline'
+                    ? WORLD_WIDTH_FACTOR.line
+                    : a.type === 'ring'
+                      ? WORLD_WIDTH_FACTOR.ring
+                      : a.type === 'ruler'
+                        ? WORLD_WIDTH_FACTOR.ruler
+                        : 0
   return a.type === 'ptext' ? 0 : a.style.width * f
 }
 

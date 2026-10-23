@@ -7,6 +7,7 @@ import {
   MIN_FREEZE,
   LOUPE_ZOOMS,
   MAX_DIM,
+  MAX_LINK_FILL,
   MAX_RING_FILL,
   MAX_ZONE_OPACITY,
   LEGACY_CIRCLE_FILL,
@@ -331,6 +332,30 @@ function ToolProps({ annotation: a }: { annotation: Annotation }): React.JSX.Ele
         checked={a.arrow}
         onChange={(arrow) => setProps(a.id, { arrow })}
       />
+    )
+  } else if (a.type === 'link' || a.type === 'plink') {
+    body = (
+      <>
+        {a.closed && a.points.length >= 3 && (
+          <PercentSlider
+            label={ru.annotations.linkFill}
+            testId="prop-link-fill"
+            value={a.fillOpacity}
+            min={0}
+            max={MAX_LINK_FILL}
+            onChange={(fillOpacity) => setProps(a.id, { fillOpacity })}
+          />
+        )}
+        {a.type === 'plink' && (
+          <CheckField
+            label={ru.annotations.linkLabels}
+            testId="prop-labels"
+            checked={a.labels}
+            onChange={(labels) => setProps(a.id, { labels })}
+          />
+        )}
+        <p className="field__hint">{ru.annotations.nodeHint}</p>
+      </>
     )
   } else if (a.type === 'chain' || a.type === 'pchain') {
     body = (
