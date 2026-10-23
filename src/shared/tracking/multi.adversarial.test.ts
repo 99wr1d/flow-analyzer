@@ -65,6 +65,8 @@ interface Res {
   noTruth: number
   /** Ответ из списка вопроса отвергнут (исключение). */
   throws: number
+  /** Самый долгий step() за прогон, мс. */
+  maxStepMs: number
   detail: string[]
 }
 
@@ -113,6 +115,7 @@ function run(players: Player[], o: Opts): Res {
     stop: null,
     noTruth: 0,
     throws: 0,
+    maxStepMs: 0,
     detail: []
   }
   let wrongDone = false
@@ -152,7 +155,9 @@ function run(players: Player[], o: Opts): Res {
       .map((d) => [R(), d] as const)
       .sort((a, b) => a[0] - b[0])
       .map((x) => x[1])
+    const t0 = performance.now()
     let r: MultiStep = m.step({ index: f, t: (f + 0.5) / FPS, detections: dets, frameHist: WF })
+    res.maxStepMs = Math.max(res.maxStepMs, performance.now() - t0)
     let guard = 0
     while (r.kind === 'ask') {
       res.asks++
@@ -400,6 +405,42 @@ function check(group: string): void {
 const jit = (J: number): Pick<Opts, 'J' | 'hj'> => ({ J, hj: J ? 0.05 : 0 })
 /** Сиды семейств второго зонда ревью (s·104729): среди них — найденные провалы (s=1, 2, 3). */
 const S2 = 104729
+
+// плотный блок 2×4 (и больше): первые nT — цели, остальные — игроки той же формы; все покачиваются и смещаются
+const block = (nT: number, nD: number, sp: number, amp: number): Player[] =>
+  Array.from({ length: nT + nD }, (_, i) => {
+    const r = Math.floor(i / 4)
+    const c = i % 4
+    return {
+      x: (f: number): number => 330 + sp * c + amp * Math.sin(f / 9 + i * 1.9) + 1.5 * f,
+      y: (f: number): number => 230 + 40 * r + amp * 0.6 * Math.cos(f / 11 + i),
+      target: i < nT
+    }
+  })
+
+describe('многоцелевое слежение: время шага', () => {
+  it('8 целей + 4 игрока той же формы в блоке (шаг 22 и 30), пропуски 10 %: step() < 50 мс', () => {
+    let worst = 0
+    let total = 0
+    for (const [sp, amp] of [
+      [22, 15],
+      [30, 10]
+    ]) {
+      const t0 = performance.now()
+      const r = run(block(8, 4, sp, amp), { J: 4, hj: 0.05, dropP: 0.1, frames: 250, seed: 104729 })
+      total += performance.now() - t0
+      worst = Math.max(worst, r.maxStepMs)
+      expect(r.swaps).toBe(0)
+      expect(r.throws).toBe(0)
+    }
+    if (process.env.ADV_REPORT) {
+      process.stderr
+        .write(`TIMING block 8+4: max step ${worst.toFixed(1)} ms, total 2×250 frames ${total.toFixed(0)} ms
+`)
+    }
+    expect(worst).toBeLessThan(50)
+  }, 600000)
+})
 
 describe('состязательные сценарии: нет молчаливых подмен', () => {
   it('отскок с шумом рамок v=4/6/8, dy=0/10, J=2/4', () => {

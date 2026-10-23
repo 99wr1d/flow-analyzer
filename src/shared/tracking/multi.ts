@@ -24,6 +24,7 @@
 //    вызывающий не берёт, пока кадр не решён.
 //  * Одна цель ведёт себя ровно как SingleTracker: соседей нет, проверки не срабатывают, варианты вопроса те же.
 import { appearanceDistance } from './appearance'
+import { minCostAssignment, perfectMatching } from './assign'
 import { iou, SingleTracker, type TrackerSnapshot } from './tracker'
 import {
   ASK_MAX_CANDIDATES,
@@ -297,34 +298,29 @@ export class MultiTracker {
           appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
           group.some((j) => cost(j, d) <= CHAIN_COUNT_RADIUS))
     )
-    // Варианты каждой цели: детекции по силам (индекс в pool) и пропуск (-1).
-    const options = group.map((j) =>
-      pool
-        .map((d, k) => ({ k, c: cost(j, d) }))
-        .filter((o) => o.c <= CHAIN_COUNT_RADIUS)
-        .concat([{ k: -1, c: CHAIN_MISS_COST }])
+    // Матрица назначения: строки — цели группы (i первая), столбцы — детекции pool и по одному «пропуску» на цель.
+    // Детекция дальше CHAIN_COUNT_RADIUS от мест цели ей запрещена. Венгерский алгоритм — O((g+P)³), без перебора.
+    const reach = group.map((j) =>
+      pool.map((d) => cost(j, d)).map((c) => (c <= CHAIN_COUNT_RADIUS ? c : Infinity))
     )
-    const di = det ? pool.indexOf(det) : -2
+    const matrix = (rows: number[], banned: number): number[][] =>
+      rows.map((r) => [
+        ...reach[r].map((c, k) => (k === banned ? Infinity : c)),
+        ...group.map((_, q) => (q === r ? CHAIN_MISS_COST : Infinity))
+      ])
+    const all = group.map((_, r) => r)
+    const di = det ? pool.indexOf(det) : -1
     let withDet = Infinity
-    let without = Infinity
-    let full = false
-    const used = new Set<number>()
-    const walk = (g: number, sum: number, misses: number, took: boolean): void => {
-      if (g === group.length) {
-        if (misses === 0) full = true
-        if (took) withDet = Math.min(withDet, sum)
-        else without = Math.min(without, sum)
-        return
-      }
-      for (const o of options[g]) {
-        if (o.k >= 0 && used.has(o.k)) continue
-        if (o.k >= 0) used.add(o.k)
-        // Цель i первая в группе: её выбор решает, «с det» ли назначение.
-        walk(g + 1, sum + o.c, misses + (o.k < 0 ? 1 : 0), g === 0 ? o.k === di : took)
-        if (o.k >= 0) used.delete(o.k)
-      }
+    if (di >= 0 && Number.isFinite(reach[0][di])) {
+      // i -> det, остальные — лучшее назначение без det.
+      withDet = reach[0][di] + minCostAssignment(matrix(all.slice(1), di))
     }
-    walk(0, 0, 0, false)
+    // i не на det: запрещаем ей этот столбец.
+    const rest = matrix(all, -1)
+    if (di >= 0) rest[0][di] = Infinity
+    const without = minCostAssignment(rest)
+    // full — у каждой цели группы своя детекция (назначение без пропусков).
+    const full = perfectMatching(reach.map((row) => row.map((c) => Number.isFinite(c))))
     return { margin: without - withDet, full }
   }
 
