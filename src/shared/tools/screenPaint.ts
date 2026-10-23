@@ -24,18 +24,12 @@ import {
   trimEnd
 } from './curve'
 import { catmullRom } from './simplify'
+import { GROUND_RATIO_FALLBACK } from '../pitch/ground'
+import { LINK_RING_RX, LINK_RING_STROKE, LINK_WIDTH_SCALE } from './linkLook'
 
 export type ScreenToolAnnotation = Spotlight | Curve | Pen | Zone | Loupe | Chain | Link
 
 export const SCREEN_TOOL_TYPES = ['spot', 'curve', 'pen', 'zone', 'loupe', 'chain', 'link'] as const
-
-/** Кольцо у ног точки связки: полуширина — доля высоты кадра, отношение высоты к ширине — плоский эллипс «на траве». */
-export const LINK_RING_RX = 0.015
-export const LINK_RING_RATIO = 0.5
-/** Кольцо немного толще линии, но остаётся тонким. */
-export const LINK_RING_STROKE = 1.25
-/** Линии связки тоньше обычных (в образце — волосяные): ступени толщины панели умножаются на это. */
-export const LINK_WIDTH_SCALE = 0.4
 
 export const isScreenTool = (a: { type: string }): a is ScreenToolAnnotation =>
   (SCREEN_TOOL_TYPES as readonly string[]).includes(a.type)
@@ -114,7 +108,9 @@ function nodesOf(points: readonly PxPt[], size: PaintSize): { nodes: PxPt[]; rad
 export function paintScreenTool(
   a: ScreenToolAnnotation,
   size: PaintSize,
-  time?: number
+  time?: number,
+  /** Отношение высоты к ширине эллипса у ног в точке кадра (доли кадра); нет — 0.35, как без разметки поля. */
+  ringRatio?: (at: { x: number; y: number }) => number
 ): PitchPaint {
   const out = emptyPaint()
   const w = Math.max(1, a.style.width * size.h)
@@ -240,14 +236,15 @@ export function paintScreenTool(
     out.hit = [...lineHit(pts, Math.max(lw / 2, 4), closed), ...(closed ? [pts] : [])]
     if (a.rings) {
       const rx = LINK_RING_RX * size.h
-      const ry = rx * LINK_RING_RATIO
-      for (const p of pts) {
+      for (const [i, p] of pts.entries()) {
+        const ry = rx * (ringRatio ? ringRatio(a.points[i]) : GROUND_RATIO_FALLBACK)
         out.strokes.push({
           points: ellipsePolygon(p.x, p.y, rx, ry, 40),
           closed: true,
           widthPx: Math.max(1.3, lw * LINK_RING_STROKE),
           dash: 'solid',
-          ring: true
+          ring: true,
+          glow: true
         })
         out.hit.push(ellipsePolygon(p.x, p.y, rx + 3, ry + 3, 16))
       }

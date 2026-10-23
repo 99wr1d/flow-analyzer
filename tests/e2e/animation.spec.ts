@@ -617,8 +617,17 @@ test.describe('анимация рисунков', () => {
         if (w >= 1440) expect(inner).toBe(w)
         await win.waitForTimeout(400)
         let first: { x: number; y: number; width: number; height: number } | null = null
-        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler', 'spot']) {
+        for (const tool of ['select', 'arrow', 'circle', 'text', 'ruler', 'spot', 'link']) {
           await win.getByTestId(`tool-${tool}`).click()
+          if (tool === 'link') {
+            // Самая широкая панель «Связки»: «Область» и «Свечение» включены (кнопки Линия/Область/Кольца и свечение в одной строке).
+            await win.getByTestId('link-area').click()
+            if ((await win.getByTestId('glow-toggle').getAttribute('aria-pressed')) !== 'true') {
+              await win.getByTestId('glow-toggle').click()
+            }
+            await expect(win.getByTestId('link-area')).toHaveAttribute('aria-pressed', 'true')
+            await expect(win.getByTestId('glow-toggle')).toHaveAttribute('aria-pressed', 'true')
+          }
           await win.waitForTimeout(100)
           const info = await win.getByTestId('style-bar').evaluate((el) => {
             const box = el.getBoundingClientRect()

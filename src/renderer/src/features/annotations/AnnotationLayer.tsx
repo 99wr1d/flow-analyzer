@@ -29,7 +29,7 @@ import {
   resolveAt
 } from '../../../../shared/animation'
 import { isCalibrationFresh } from '../../../../shared/pitch/calibration'
-import { groundEllipseRatio } from '../../../../shared/pitch/ground'
+import { groundEllipseRatio, ringCalibrationAt } from '../../../../shared/pitch/ground'
 import {
   handleAnchor,
   moveWorld,
@@ -342,6 +342,12 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
   const gridId = useGridCalibrationId()
   const calibrations = useCalibrationsStore((s) => s.items)
   const lookup = (id: string): Projector | null | undefined => projectors.get(id)
+  /** Разметка для колец у ног связки на экране: ближайшая к началу рисунка и не устаревшая. */
+  const ringProjector = (a: Annotation): Projector | undefined => {
+    if (a.type !== 'link') return undefined
+    const cal = ringCalibrationAt(calibrations, a.timing.start)
+    return cal ? (projectors.get(cal.id) ?? undefined) : undefined
+  }
 
   const { visible, staleIds } = useMemo(() => {
     const keys = visibleKey ? visibleKey.split(',') : []
@@ -1308,7 +1314,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               size={size}
               selected={a.id === selectedId}
               showHandles
-              projector={isPitchAnnotation(a) ? projectors.get(a.calibrationId) : undefined}
+              projector={isPitchAnnotation(a) ? projectors.get(a.calibrationId) : ringProjector(a)}
               dimmed={staleIds.has(a.id)}
               part={underOn && isUnderPlayers(a) ? 'top' : 'all'}
               keepGround
@@ -1321,7 +1327,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
             size={size}
             selected={false}
             showHandles={false}
-            projector={draftProjector}
+            projector={draftProjector ?? ringProjector(draftShown)}
             part={underOn && isUnderPlayers(draftShown) ? 'top' : 'all'}
           />
         )}
@@ -1332,7 +1338,7 @@ function Surface({ rect }: SurfaceProps): React.JSX.Element {
               size={size}
               selected={false}
               showHandles={false}
-              projector={polyProjector}
+              projector={polyProjector ?? ringProjector(polyShown ?? polyPreview)}
               part={underOn && polyShown && isUnderPlayers(polyShown) ? 'top' : 'all'}
             />
             {polyBase && (

@@ -54,6 +54,11 @@ export function buildKeymap<T extends CommandMeta>(
       else map.set(key, [command])
     }
   }
+  // Клавиша, которую пользователь назначил сам, сильнее стандартной клавиши другой команды (в том числе новой в обновлении):
+  // иначе новая команда с той же стандартной клавишей молча перехватила бы его назначение.
+  for (const list of map.values()) {
+    if (list.length > 1) list.sort((a, b) => Number(!overrides[a.id]) - Number(!overrides[b.id]))
+  }
   return map
 }
 

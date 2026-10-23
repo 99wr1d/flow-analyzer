@@ -11,12 +11,15 @@ import {
   type Link
 } from './annotations'
 import { GEOM_FIELDS } from './animation'
+import { groundEllipseRatioIn, GROUND_RATIO_FALLBACK } from './pitch/ground'
 import { moveWorld, moveWorldHandle, handleAnchor } from './pitch/edit'
 import { fitHomography, type Correspondence } from './pitch/homography'
 import { penaltyAreaRect } from './pitch/landmarks'
 import { lookAtCamera } from './pitch/pitch.testkit'
 import { makeProjector } from './pitch/projector'
 import { paintPitch } from './pitch/shapes'
+import { LINK_RING_RADIUS_M, LINK_RING_STROKE } from './tools/linkLook'
+import { WORLD_WIDTH_FACTOR } from './pitch/shapes'
 import { hasVertices, mapToolPoints, maxVertices, minVertices, toolPointsOf } from './tools/points'
 import { isScreenTool, paintScreenTool } from './tools/screenPaint'
 
@@ -133,6 +136,38 @@ describe('Связка на экране: рисунок', () => {
     })
   })
 
+  it('эллипс колец: по умолчанию 0.35, по разметке поля — из groundEllipseRatioIn; кольцо светится само', () => {
+    const cam = lookAtCamera([25, 95, 22], [14, 34, 0], 1.25)
+    const pairs: Correspondence[] = penaltyAreaRect({ length: 105, width: 68 }, 'left').map(
+      (w) => ({ world: w, image: cam.project(w)! })
+    )
+    const fit = fitHomography(pairs, cam.aspect)
+    if (!fit.ok) throw new Error('камера теста не годится')
+    const proj = makeProjector(fit.H)!
+    const dims = (paint: ReturnType<typeof paintScreenTool>): number => {
+      const ring = paint.strokes[1]
+      const xs = ring.points.map((p) => p.x)
+      const ys = ring.points.map((p) => p.y)
+      return (Math.max(...ys) - Math.min(...ys)) / (Math.max(...xs) - Math.min(...xs))
+    }
+    const at = pts[1]
+    const plain = paintScreenTool(link(), SIZE)
+    expect(dims(plain)).toBeCloseTo(GROUND_RATIO_FALLBACK, 2)
+    const ratio = groundEllipseRatioIn(proj, SIZE.w / SIZE.h, at)
+    expect(ratio).not.toBeCloseTo(GROUND_RATIO_FALLBACK, 2)
+    const calibrated = paintScreenTool(link(), SIZE, undefined, (p) =>
+      groundEllipseRatioIn(proj, SIZE.w / SIZE.h, p)
+    )
+    // Кольцо второй точки — со своим наклоном.
+    const ring1 = calibrated.strokes[2]
+    const h1 = Math.max(...ring1.points.map((p) => p.y)) - Math.min(...ring1.points.map((p) => p.y))
+    const w1 = Math.max(...ring1.points.map((p) => p.x)) - Math.min(...ring1.points.map((p) => p.x))
+    expect(h1 / w1).toBeCloseTo(ratio, 2)
+    // У колец своё слабое свечение, у линии его нет (свечение линий — отдельно).
+    expect(plain.strokes[0].glow).toBeUndefined()
+    expect(plain.strokes.slice(1).every((s) => s.glow === true)).toBe(true)
+  })
+
   it('кольцо — плоский эллипс «на траве»: шире, чем выше, и небольшое', () => {
     const ring = paintScreenTool(link(), SIZE).strokes[1]
     const xs = ring.points.map((p) => p.x)
@@ -216,8 +251,48 @@ describe('Связка на поле', () => {
     expect(paint.handles.map((h) => h.id)).toEqual(['v0', 'v1', 'v2'])
     expect(paint.fills).toHaveLength(0)
     const withRings = paintPitch(ground({ labels: false }), proj, SIZE, measure)
-    // Кольцо — внешний контур и дырка: два многоугольника на точку.
-    expect(withRings.body.length - paint.body.length).toBe(6)
+    // Кольцо — внешний контур и дырка: два многоугольника на точку; лежат отдельно от линий и светятся сами.
+    expect(paint.rings).toBeUndefined()
+    expect(withRings.rings).toHaveLength(6)
+    expect(withRings.body).toHaveLength(paint.body.length)
+    expect(withRings.ringGlowPx).toBeGreaterThan(0)
+    expect(withRings.glowPx).toBeUndefined()
+  })
+
+  it('кольцо на траве той же толщины, что на экране: в LINK_RING_STROKE раз толще линии', () => {
+    const a = ground({ labels: false })
+    const hw = (a.style.width * WORLD_WIDTH_FACTOR.line * 0.4) / 2
+    const paint = paintPitch(a, proj, SIZE, measure)
+    // Ширина обводки в метрах: (внешний радиус − внутренний) = 2·hw·LINK_RING_STROKE; проверяем по самой геометрии.
+    const [outer, inner] = paint.rings!
+    const w = (poly: Array<{ x: number; y: number }>): number =>
+      Math.max(...poly.map((p) => p.x)) - Math.min(...poly.map((p) => p.x))
+    const r = LINK_RING_RADIUS_M
+    const half = hw * LINK_RING_STROKE
+    expect(w(outer) / w(inner)).toBeGreaterThan(1)
+    // Отношение ширин колец на картинке близко к отношению радиусов (перспектива в одной точке почти не искажает).
+    expect(w(outer) / w(inner)).toBeCloseTo((r + half) / (r - half), 1)
+  })
+
+  it('точечный пунктир «Области»: точки не удваиваются на первой вершине', () => {
+    const dotted = ground({
+      closed: true,
+      labels: false,
+      rings: false,
+      style: { color: '#fff', width: 0.018, dash: 'dotted' }
+    })
+    const centers = paintPitch(dotted, proj, SIZE, measure).body.map((poly) => ({
+      x: poly.reduce((s, p) => s + p.x, 0) / poly.length,
+      y: poly.reduce((s, p) => s + p.y, 0) / poly.length
+    }))
+    expect(centers.length).toBeGreaterThan(6)
+    let min = Infinity
+    for (let i = 0; i < centers.length; i += 1) {
+      for (let j = i + 1; j < centers.length; j += 1) {
+        min = Math.min(min, Math.hypot(centers[i].x - centers[j].x, centers[i].y - centers[j].y))
+      }
+    }
+    expect(min).toBeGreaterThan(0.5)
   })
 
   it('«Область» заливается с прозрачностью 12%', () => {

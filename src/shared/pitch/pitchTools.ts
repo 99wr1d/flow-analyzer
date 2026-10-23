@@ -27,6 +27,7 @@ import {
   revealedDotCount,
   type DashKind
 } from '../styleFx'
+import { LINK_RING_RADIUS_M, LINK_RING_STROKE } from '../tools/linkLook'
 import { pillarFromFooting, pillarPoly } from '../tools/pillar'
 import { interiorPoint, polygonArea } from '../tools/polygon'
 import { catmullRom } from '../tools/simplify'
@@ -72,9 +73,6 @@ export const isToolAnnotation = (a: PitchAnnotation): a is ToolPitchAnnotation =
 export const BEAM_HEIGHT_M = 1.9
 /** Верх «луча» уже основания: конус, а не цилиндр. */
 const BEAM_TOP_SCALE = 0.72
-/** Кольцо у ног точки связки на траве: радиус (м) и полуширина обводки как доля ширины линии. */
-const LINK_RING_RADIUS_M = 0.6
-const LINK_RING_STROKE = 1.25
 /** Радиус маркера узла связи на траве, м. */
 const NODE_RADIUS_M = 0.62
 /** Внутренний радиус кольца узла, м. */
@@ -263,6 +261,47 @@ export function paintPitchTool(
     if (a.style.dash === 'dotted' || a.reveal !== undefined || a.glow === true) wholeStroke(shaft)
   }
   const labelFont = rulerFontPx(a.style.width, size) * 0.82
+  /** Кольцо на траве вокруг точки p: внешний контур и обратный обход внутреннего (дырка); в перспективе — эллипс. */
+  const groundRing = (
+    p: Pt,
+    rOuter: number,
+    rInner: number,
+    into: PxPt[][] = out.body,
+    angles = NODE_ANGLES
+  ): void => {
+    const ring = (r: number): Pt[] =>
+      Array.from({ length: angles }, (_, i) => onCircle(p, r, (i * 2 * Math.PI) / angles))
+    const outer = proj.projectPolygon(ccw(ring(rOuter)))
+    const inner = proj.projectPolygon([...ccw(ring(rInner))].reverse())
+    if (outer.length >= 3) into.push(px(outer))
+    if (outer.length >= 3 && inner.length >= 3) into.push(px(inner))
+  }
+  /** Середина звена a–b на картинке (пиксели); null — за горизонтом. */
+  const midPx = (p0: Pt, p1: Pt): PxPt | null => {
+    const mid = proj.toImage({ x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 })
+    return mid ? toPx(mid, size) : null
+  }
+  /**
+   * «Ширина линии» между крайними игроками: подпись над звеньями и (от трёх точек) тонкая пунктирная линия,
+   * которая и измеряется. minTop — самая верхняя из подписей звеньев.
+   */
+  const widthMeasure = (pts: readonly Pt[], widthM: number, minTop: number): void => {
+    const first = proj.toImage(pts[0])
+    const last = proj.toImage(pts[pts.length - 1])
+    if (!first || !last) return
+    const f = toPx(first, size)
+    const l = toPx(last, size)
+    const c = { x: (f.x + l.x) / 2, y: Math.min(f.y, l.y, minTop) }
+    const lift = pts.length >= 3 ? labelFont * 1.75 : labelFont * 0.7
+    out.labels.push(labelAt('width', formatLineWidth(widthM), c, labelFont * 1.05, measure, lift))
+    if (pts.length >= 3) {
+      const thin = w * 0.35
+      for (const piece of dashSegments(pts[0], pts[pts.length - 1], thin * 6, thin * 4)) {
+        const r = ribbon(piece[0], piece[1], thin / 2)
+        if (r.length > 0) pushBody(r)
+      }
+    }
+  }
 
   if (a.type === 'pspot') {
     const rim = (a.style.width * WORLD_WIDTH_FACTOR.ring * 0.7) / 2
@@ -378,42 +417,44 @@ export function paintPitchTool(
         out.fillOpacity = a.fillOpacity
       }
     }
-    const line = closed ? [...pts, pts[0]] : pts
-    strokeWorld(line, a.style.dash)
+    // Как у зоны: у точек замыкание делает сама раскладка, у лент — лишняя вершина в конце.
+    const stroked = closed && a.style.dash !== 'dotted' ? [...pts, pts[0]] : pts
+    strokeWorld(stroked, a.style.dash, closed)
     if (a.glow === true) {
       out.core = []
-      strokeWorld(line, a.style.dash, false, 1, hw * LINE_CORE_SCALE, out.core)
+      strokeWorld(stroked, a.style.dash, closed, 1, hw * LINE_CORE_SCALE, out.core)
     }
-    if (a.style.dash === 'dotted' || a.glow === true) wholeStroke(closed ? pts : line, closed)
+    if (a.style.dash === 'dotted' || a.glow === true) wholeStroke(pts, closed)
     strokeEnd = out.body.length
     if (a.glow === true) {
       out.glowPx = bandWidthPx(whole) * LINE_GLOW_REACH
       out.glowBoost = LINE_GLOW_BOOST
     }
     if (a.rings) {
-      // Кольца вокруг ног: тонкие, на траве (в перспективе — эллипсы).
-      const half = (hw * LINK_RING_STROKE) / 2 + 0.0001
+      // Кольца вокруг ног: обводка в LINK_RING_STROKE раз толще линии (как на экране), слабое свечение — своё.
+      const half = hw * LINK_RING_STROKE
+      const rings: PxPt[][] = []
       for (const p of pts) {
-        const ring = (r: number): Pt[] =>
-          Array.from({ length: NODE_ANGLES * 2 }, (_, i) =>
-            onCircle(p, r, (i * 2 * Math.PI) / (NODE_ANGLES * 2))
-          )
-        const outer = proj.projectPolygon(ccw(ring(LINK_RING_RADIUS_M + half)))
-        const inner = proj.projectPolygon([...ccw(ring(LINK_RING_RADIUS_M - half))].reverse())
-        if (outer.length >= 3) out.body.push(px(outer))
-        if (outer.length >= 3 && inner.length >= 3) out.body.push(px(inner))
+        groundRing(
+          p,
+          LINK_RING_RADIUS_M + half,
+          Math.max(LINK_RING_RADIUS_M - half, 0.01),
+          rings,
+          NODE_ANGLES * 2
+        )
+      }
+      if (rings.length > 0) {
+        out.rings = rings
+        out.ringGlowPx = bandWidthPx(rings)
       }
     }
     if (a.labels) {
-      const measured = measureChain(closed ? [...pts, pts[0]] : pts)
-      const count = measured.segments.length
+      const line = closed ? [...pts, pts[0]] : pts
+      const measured = measureChain(line)
       let minTop = Infinity
-      for (let i = 0; i < count; i += 1) {
-        const p0 = line[i]
-        const p1 = line[i + 1]
-        const mid = proj.toImage({ x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 })
-        if (!mid) continue
-        const m = toPx(mid, size)
+      for (let i = 0; i < measured.segments.length; i += 1) {
+        const m = midPx(line[i], line[i + 1])
+        if (!m) continue
         minTop = Math.min(minTop, m.y)
         out.labels.push(
           labelAt(
@@ -426,33 +467,9 @@ export function paintPitchTool(
           )
         )
       }
-      if (!closed && pts.length >= 3) {
-        const first = proj.toImage(pts[0])
-        const last = proj.toImage(pts[pts.length - 1])
-        if (first && last) {
-          const f = toPx(first, size)
-          const l = toPx(last, size)
-          const c = { x: (f.x + l.x) / 2, y: Math.min(f.y, l.y, minTop) }
-          out.labels.push(
-            labelAt(
-              'width',
-              formatLineWidth(measured.width),
-              c,
-              labelFont * 1.05,
-              measure,
-              labelFont * 1.75
-            )
-          )
-          // Тонкая пунктирная линия между крайними игроками: то, что измеряет «Ширина линии».
-          const thin = w * 0.35
-          for (const piece of dashSegments(pts[0], pts[pts.length - 1], thin * 6, thin * 4)) {
-            const r = ribbon(piece[0], piece[1], thin / 2)
-            if (r.length > 0) pushBody(r)
-          }
-        }
-      }
+      if (!closed && pts.length >= 3) widthMeasure(pts, measured.width, minTop)
     }
-    out.hit = [...out.fills, ...hitBody()]
+    out.hit = [...out.fills, ...hitBody(), ...(out.rings ?? [])]
     pts.forEach((p, i) => handle(`v${i}`, p))
   } else {
     // pchain
@@ -468,28 +485,13 @@ export function paintPitchTool(
     if (a.style.dash === 'dotted') wholeStroke(pts)
     strokeEnd = out.body.length
     // Узлы — кольца на траве вокруг ног игроков (в перспективе — эллипсы).
-    for (const p of pts) {
-      const ring = (r: number): Pt[] =>
-        Array.from({ length: NODE_ANGLES }, (_, i) =>
-          onCircle(p, r, (i * 2 * Math.PI) / NODE_ANGLES)
-        )
-      const outer = proj.projectPolygon(ccw(ring(NODE_RADIUS_M)))
-      const inner = proj.projectPolygon([...ccw(ring(NODE_INNER_M))].reverse())
-      if (outer.length >= 3) out.body.push(px(outer))
-      if (outer.length >= 3 && inner.length >= 3) out.body.push(px(inner))
-    }
+    for (const p of pts) groundRing(p, NODE_RADIUS_M, NODE_INNER_M)
     const measured = measureChain(pts)
     if (a.labels && pts.length >= 2) {
       let minTop = Infinity
-      const mids: PxPt[] = []
       for (let i = 1; i < pts.length; i += 1) {
-        const mid = proj.toImage({
-          x: (pts[i].x + pts[i - 1].x) / 2,
-          y: (pts[i].y + pts[i - 1].y) / 2
-        })
-        if (!mid) continue
-        const m = toPx(mid, size)
-        mids.push(m)
+        const m = midPx(pts[i - 1], pts[i])
+        if (!m) continue
         minTop = Math.min(minTop, m.y)
         if (pts.length >= 3) {
           out.labels.push(
@@ -504,25 +506,7 @@ export function paintPitchTool(
           )
         }
       }
-      const first = proj.toImage(pts[0])
-      const last = proj.toImage(pts[pts.length - 1])
-      if (first && last) {
-        const f = toPx(first, size)
-        const l = toPx(last, size)
-        const c = { x: (f.x + l.x) / 2, y: Math.min(f.y, l.y, minTop) }
-        const lift = pts.length >= 3 ? labelFont * 1.75 : labelFont * 0.7
-        out.labels.push(
-          labelAt('width', formatLineWidth(measured.width), c, labelFont * 1.05, measure, lift)
-        )
-        if (pts.length >= 3) {
-          // Тонкая пунктирная линия между крайними игроками: то, что измеряет «Ширина линии».
-          const thin = w * 0.35
-          for (const piece of dashSegments(pts[0], pts[pts.length - 1], thin * 6, thin * 4)) {
-            const r = ribbon(piece[0], piece[1], thin / 2)
-            if (r.length > 0) pushBody(r)
-          }
-        }
-      }
+      widthMeasure(pts, measured.width, minTop)
     }
     out.hit = [...out.fills, ...hitBody()]
     pts.forEach((p, i) => handle(`v${i}`, p))
@@ -541,6 +525,7 @@ export function paintPitchTool(
     out.body.length > 0 ||
     out.disc.length > 0 ||
     out.fills.length > 0 ||
+    (out.rings?.length ?? 0) > 0 ||
     out.lit.length > 0 ||
     out.labels.length > 0
   return out

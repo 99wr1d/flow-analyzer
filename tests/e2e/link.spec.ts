@@ -6,7 +6,7 @@ import { mkdirSync, readdirSync } from 'fs'
 import { join } from 'path'
 import { frameRgb, pixelAt } from '../../src/main/ffmpeg/ffmpeg.testkit'
 import { SHOTS, SUFFIX, fixture, launch, makeUserData, seekVideo, stubDialog } from './helpers'
-import { calibrate, openPitch, project, saveCalibration } from './pitchHelpers'
+import { calibrate, openPitch, project, saveCalibration, truth } from './pitchHelpers'
 import { createProject } from './startHelpers'
 import {
   clickAt,
@@ -286,9 +286,6 @@ test.describe('связка на поле', () => {
   })
 })
 
-const W = 640
-const H = 360
-
 function makeOutDir(): string {
   const dir = join(makeUserData(), 'out')
   mkdirSync(dir)
@@ -297,65 +294,174 @@ function makeOutDir(): string {
 
 const luma = ([r, g, b]: [number, number, number]): number => 0.299 * r + 0.587 * g + 0.114 * b
 
+/** Экспорт «Всё видео целиком» с рисунками; возвращает путь к файлу. */
+async function exportWhole(app: ElectronApplication, win: Page): Promise<string> {
+  const out = makeOutDir()
+  await stubDialog(app, out)
+  await win.getByTestId('export-open').click()
+  await expect(win.getByTestId('export-scope-whole')).toBeChecked()
+  await win.getByTestId('export-start').click()
+  await expect(win.getByTestId('export-result')).toBeVisible({ timeout: 90_000 })
+  await expect(win.getByTestId('export-result')).toHaveAttribute('data-status', 'done')
+  return join(out, readdirSync(out)[0])
+}
+
+/** Средняя яркость окна (2r+1)² вокруг точки кадра (доли кадра): один пиксель после кодека шумит. */
+function windowLuma(frame: Buffer, w: number, h: number, [fx, fy]: Frac, r = 1): number {
+  let sum = 0
+  let n = 0
+  for (let dy = -r; dy <= r; dy += 1) {
+    for (let dx = -r; dx <= r; dx += 1) {
+      sum += luma(pixelAt(frame, w, Math.round(fx * w) + dx, Math.round(fy * h) + dy))
+      n += 1
+    }
+  }
+  return sum / n
+}
+
+const TRI_EXPORT: Frac[] = [
+  [0.1, 0.88],
+  [0.4, 0.88],
+  [0.25, 0.6]
+]
+
 test.describe('экспорт связки', () => {
   test('экран = экспорт: линия, кольцо у ног и заливка попадают в кадр видео там же, где на экране', async () => {
     const ctx = await launch()
     const { app, win } = ctx
     try {
+      const W = 640
+      const H = 360
       await screenProject(ctx)
       await win.keyboard.press('k')
       await win.getByTestId('link-area').click()
       // С 0.16.4 новые рисунки лежат под игроками; на этом видео газона нет — кладём поверх, чтобы пиксели не прятались.
       await win.getByTestId('under-toggle').click()
       await win.getByTestId('width-2').click()
-      const tri: Frac[] = [
-        [0.1, 0.88],
-        [0.4, 0.88],
-        [0.25, 0.6]
-      ]
-      for (const p of tri) await clickAt(win, p)
+      for (const p of TRI_EXPORT) await clickAt(win, p)
       await win.keyboard.press('Enter')
       await win.keyboard.press('v')
       await win.keyboard.press('Escape')
       await seekVideo(win, 1.5)
       await win.waitForTimeout(300)
-      const out = makeOutDir()
-      await stubDialog(app, out)
-      await win.getByTestId('export-open').click()
-      await expect(win.getByTestId('export-scope-whole')).toBeChecked()
-      await win.getByTestId('export-start').click()
-      await expect(win.getByTestId('export-result')).toBeVisible({ timeout: 90_000 })
-      await expect(win.getByTestId('export-result')).toHaveAttribute('data-status', 'done')
-      const file = join(out, readdirSync(out)[0])
+      const file = await exportWhole(app, win)
       const index = 38
       const rgb = frameRgb(file, index, W, H)
       const src = frameRgb(fixture('cfr25.mp4'), index, W, H)
-      const at = (frame: Buffer, fx: number, fy: number): [number, number, number] =>
-        pixelAt(frame, W, Math.round(fx * W), Math.round(fy * H))
+      const w3 = (frame: Buffer, p: Frac, r = 1): number => windowLuma(frame, W, H, p, r)
       // Середина нижнего звена — белая линия.
-      const onLine = at(rgb, 0.25, 0.88)
+      const line: Frac = [0.25, 0.88]
       console.log(
         'Экспорт связки: линия',
-        onLine.join(','),
+        w3(rgb, line).toFixed(0),
         'исходник',
-        at(src, 0.25, 0.88).join(',')
+        w3(src, line).toFixed(0)
       )
-      expect(luma(onLine)).toBeGreaterThan(150)
+      expect(w3(rgb, line)).toBeGreaterThan(w3(src, line) + 25)
       // Заливка внутри треугольника светлее исходного кадра.
-      const inside = at(rgb, 0.25, 0.78)
-      const insideSrc = at(src, 0.25, 0.78)
-      console.log('Экспорт связки: заливка', inside.join(','), 'исходник', insideSrc.join(','))
-      expect(luma(inside)).toBeGreaterThan(luma(insideSrc) + 3)
-      // Кольцо у ноги: на боковой границе эллипса (rx = 0.015·H) светлее, чем в стороне от связки.
+      const inside: Frac = [0.25, 0.78]
+      expect(w3(rgb, inside, 3)).toBeGreaterThan(w3(src, inside, 3) + 3)
+      // Кольцо у ноги: на боковой границе эллипса (rx = 0.015·H) светлее исходника.
       const rx = (0.015 * H) / W
-      const ring = at(rgb, 0.1 - rx, 0.88)
+      const ring: Frac = [0.1 - rx, 0.88]
+      expect(w3(rgb, ring)).toBeGreaterThan(w3(src, ring) + 20)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('под игроками по умолчанию на газоне: связка попадает в кадр экспорта (слой «под игроками»)', async () => {
+    const ctx = await launch()
+    const { app, win } = ctx
+    try {
+      await openPitch(ctx)
+      const PW = truth.frame.w
+      const PH = truth.frame.h
+      await win.keyboard.press('k')
+      await win.getByTestId('link-area').click()
+      await win.getByTestId('width-2').click()
+      const tri: Frac[] = [
+        [0.3, 0.7],
+        [0.6, 0.7],
+        [0.45, 0.5]
+      ]
+      for (const p of tri) await clickAt(win, p)
+      await win.keyboard.press('Enter')
+      // Умолчание: под игроками.
+      await expect(shapes(win, 'link')).toHaveAttribute('data-under', 'true')
+      await win.keyboard.press('v')
+      await win.keyboard.press('Escape')
+      await seekVideo(win, 1.2)
+      await win.waitForTimeout(400)
+      const file = await exportWhole(app, win)
+      const index = 30
+      const rgb = frameRgb(file, index, PW, PH)
+      const src = frameRgb(fixture('pitch.mp4'), index, PW, PH)
+      const w3 = (frame: Buffer, p: Frac, r = 1): number => windowLuma(frame, PW, PH, p, r)
+      const line: Frac = [0.45, 0.7]
       console.log(
-        'Экспорт связки: кольцо',
-        ring.join(','),
+        'Экспорт связки под игроками: линия',
+        w3(rgb, line).toFixed(0),
         'исходник',
-        at(src, 0.1 - rx, 0.88).join(',')
+        w3(src, line).toFixed(0)
       )
-      expect(luma(ring)).toBeGreaterThan(luma(at(src, 0.1 - rx, 0.88)) + 20)
+      expect(w3(rgb, line)).toBeGreaterThan(w3(src, line) + 25)
+      const inside: Frac = [0.45, 0.62]
+      expect(w3(rgb, inside, 3)).toBeGreaterThan(w3(src, inside, 3) + 2)
+    } finally {
+      await app.close()
+    }
+  })
+
+  test('точки + свечение: пунктир с промежутками, у колец слабое своё свечение', async () => {
+    const ctx = await launch()
+    const { app, win } = ctx
+    try {
+      const W = 640
+      const H = 360
+      await screenProject(ctx)
+      await win.keyboard.press('k')
+      await win.getByTestId('under-toggle').click()
+      await win.getByTestId('width-2').click()
+      await win.getByTestId('dash-dotted').click()
+      await win.getByTestId('glow-toggle').click()
+      const a: Frac = [0.08, 0.88]
+      const b: Frac = [0.52, 0.88]
+      await clickAt(win, a)
+      await clickAt(win, b)
+      await win.keyboard.press('Enter')
+      await expect(shapes(win, 'link')).toHaveAttribute('data-glow', 'true')
+      await win.keyboard.press('v')
+      await win.keyboard.press('Escape')
+      await seekVideo(win, 1.5)
+      await win.waitForTimeout(300)
+      const file = await exportWhole(app, win)
+      const index = 38
+      const rgb = frameRgb(file, index, W, H)
+      const src = frameRgb(fixture('cfr25.mp4'), index, W, H)
+      // Вдоль звена между кольцами: есть яркие точки и тёмные промежутки.
+      const diffs: number[] = []
+      for (let i = 0; i < 80; i += 1) {
+        const p: Frac = [a[0] + 0.05 + ((b[0] - a[0] - 0.1) * i) / 79, a[1]]
+        diffs.push(windowLuma(rgb, W, H, p, 0) - windowLuma(src, W, H, p, 0))
+      }
+      console.log(
+        'Экспорт связки: пунктир, ярких',
+        diffs.filter((d) => d > 40).length,
+        'тёмных',
+        diffs.filter((d) => d < 12).length
+      )
+      expect(diffs.filter((d) => d > 40).length).toBeGreaterThan(8)
+      expect(diffs.filter((d) => d < 12).length).toBeGreaterThan(8)
+      // Слабое свечение у кольца: чуть снаружи обводки светлее исходника, но слабее самой обводки.
+      const rx = (0.015 * H) / W
+      const outside: Frac = [a[0] - rx - 0.006, a[1]]
+      const stroke: Frac = [a[0] - rx, a[1]]
+      const glow = windowLuma(rgb, W, H, outside, 0) - windowLuma(src, W, H, outside, 0)
+      const core = windowLuma(rgb, W, H, stroke, 0) - windowLuma(src, W, H, stroke, 0)
+      console.log('Экспорт связки: свечение кольца', glow.toFixed(1), 'обводка', core.toFixed(1))
+      expect(glow).toBeGreaterThan(2)
+      expect(glow).toBeLessThan(core)
     } finally {
       await app.close()
     }
