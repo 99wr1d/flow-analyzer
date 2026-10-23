@@ -10,6 +10,7 @@
 import type { JSX } from 'react'
 import { PITCH_VIEW_IDS, type PitchViewId } from '../../../../../shared/board/ids'
 import { BOARD_H, BOARD_W } from './constants'
+import { FIGURE_ART_HEIGHT } from './figureArt'
 
 export interface PitchView {
   id: PitchViewId
@@ -36,7 +37,6 @@ const NET_BOTTOM_D = 2
 const CORNER_R = 1
 
 /** Рост стоящей фигуры в её рисунке (ступни в 0, макушка ≈ −200) и рост человека, м. */
-const FIGURE_ART_HEIGHT = 200
 const PERSON_M = 1.85
 /** Во сколько раз фигура крупнее натуры (чтобы читалась с нескольких метров): свой у каждого вида. */
 const MIN_SCALE = 0.2
