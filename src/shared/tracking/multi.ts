@@ -202,7 +202,14 @@ export class MultiTracker {
     this.trackers[target].resolve(det)
     this.chains[target] = null
     this.recoveredAt[target] = null
-    this.ghosts = this.ghosts.filter((g) => g.suspectOf !== target)
+    // Ответ снимает подозрение, но не забывает соседей: подозреваемые цели остаются обычными безымянными следами
+    // (иначе на следующем кадре, если её рамка пропадёт, сосед рядом прошёл бы молча — ответ обнуляет скорость Калмана).
+    // След, сидевший на выбранной рамке (по месту, без допуска давности), — это сама цель: он удаляется.
+    const norm = Math.max(det.box.h, MIN_NORM_HEIGHT)
+    this.ghosts = this.ghosts.filter(
+      (g) => !this.ghostPlaces(g).some((p) => apart(det.box, p.b, norm) <= CHAIN_MAX_SHIFT / 2)
+    )
+    for (const g of this.ghosts) if (g.suspectOf === target) g.suspectOf = undefined
     this.slots[target] = { kind: 'user', box: { ...det.box } }
     return this.settle()
   }
@@ -810,7 +817,10 @@ export class MultiTracker {
       if (missed === 0 && (since === null || f - since > this.lostFrames)) continue
       const fresh = kinNear.filter((d) => !explained(d) && !othersUnknown(d))
       if (fresh.length === 0) continue
-      if (missed > 0) {
+      // Цель уже недавно возвращалась без доказательства: её прогноз мог уйти за чужим — новый игрок рядом может быть её,
+      // где бы он ни был относительно прогноза (вопрос с обоими ниже).
+      const probation = since !== null && f - since <= this.lostFrames
+      if (missed > 0 && !probation) {
         // Новый игрок дальше разброса прогноза цели её игроком быть не может: сомнения нет (он станет обычным безымянным).
         const reach = this.newcomerReach(i, norm)
         if (!fresh.some((d) => apart(d.box, this.preds[i], norm) <= reach)) continue
