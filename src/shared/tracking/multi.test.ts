@@ -38,6 +38,9 @@ const frame = (index: number, detections: Detection[]): FrameInput => ({
   frameHist: WHITE_FRAME
 })
 
+const lookMix = (a: Float32Array, b: Float32Array, k: number): Float32Array =>
+  a.map((v, i) => v * (1 - k) + b[i] * k) as Float32Array
+
 const cx = (b: Box): number => b.x + b.w / 2
 const cy = (b: Box): number => b.y + b.h / 2
 
@@ -103,44 +106,40 @@ describe('MultiTracker', () => {
         expect(Math.abs(cy(b) - cy(truth[i](f).box))).toBeLessThan(20)
       })
     }
-    expect(asks).toBeGreaterThanOrEqual(0)
+    // Прямой проход насквозь: уверенно ведёт каждая своего, вопросов нет.
+    expect(asks).toBe(0)
   })
 
-  it('две цели на одной рамке: вопрос по одной из целей, а не молчаливый общий выбор', () => {
+  it('две цели на одной рамке: одна цель ждёт (прогноз), общую рамку не делят', () => {
     // Два одинаковых игрока рядом; затем виден один и тот же человек посередине, у обоих в воротах.
-    const a = det(200, 270, RED)
-    const b = det(250, 270, RED)
-    const m = new MultiTracker([{ det: a }, { det: b }], FPS, FRAME)
-    const mid = det(225, 270, RED)
-    const far = det(330, 270, RED)
-    const r = m.step(frame(1, [mid, far]))
-    expect(r.kind).toBe('ask')
-    if (r.kind !== 'ask') return
-    expect([0, 1]).toContain(r.target)
-    // Вариант — та самая спорная рамка и другие рядом.
-    expect(r.candidates).toContain(mid)
-    expect(r.candidates).toContain(far)
-    // Выбрана другая рамка: общая рамка остаётся у второй цели, рамок больше не делят.
-    const next = m.resolve(r.target, far)
-    expect(next.kind).toBe('track')
-    if (next.kind !== 'track') return
-    expect(next.boxes[r.target]).toEqual(far.box)
-    expect(next.boxes[1 - r.target]).toEqual(mid.box)
-  })
-
-  it('две цели на одной рамке, выбрана общая: вторая цель не получает её, остановка всех', () => {
     const m = new MultiTracker(
       [{ det: det(200, 270, RED) }, { det: det(250, 270, RED) }],
       FPS,
       FRAME
     )
     const mid = det(225, 270, RED)
-    const r = m.step(frame(1, [mid]))
-    expect(r.kind).toBe('ask')
-    if (r.kind !== 'ask') return
-    const next = m.resolve(r.target, mid)
-    // Рамка уже закреплена за выбранной целью; второй предложить нечего — стоп с номером второй цели.
-    expect(next).toEqual({ kind: 'lost', target: 1 - r.target, reason: 'occluded' })
+    const r = m.step(frame(1, [mid, det(330, 270, RED)]))
+    expect(r.kind).toBe('track')
+    if (r.kind !== 'track') return
+    // рамку mid держит ровно одна цель (старший номер уступает при равенстве), вторая едет по прогнозу
+    expect(r.coasting).toEqual([false, true])
+    expect(r.boxes[0]).toEqual(mid.box)
+  })
+
+  it('две цели на одной рамке надолго: ждущая цель теряется (стоп всех с её номером), рамка остаётся первой', () => {
+    const m = new MultiTracker(
+      [{ det: det(200, 270, RED) }, { det: det(250, 270, RED) }],
+      FPS,
+      FRAME
+    )
+    const mid = det(225, 270, RED)
+    let last: MultiStep | null = null
+    for (let f = 1; f < 60; f += 1) {
+      last = m.step(frame(f, [mid]))
+      if (last.kind === 'lost') break
+      expect(last.kind).toBe('track')
+    }
+    expect(last).toEqual({ kind: 'lost', target: 1, reason: 'occluded' })
   })
 
   it('потеря одной цели: стоп всех с номером потерянной', () => {
@@ -215,5 +214,164 @@ describe('MultiTracker', () => {
     const boxes = m.predictBoxes(1)
     expect(boxes).toHaveLength(2)
     expect(cx(boxes[1])).toBeGreaterThan(cx(boxes[0]))
+  })
+})
+
+/** Результат прогона двух целей: вопросы, подмены (уверенная рамка ближе к чужому игроку), остановка. */
+interface TwoRun {
+  asks: number
+  swaps: number
+  coastFrames: number
+  lost: MultiStep | null
+}
+
+function runTwo(
+  xs: [(f: number) => number, (f: number) => number],
+  ys: [number, number],
+  looks: [Float32Array, Float32Array],
+  opts: { merge?: boolean; frames?: number } = {}
+): TwoRun {
+  const mk = (f: number): Detection[] => [
+    det(xs[0](f), ys[0], looks[0]),
+    det(xs[1](f), ys[1], looks[1])
+  ]
+  const m = new MultiTracker(
+    mk(0).map((d) => ({ det: d })),
+    FPS,
+    FRAME
+  )
+  const out: TwoRun = { asks: 0, swaps: 0, coastFrames: 0, lost: null }
+  for (let f = 1; f < (opts.frames ?? 120); f += 1) {
+    const px = [xs[0](f), xs[1](f)]
+    let dets = mk(f)
+    // детектор отдаёт одну общую рамку, когда игроки почти совпали
+    if (opts.merge && Math.abs(px[0] - px[1]) < 20) {
+      dets = [det((px[0] + px[1]) / 2, (ys[0] + ys[1]) / 2, looks[0])]
+    }
+    let r: MultiStep = m.step(frame(f, dets))
+    while (r.kind === 'ask') {
+      out.asks += 1
+      const want = px[r.target]
+      // Отвечаем верно: рамка, ближайшая к настоящему положению цели.
+      const pick = r.candidates.reduce((a, b) =>
+        Math.abs(cx(a.box) - want) < Math.abs(cx(b.box) - want) ? a : b
+      )
+      r = m.resolve(r.target, pick)
+    }
+    if (r.kind === 'lost') {
+      out.lost = r
+      break
+    }
+    const res = r
+    res.boxes.forEach((b, i) => {
+      if (res.coasting[i]) {
+        out.coastFrames += 1
+        return
+      }
+      const own = Math.abs(cx(b) - px[i])
+      const other = Math.abs(cx(b) - px[1 - i])
+      if (other + 1 < own) out.swaps += 1
+    })
+  }
+  return out
+}
+
+describe('MultiTracker: отскок, близкий проход, скорость (правки ревью)', () => {
+  const M = 40
+  const bounce = (v: number): [(f: number) => number, (f: number) => number] => [
+    (f) => 200 + v * Math.min(f, M) - v * Math.max(0, f - M),
+    (f) => 200 + 2 * v * M - v * Math.min(f, M) + v * Math.max(0, f - M)
+  ]
+  const pass = (v: number): [(f: number) => number, (f: number) => number] => [
+    (f) => 200 + v * f,
+    (f) => 200 + 2 * v * M - v * f
+  ]
+
+  for (const merge of [false, true]) {
+    for (const v of [3, 5, 8]) {
+      for (const dy of [0, 10, 30]) {
+        it(`одинаковые майки, отскок v=${v} dy=${dy} merge=${merge}: молчаливого обмена нет`, () => {
+          const r = runTwo(bounce(v), [270, 270 + dy], [RED, RED], { merge })
+          expect(r.swaps).toBe(0)
+          // при совпадении боксов (dy=0) дольше секунды допустима остановка, но не обмен
+          if (dy > 0) expect(r.lost).toBeNull()
+        })
+      }
+    }
+  }
+
+  it('одна цель остановилась и вернулась, вторая прошла насквозь: обмена нет', () => {
+    for (const v of [3, 5]) {
+      for (const dy of [0, 10]) {
+        const a = (f: number): number => 200 + v * Math.min(f, M) - v * Math.max(0, f - M - 5)
+        const b = (f: number): number => 200 + 2 * v * M - v * f
+        const r = runTwo([a, b], [270, 270 + dy], [RED, RED])
+        expect(r.swaps).toBe(0)
+        // перекрытие длится дольше секунды: остановка (lost) безопасна, обмен недопустим
+      }
+    }
+  })
+
+  for (const v of [2, 5]) {
+    for (const dy of [10, 30, 45]) {
+      it(`одинаковые майки, проход насквозь v=${v} dy=${dy}: без вопросов, остановки и обмена`, () => {
+        const r = runTwo(pass(v), [270, 270 + dy], [RED, RED])
+        expect(r.asks).toBe(0)
+        expect(r.lost).toBeNull()
+        expect(r.swaps).toBe(0)
+      })
+    }
+  }
+
+  for (const lk of ['RED', 'BLUE']) {
+    for (const v of [2, 5]) {
+      it(`близкий проход (dx около 20, dy=10) ${lk} v=${v}: без вопросов и остановки`, () => {
+        const r = runTwo(pass(v), [270, 280], [RED, lk === 'RED' ? RED : BLUE])
+        expect(r.asks).toBe(0)
+        expect(r.lost).toBeNull()
+        expect(r.swaps).toBe(0)
+      })
+    }
+  }
+
+  it('разные рамки с IoU 0,29 (dx=20, dy=10) не считаются одним человеком', () => {
+    const m = new MultiTracker(
+      [{ det: det(200, 270, RED) }, { det: det(260, 280, BLUE) }],
+      FPS,
+      FRAME
+    )
+    const r = m.step(frame(1, [det(210, 270, RED), det(230, 280, BLUE)]))
+    expect(r.kind).toBe('track')
+  })
+
+  it('товарищ полностью закрыл цель одной общей рамкой: цель ждёт, а не останавливает связку', () => {
+    // Цель 1 (синяя) на 3 кадра скрыта за целью 0 (красной): детектор видит одну рамку.
+    const a = det(200, 270, RED)
+    const m = new MultiTracker([{ det: a }, { det: det(235, 270, BLUE) }], FPS, FRAME)
+    let sawCoast = false
+    for (let f = 1; f < 40; f += 1) {
+      const hidden = f >= 10 && f < 13
+      const dets = hidden ? [det(200, 270, RED)] : [det(200, 270, RED), det(235, 270, BLUE)]
+      const r = m.step(frame(f, dets))
+      expect(r.kind).toBe('track')
+      if (r.kind !== 'track') return
+      if (r.coasting[1]) sawCoast = true
+      if (f >= 20) expect(r.coasting).toEqual([false, false])
+    }
+    expect(sawCoast).toBe(true)
+  })
+
+  it('спорная рамка не портит примету: после «ждёт» примета цели прежняя', () => {
+    const near = lookMix(RED, BLUE, 0.15)
+    const m = new MultiTracker(
+      [{ det: det(200, 270, RED) }, { det: det(250, 270, RED) }],
+      FPS,
+      FRAME
+    )
+    const before = Float32Array.from(m.lookOf(1))
+    // только общая рамка с чуть иной приметой: вторая цель её не берёт
+    const r = m.step(frame(1, [det(225, 270, near)]))
+    expect(r.kind).toBe('track')
+    expect(Array.from(m.lookOf(1))).toEqual(Array.from(before))
   })
 })

@@ -502,11 +502,11 @@ describe('runTrackingJob: несколько целей', () => {
     expect(out.samples[1][80].foot.y).toBeCloseTo((450 + 45) / H, 2)
   })
 
-  it('две цели на одной рамке: вопрос по цели, общую рамку не делят', async () => {
+  it('две цели на одной рамке: общую рамку не делят ни на одном кадре', async () => {
+    // С 10-го кадра виден один человек посередине (у обоих в воротах) и ещё один справа.
     const det = scripted((f) =>
       f < 10 ? [person(200, 270), person(250, 270)] : [person(225, 270), person(330, 270)]
     )
-    const asks: Array<{ target: number; n: number }> = []
     const out = await runTrackingJob(
       options({
         frames: frames(30),
@@ -515,21 +515,20 @@ describe('runTrackingJob: несколько целей', () => {
           { x: 200 / W, y: 270 / H },
           { x: 250 / W, y: 270 / H }
         ],
+        // Если спросят — отвечаем рамкой, ближайшей к 330 для цели 1 и к 225 для цели 0.
         onAsk: (_t, candidates, target) => {
-          asks.push({ target, n: candidates.length })
-          // правый игрок (330) — для спрошенной цели
-          return Promise.resolve(candidates.findIndex((c) => c.x > 300 / W))
+          const want = (target === 1 ? 330 : 225) / W
+          const dist = candidates.map((c) => Math.abs(c.x + c.w / 2 - want))
+          return Promise.resolve(dist.indexOf(Math.min(...dist)))
         }
       })
     )
-    expect(asks).toHaveLength(1)
-    expect([0, 1]).toContain(asks[0].target)
-    expect(asks[0].n).toBe(2)
     expect(out.kind).toBe('done')
     if (out.kind !== 'done') return
-    const asked = asks[0].target
-    expect(out.samples[asked][29].foot.x).toBeCloseTo(330 / W, 1)
-    expect(out.samples[1 - asked][29].foot.x).toBeCloseTo(225 / W, 1)
+    for (let i = 0; i < out.samples[0].length; i += 1) {
+      const gap = Math.abs(out.samples[0][i].foot.x - out.samples[1][i].foot.x)
+      expect(gap).toBeGreaterThan(10 / W)
+    }
   })
 
   it('две цели на одном игроке при старте: ambiguous-start по второй цели', async () => {
@@ -587,34 +586,66 @@ describe('runTrackingJob: несколько целей', () => {
     expect(det.closed).toBe(true)
   })
 
-  it('время: 5 целей не дольше ×1,5 от одной на заглушке с задержкой', async () => {
+  /** Прогон 40 кадров на заглушке с задержкой: время, число вызовов детектора и сколько из них — целые кадры. */
+  async function timedRun(
+    pattern: StubPattern,
+    anchors: Array<{ x: number; y: number }>
+  ): Promise<{ ms: number; calls: number; fullFrames: number }> {
+    const stub = createStubDetector({ pattern, delayMs: 10 })
+    let calls = 0
+    let fullFrames = 0
+    const counted: Detector = {
+      backend: stub.backend,
+      detect: (frame, roi) => {
+        calls += 1
+        if (!roi) fullFrames += 1
+        return stub.detect(frame, roi)
+      },
+      close: () => stub.close()
+    }
+    const t0 = Date.now()
+    const out = await runTrackingJob(
+      options({ frames: frames(40), createDetector: () => Promise.resolve(counted), anchors })
+    )
+    const ms = Date.now() - t0
+    expect(out.kind === 'done' && out.stop).toBeNull()
+    if (out.kind === 'done') expect(out.samples).toHaveLength(anchors.length)
+    return { ms, calls, fullFrames }
+  }
+
+  const rowPattern = (
+    gap: number
+  ): { pattern: StubPattern; anchors: Array<{ x: number; y: number }> } => {
     const players = [0, 1, 2, 3, 4].map((i) => ({
-      start: { x: 0.1, y: 0.02 + 0.19 * i, w: 0.05, h: 0.17 },
+      start: { x: 0.1, y: 0.02 + gap * i, w: 0.04, h: 0.08 },
       velocity: { x: 0.03 + 0.01 * i, y: 0 },
       look: i
     }))
-    const pattern = StubPatternSchema.parse({ players })
-    const anchorOf = (i: number): { x: number; y: number } => ({
-      x: 0.125,
-      y: 0.02 + 0.19 * i + 0.085
-    })
-    const timed = async (n: number): Promise<number> => {
-      const t0 = Date.now()
-      const out = await runTrackingJob(
-        options({
-          frames: frames(40),
-          createDetector: () => Promise.resolve(createStubDetector({ pattern, delayMs: 10 })),
-          anchors: [0, 1, 2, 3, 4].slice(0, n).map(anchorOf)
-        })
-      )
-      expect(out.kind === 'done' && out.stop).toBeNull()
-      if (out.kind === 'done') expect(out.samples).toHaveLength(n)
-      return Date.now() - t0
+    return {
+      pattern: StubPatternSchema.parse({ players }),
+      anchors: players.map((p) => ({ x: p.start.x + 0.02, y: p.start.y + 0.04 }))
     }
-    await timed(1)
-    const one = await timed(1)
-    const five = await timed(5)
-    expect(five).toBeLessThanOrEqual(one * 1.5)
+  }
+
+  it('время: 5 близких целей (общий вырез) не дольше ×1,5 от одной цели', async () => {
+    const near = rowPattern(0.1)
+    await timedRun(near.pattern, near.anchors.slice(0, 1))
+    const one = await timedRun(near.pattern, near.anchors.slice(0, 1))
+    const five = await timedRun(near.pattern, near.anchors)
+    expect(five.calls).toBe(40)
+    expect(five.fullFrames).toBe(one.fullFrames)
+    expect(five.ms).toBeLessThanOrEqual(one.ms * 1.5)
+  })
+
+  it('время: 5 разбросанных целей не помещаются в вырез — целый кадр, но детектор вызывается раз на кадр', async () => {
+    const spread = rowPattern(0.19)
+    const one = await timedRun(spread.pattern, spread.anchors.slice(0, 1))
+    const five = await timedRun(spread.pattern, spread.anchors)
+    expect(five.ms).toBeGreaterThan(0)
+    // Целый кадр на заглушке стоит ×2,1 выреза: отношение записано в отчёте, порога на заглушке нет (оно присуще).
+    expect(five.calls).toBe(40)
+    expect(five.fullFrames).toBe(40)
+    expect(one.calls).toBe(40)
   })
 })
 

@@ -104,6 +104,26 @@ interface Cand {
   tall?: boolean
 }
 
+/** Снимок состояния трекера для отката одного шага (см. MultiTracker: спорная рамка). */
+export interface TrackerSnapshot {
+  kx: Kalman1D
+  ky: Kalman1D
+  w: number
+  h: number
+  look: Float32Array
+  dirty: boolean
+  frozen: boolean
+  refW: number
+  refH: number
+  miss: number
+  lastBox: Box
+  lastDets: Detection[]
+  doubtful: Cand[]
+  lastIndex: number | null
+  prevHist: Float32Array | null
+  dead: StepResult | null
+}
+
 export class SingleTracker {
   private kx: Kalman1D
   private ky: Kalman1D
@@ -279,6 +299,52 @@ export class SingleTracker {
       }
     }
     return this.coast(pred)
+  }
+
+  /** Примета игрока (только чтение). */
+  get appearance(): Float32Array {
+    return this.look
+  }
+
+  snapshot(): TrackerSnapshot {
+    return {
+      kx: this.kx.clone(),
+      ky: this.ky.clone(),
+      w: this.w,
+      h: this.h,
+      look: Float32Array.from(this.look),
+      dirty: this.dirty,
+      frozen: this.frozen,
+      refW: this.refW,
+      refH: this.refH,
+      miss: this.miss,
+      lastBox: { ...this.lastBox },
+      lastDets: this.lastDets,
+      doubtful: this.doubtful,
+      lastIndex: this.lastIndex,
+      prevHist: this.prevHist,
+      dead: this.dead
+    }
+  }
+
+  /** Откат к снимку: шаг, сделанный после него, как будто не происходил (в том числе подмешанная примета). */
+  restore(s: TrackerSnapshot): void {
+    this.kx = s.kx.clone()
+    this.ky = s.ky.clone()
+    this.w = s.w
+    this.h = s.h
+    this.look.set(s.look)
+    this.dirty = s.dirty
+    this.frozen = s.frozen
+    this.refW = s.refW
+    this.refH = s.refH
+    this.miss = s.miss
+    this.lastBox = { ...s.lastBox }
+    this.lastDets = s.lastDets
+    this.doubtful = s.doubtful
+    this.lastIndex = s.lastIndex
+    this.prevHist = s.prevHist
+    this.dead = s.dead
   }
 
   /** Где трекер ждёт игрока на кадре index (состояние не меняется): центр выреза для детектора. */

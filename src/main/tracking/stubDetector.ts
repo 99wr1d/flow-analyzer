@@ -78,7 +78,10 @@ export function loadStubPattern(json: string): StubPattern {
 
 export interface StubOptions {
   pattern?: StubPattern
-  /** Пауза на каждый запрос (мс): чтобы тесты успевали отменить расчёт. */
+  /**
+   * Пауза на запрос (мс) для выреза 640×384; на другой размер пропорциональна площади входа сети (стороны кратны 32, как в
+   * prepareInput): целый кадр 960×540 стоит ×2,1 выреза. Так тесты видят цену целого кадра против выреза.
+   */
   delayMs?: number
 }
 
@@ -89,9 +92,13 @@ export function createStubDetector(options: StubOptions = {}): Detector {
 
   const detect = async (frame: DetectorFrame, roi?: Box): Promise<DetectOutput> => {
     if (closed) throw new Error('Детектор закрыт')
-    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
-    if (closed) throw new Error('Детектор закрыт')
     const { width: W, height: H } = frame
+    if (delayMs > 0) {
+      const inW = Math.ceil((roi ? Math.min(CROP_W, W) : W) / 32) * 32
+      const inH = Math.ceil((roi ? Math.min(CROP_H, H) : H) / 32) * 32
+      await new Promise((resolve) => setTimeout(resolve, (delayMs * inW * inH) / (CROP_W * CROP_H)))
+    }
+    if (closed) throw new Error('Детектор закрыт')
     const t = frame.t ?? 0
     const crop = roi
       ? (() => {

@@ -19,6 +19,16 @@ export class Kalman1D {
     this.vv = 25
   }
 
+  /** Независимая копия состояния (для отката шага). */
+  clone(): Kalman1D {
+    const k = new Kalman1D(this.p, this.q, this.r)
+    k.v = this.v
+    k.pp = this.pp
+    k.pv = this.pv
+    k.vv = this.vv
+    return k
+  }
+
   /** Прогноз на dt кадров вперёд. */
   predict(dt = 1): void {
     this.p += this.v * dt
