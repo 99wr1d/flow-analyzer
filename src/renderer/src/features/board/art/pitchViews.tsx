@@ -38,16 +38,13 @@ const CORNER_R = 1
 /** Рост стоящей фигуры в её рисунке (ступни в 0, макушка ≈ −200) и рост человека, м. */
 const FIGURE_ART_HEIGHT = 200
 const PERSON_M = 1.85
-/** Фигуры на доске рисуются крупнее натуры, чтобы их было видно с нескольких метров. */
-const FIGURE_BOOST = 1.5
+/** Во сколько раз фигура крупнее натуры (чтобы читалась с нескольких метров): свой у каждого вида. */
 const MIN_SCALE = 0.2
 const MAX_SCALE = 4
 
 const C = {
   sky: '#24303b',
   standBack: '#2c3844',
-  standRow: '#3c4b59',
-  standRowAlt: '#334150',
   standWall: '#1f2830',
   boards: '#24496b',
   boardsTop: '#3b6a94',
@@ -113,9 +110,9 @@ function perspective(cam: Camera): { project: Project; s: number; c: number } {
  * h / ((y − cy)·c / f + s), так что «точек доски на метр» = (f·s + (y − cy)·c) / h — линейно по y
  * и не зависит от x (камера без крена). У горизонта масштаб плавно упирается в MIN_SCALE.
  */
-function perspectiveScale(cam: Camera): (y: number) => number {
+function perspectiveScale(cam: Camera, boost: number): (y: number) => number {
   const { s, c } = perspective(cam)
-  const k = (PERSON_M * FIGURE_BOOST) / FIGURE_ART_HEIGHT
+  const k = (PERSON_M * boost) / FIGURE_ART_HEIGHT
   const soft = 0.04
   return (yNorm) => {
     const pxPerM = (cam.f * s + (yNorm * BOARD_H - cam.cy) * c) / cam.h
@@ -234,7 +231,7 @@ function halfMarkings(
   d.push(groundSeg(p, SIX_HW, 0, SIX_HW, SIX_D, w))
   d.push(groundSeg(p, -SIX_HW, SIX_D, SIX_HW, SIX_D, w))
   // точка и дуга за штрафной
-  const dot = Math.max(0.22, w * 1.3)
+  const dot = Math.max(0.12, w * 1.1)
   d.push(groundDisc(p, 0, SPOT, dot))
   const arcHalf = (Math.acos((BOX_D - SPOT) / ARC_R) * 180) / Math.PI
   d.push(groundArc(p, 0, SPOT, ARC_R, -arcHalf, arcHalf, w))
@@ -353,32 +350,17 @@ function boardsBehind(p: Project, z: number, xHalf: number): JSX.Element {
   )
 }
 
-/** Трибуна за воротами: стенка и ряды уступами, уходящие вверх и назад. */
+/** Трибуна за воротами — спокойный тёмный фон: стенка и один наклонный массив мест. */
 function standBehind(p: Project, z: number, xHalf: number): JSX.Element {
   const wall = 1.4
-  const rows = 14
-  const rise = 0.55
-  const run = 0.85
-  const tiers: JSX.Element[] = []
-  for (let i = rows - 1; i >= 0; i--) {
-    const y0 = wall + i * rise
-    const z0 = z - i * run
-    tiers.push(
-      <path
-        key={i}
-        d={poly([
-          p(-xHalf, y0, z0),
-          p(xHalf, y0, z0),
-          p(xHalf, y0 + rise, z0 - run),
-          p(-xHalf, y0 + rise, z0 - run)
-        ])}
-        fill={i % 2 === 0 ? C.standRow : C.standRowAlt}
-      />
-    )
-  }
+  const top = 12
+  const back = z - 18
   return (
     <g>
-      {tiers}
+      <path
+        d={poly([p(-xHalf, wall, z), p(xHalf, wall, z), p(xHalf, top, back), p(-xHalf, top, back)])}
+        fill={C.standBack}
+      />
       <path
         d={poly([p(-xHalf, 0, z), p(xHalf, 0, z), p(xHalf, wall, z), p(-xHalf, wall, z)])}
         fill={C.standWall}
@@ -390,22 +372,23 @@ function standBehind(p: Project, z: number, xHalf: number): JSX.Element {
 const sky = <rect x={0} y={0} width={BOARD_W} height={BOARD_H} fill={C.sky} />
 
 // ——— вид 1: из-за линии штрафной лицом к воротам ———
+/** Низко и близко: камера в 16.5 м перед линией штрафной, ворота — около трети ширины. */
 const BOX_FRONT_CAM: Camera = {
   x: 0,
-  h: 29.69,
-  z: 45,
+  h: 7.69,
+  z: 33,
   lookX: 0,
   lookZ: 8,
-  f: 1833.4,
+  f: 2401.3,
   cx: 800,
-  cy: 401
+  cy: 457.1
 }
 
 const boxFront = ((): (() => JSX.Element) => {
   const { project: p } = perspective(BOX_FRONT_CAM)
-  const zMax = 40
+  const zMax = BOX_FRONT_CAM.z - 5
   const st = stripes(p, 60, 0, zMax)
-  const lines = halfMarkings(p, 0.24, zMax, false)
+  const lines = halfMarkings(p, 0.15, zMax, false)
   const runoff = groundQuad(p, -60, -8, 60, zMax)
   const goal = goal3d(p, 0.3)
   const boards = boardsBehind(p, -5, 60)
@@ -428,7 +411,7 @@ const boxFront = ((): (() => JSX.Element) => {
 
 // ——— вид 2: половина поля сверху-сбоку ———
 const HALF_ANGLE_CAM: Camera = fitCamera(
-  { x: -28, h: 62, z: 105, lookX: 0, lookZ: 24 },
+  { x: -18, h: 62, z: 105, lookX: 0, lookZ: 24 },
   [
     [-HALF_W, 0, 0],
     [HALF_W, 0, 0],
@@ -521,12 +504,12 @@ const BUILD: Record<PitchViewId, Omit<PitchView, 'id'>> = {
   'box-front': {
     label: 'Штрафная спереди',
     Background: boxFront,
-    scaleAt: perspectiveScale(BOX_FRONT_CAM)
+    scaleAt: perspectiveScale(BOX_FRONT_CAM, 1)
   },
   'half-angle': {
     label: 'Половина поля',
     Background: halfAngle,
-    scaleAt: perspectiveScale(HALF_ANGLE_CAM)
+    scaleAt: perspectiveScale(HALF_ANGLE_CAM, 2.8)
   },
   'full-top': {
     label: 'Всё поле сверху',
