@@ -774,6 +774,46 @@ describe('runTrackingJob: ответ «моего игрока тут нет»',
     for (const [k, s] of out.samples[0].entries()) {
       expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k}`).toBeLessThan(10)
     }
-    expect(out.samples[0].length).toBeLessThanOrEqual(22)
+    // последний уверенный кадр до недоказанного возвращения — 19-й (своя рамка пропала с 20-го)
+    expect(out.samples[0]).toHaveLength(20)
+  })
+
+  // Пропуск на кадрах 10–12, затем двойная рамка 30–41 и вопрос; ответ «моего тут нет».
+  const dropThenAsk = (stranger: boolean) => async () => {
+    const a = (f: number): Detection => person(100 + 3 * f, 270)
+    const det = scripted((f) => {
+      const out: Detection[] = []
+      if (f < 10 || (f >= 13 && f < 30)) out.push(a(f))
+      if (f >= 30 && f < 42) out.push(a(f), a(f))
+      if (f >= 42) out.push(person(100 + 3 * f, 320), person(100 + 3 * f, 220))
+      // игрок той же формы рядом при возвращении (кадры 13–20)
+      if (stranger && f >= 13 && f <= 20) out.push(person(100 + 3 * f + 60, 270))
+      return out
+    })
+    return runTrackingJob(
+      options({
+        frames: frames(80),
+        createDetector: () => Promise.resolve(det),
+        anchors: [{ x: 100 / W, y: 270 / H }],
+        onAsk: () => Promise.resolve('none')
+      })
+    )
+  }
+
+  it('чистое возвращение (рядом никого): обрезка не уходит к давнему пропуску', async () => {
+    const out = await dropThenAsk(false)()
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(out.stop).toMatchObject({ reason: 'not-here' })
+    // последний уверенный кадр перед двойной рамкой — 29-й
+    expect(out.samples[0]).toHaveLength(30)
+  })
+
+  it('возвращение с игроком той же формы рядом: обрезка — до последнего уверенного кадра перед пропуском', async () => {
+    const out = await dropThenAsk(true)()
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(out.stop).toMatchObject({ reason: 'not-here' })
+    expect(out.samples[0]).toHaveLength(10)
   })
 })

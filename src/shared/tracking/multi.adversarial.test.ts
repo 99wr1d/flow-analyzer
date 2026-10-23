@@ -199,8 +199,10 @@ function run(players: Player[], o: Opts): Res {
       const merged = r.candidates.find((c) => src.get(c)?.includes(ownK))
       if (!exact && !merged) {
         res.noTruth++
+        // Виден ли игрок детектору на этом кадре: «не виден» — отдельная пометка (исключение truthMayBeMissing).
+        const seen = dets.some((d) => src.get(d)?.includes(ownK))
         res.detail.push(
-          `f${f} t${k}: вопрос без настоящего игрока (варианты ${r.candidates.map((c) => src.get(c)?.join('+')).join(',')})`
+          `f${f} t${k}: вопрос без настоящего игрока${seen ? '' : ' (не виден)'} (варианты ${r.candidates.map((c) => src.get(c)?.join('+')).join(',')})`
         )
       }
       let pick = exact ?? merged
@@ -391,8 +393,9 @@ function family(
    */
   evidenceFrom?: number,
   /**
-   * Свой игрок цели может так и не появиться у неё на глазах (вокруг только новички): вопросы без него считаются в отчёте
-   * (noTruth), но не проваливают тест — проваливает только подмена. Известный предел, см. отчёт Fix round 5.
+   * Свой игрок цели может так и не появиться у неё на глазах (вокруг только новички): вопрос без него, когда детектор его
+   * на этом кадре не видит, считается в отчёте (noTruth), но не проваливает тест. Вопрос без него, когда он виден, и
+   * подмена — провал. Известный предел, см. отчёт Fix round 5.
    */
   truthMayBeMissing = false
 ): void {
@@ -425,7 +428,7 @@ function family(
     }
     for (const d of r.detail) {
       const at = Number(/^f(\d+)/.exec(d)?.[1] ?? Infinity)
-      if (truthMayBeMissing && d.includes('без настоящего')) continue
+      if (truthMayBeMissing && d.includes('(не виден)')) continue
       if (at >= limit) t.detail.push(`${name} s${s}: ${d}`)
     }
   }
@@ -1016,5 +1019,26 @@ describe('после ответа соседи-новички не забыва�
         true
       )
     check('after-answer')
+  })
+})
+
+describe('вернувшийся игрок после сомнительной подмены', () => {
+  it('цель встала и пропала, на её месте вышел чужой и ушёл; свой вернулся на 55/70/90 кадре — вопрос, без бесконечной подмены', () => {
+    for (const dx of [0, 15, 20])
+      for (const back of [55, 70, 90])
+        family(
+          'drift-return',
+          `drift dx=${dx} back=f${back}`,
+          () => [
+            T((f) => 300 + 2 * Math.min(f, 20), at(270), { dropWin: [20, back] }),
+            D((f) => 300 + 2 * f + dx, at(272), { vis: (f) => f >= 22 })
+          ],
+          { J: 3, hj: 0.05, frames: 140 },
+          6,
+          S2,
+          // До возвращения своего новичок неотличим (известный предел); с кадра возвращения — вопрос обязателен.
+          back
+        )
+    check('drift-return')
   })
 })

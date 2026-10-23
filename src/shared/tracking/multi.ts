@@ -148,6 +148,21 @@ export class MultiTracker {
    * не сбрасывается вопросом): рамки с этого кадра могут быть на неотличимом новичке (см. provenUntil).
    */
   private readonly unprovenSince: Array<number | null>
+  /** Последняя уверенная рамка цели и её кадр перед unprovenSince: где её игрок был наверняка. */
+  private readonly provenBox: Box[]
+  private readonly provenIndex: Array<number | null>
+  /**
+   * Возвращение пока выглядит «чистым»: ни одной другой рамки той же формы и ни одного безымянного рядом с надёжным
+   * местом цели. Если так продержится LOST_SECONDS, подмене взяться неоткуда — сомнение снимается (unprovenSince = null);
+   * стоит появиться кому-то рядом — флаг гаснет навсегда (до ответа).
+   */
+  private readonly unprovenClean: boolean[]
+  /**
+   * Обрезка ответа «моего тут нет» (provenUntil): сомнение для неё снимается «чистым» возвращением (unprovenClean),
+   * чтобы безобидный пропуск без соседей не обрезал всё далеко назад. Само сомнение (unprovenSince, защита от
+   * вернувшегося своего игрока) при этом остаётся: одиночный новичок на месте цели от её игрока неотличим.
+   */
+  private readonly trimSince: Array<number | null>
   /** Безымянные игроки той же формы рядом с целями (см. Ghost). */
   private ghosts: Ghost[] = []
   private readonly lostFrames: number
@@ -161,6 +176,10 @@ export class MultiTracker {
     this.lastConfIndex = starts.map(() => null)
     this.recoveredAt = starts.map(() => null)
     this.unprovenSince = starts.map(() => null)
+    this.provenBox = starts.map((st) => ({ ...st.det.box }))
+    this.provenIndex = starts.map(() => null)
+    this.unprovenClean = starts.map(() => false)
+    this.trimSince = starts.map(() => null)
     this.lostFrames = Math.max(1, Math.round(LOST_SECONDS * fps))
   }
 
@@ -174,13 +193,12 @@ export class MultiTracker {
   }
 
   /**
-   * До какого кадра (номер, включительно) рамкам цели можно верить: до кадра перед последним возвращением после пропуска,
-   * не подтверждённым ответом (короткая подмена на неотличимом новичке могла начаться там), иначе — до последнего
+   * До какого кадра (номер, включительно) рамкам цели можно верить: до последнего уверенного кадра перед возвращением после
+   * пропуска, не подтверждённым ответом (короткая подмена на неотличимом новичке могла начаться там), иначе — до последнего
    * уверенного кадра. null — уверенных кадров ещё не было. Только чтение (для ответа «моего тут нет»).
    */
   provenUntil(target: number): number | null {
-    const since = this.unprovenSince[target]
-    if (since !== null) return since - 1
+    if (this.trimSince[target] !== null) return this.provenIndex[target]
     return this.lastConfIndex[target]
   }
 
@@ -220,6 +238,8 @@ export class MultiTracker {
     this.chains[target] = null
     this.recoveredAt[target] = null
     this.unprovenSince[target] = null
+    this.unprovenClean[target] = false
+    this.trimSince[target] = null
     // Ответ снимает подозрение, но не забывает соседей: подозреваемые цели остаются обычными безымянными следами
     // (иначе на следующем кадре, если её рамка пропадёт, сосед рядом прошёл бы молча — ответ обнуляет скорость Калмана).
     // След, сидевший на выбранной рамке (по месту, без допуска давности), — это сама цель: он удаляется.
@@ -831,6 +851,32 @@ export class MultiTracker {
         }
         return true
       }
+      // 3. Сомнение не снято (возвращение не доказано и рядом бывали другие): новый игрок той же формы без истории рядом с
+      // надёжным местом цели — возможно, вернулся её настоящий. Вопрос с обоими, без срока давности.
+      if (this.unprovenSince[i] !== null) {
+        const back = this.dets.filter(
+          (d) =>
+            d !== det &&
+            !known.some((b) => sameBox(d.box, b)) &&
+            this.nearProven(i, d.box) &&
+            appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
+            // Новый: на прошлом кадре рядом рамки той же формы не было (появился, а не стоял тут всё время).
+            !this.prevDets.some(
+              (q) =>
+                apart(q.box, d.box, norm) <= CHAIN_MAX_SHIFT &&
+                appearanceDistance(q.look, d.look) < CHAIN_SIMILAR_LOOK
+            ) &&
+            !explained(d) &&
+            !othersUnknown(d)
+        )
+        if (back.length > 0) {
+          this.slots[i] = { kind: 'ask', cands: [...this.generate(i, det)], det }
+          this.episodeAsk[i] = true
+          for (const d of back) this.addCand(i, d)
+          this.recoveredAt[i] = null
+          return true
+        }
+      }
       const since = this.recoveredAt[i]
       if (missed === 0 && (since === null || f - since > this.lostFrames)) continue
       const fresh = kinNear.filter((d) => !explained(d) && !othersUnknown(d))
@@ -898,6 +944,57 @@ export class MultiTracker {
       const norm = Math.max(d.box.h, MIN_NORM_HEIGHT)
       return apart(d.box, this.preds[i], norm) <= this.newcomerReach(i, norm)
     })
+  }
+
+  /** Рядом с надёжным местом цели (CHAIN_COUNT_RADIUS плюс допуск, растущий с давностью, но не дальше радиуса эпизода). */
+  private nearProven(i: number, b: Box): boolean {
+    const f = this.frame?.index ?? 0
+    const pi = this.provenIndex[i] ?? f
+    const slack = Math.min(GATE_MAX, GATE_GROW * Math.max(0, f - pi - 1))
+    const pb = this.provenBox[i]
+    // Не дальше радиуса эпизода (CHAIN_NEIGHBOUR_DIST): дальше игрок той же формы — не сосед цели.
+    return (
+      apart(b, pb, Math.max(pb.h, MIN_NORM_HEIGHT)) <=
+      Math.min(CHAIN_NEIGHBOUR_DIST, CHAIN_COUNT_RADIUS + slack)
+    )
+  }
+
+  /**
+   * «Чистое» возвращение: пока рядом с целью (на её уверенных кадрах) нет ни другой рамки той же формы, ни безымянного следа, через
+   * LOST_SECONDS обрезка для ответа «моего тут нет» перестаёт уходить к надёжному кадру (trimSince снимается). Кто-то
+   * рядом — и обрезка остаётся до ответа. Сомнение unprovenSince (защита от вернувшегося своего) здесь не снимается.
+   */
+  private settleDoubts(): void {
+    const f = this.frame?.index
+    if (f === undefined) return
+    for (let i = 0; i < this.trackers.length; i += 1) {
+      const since = this.trimSince[i]
+      if (since === null || !this.unprovenClean[i]) continue
+      const look = this.trackers[i].appearance
+      // Смотрим только на кадрах, где цель уверенно на своей рамке: рядом с ней (CHAIN_COUNT_RADIUS) кто-то ещё той же формы?
+      // Окно LOST_SECONDS после возвращения прошло без соседей — снимаем (кадры позже на чистоту уже не влияют).
+      if (f - since >= this.lostFrames) {
+        this.trimSince[i] = null
+        this.unprovenClean[i] = false
+        continue
+      }
+      const own = this.owned(i)
+      if (!own) continue
+      const norm = Math.max(own.h, MIN_NORM_HEIGHT)
+      const someone =
+        this.dets.some(
+          (d) =>
+            !sameBox(d.box, own) &&
+            appearanceDistance(look, d.look) < CHAIN_SIMILAR_LOOK &&
+            apart(d.box, own, norm) <= CHAIN_COUNT_RADIUS
+        ) ||
+        this.ghosts.some(
+          (g) =>
+            appearanceDistance(look, g.look) < CHAIN_SIMILAR_LOOK &&
+            apart(g.box, own, norm) <= CHAIN_COUNT_RADIUS
+        )
+      if (someone) this.unprovenClean[i] = false
+    }
   }
 
   /** Добавить вариант в вопрос цели (без повторов). */
@@ -1028,7 +1125,14 @@ export class MultiTracker {
           const prev = this.lastConfIndex[i]
           if (f !== null && prev !== null && prev < f - 1) {
             this.recoveredAt[i] = f
-            this.unprovenSince[i] = f
+            if (this.unprovenSince[i] === null) {
+              // Сомнение начинается с первого недоказанного возвращения: надёжное место — последняя уверенная рамка до него.
+              this.unprovenSince[i] = f
+              this.provenBox[i] = { ...this.lastConf[i] }
+              this.provenIndex[i] = prev
+              this.unprovenClean[i] = true
+              this.trimSince[i] = f
+            }
           }
           this.lastConf[i] = { ...s.box }
           this.lastConfIndex[i] = f
@@ -1041,6 +1145,7 @@ export class MultiTracker {
       }
     })
     this.updateGhosts()
+    this.settleDoubts()
     return { kind: 'track', boxes, coasting }
   }
 }
