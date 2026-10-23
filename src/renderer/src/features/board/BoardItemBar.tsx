@@ -1,4 +1,5 @@
 // Панель над полем: свойства выбранного (сторона, поза, цвет, появление по кадрам, порядок) или подсказка инструмента.
+import { useState } from 'react'
 import type { JSX } from 'react'
 import { FACINGS, FIGURE_POSES, type Facing } from '../../../../shared/board/ids'
 import {
@@ -119,6 +120,34 @@ function FigureControls({ item, frame }: { item: BoardItem; frame: number }): JS
   )
 }
 
+/** Номер: правка применяется сразу при наборе (щелчок мимо её не теряет); пустое поле — пока не трогаем номер. */
+function NumberField({ id, n }: { id: string; n: number }): JSX.Element {
+  const [draft, setDraft] = useState(String(n))
+  const [seen, setSeen] = useState(n)
+  // Номер поменяли не здесь (отмена, повтор) — показываем его.
+  if (seen !== n) {
+    setSeen(n)
+    if (Number(draft) !== n) setDraft(String(n))
+  }
+  return (
+    <input
+      className="input board-bar__short"
+      type="number"
+      min={1}
+      max={99}
+      value={draft}
+      data-testid="board-number"
+      onChange={(e) => {
+        setDraft(e.target.value)
+        const v = Math.round(Number(e.target.value))
+        if (e.target.value !== '' && Number.isFinite(v) && v >= 1 && v <= 99 && v !== n)
+          applyBoard((b) => setStyle(b, id, { n: v }))
+      }}
+      onBlur={() => setDraft(String(n))}
+    />
+  )
+}
+
 function TokenControls({ item }: { item: BoardItem }): JSX.Element | null {
   const el = item.el
   const id = item.id
@@ -129,15 +158,11 @@ function TokenControls({ item }: { item: BoardItem }): JSX.Element | null {
         <input
           className="input board-bar__short"
           maxLength={2}
-          defaultValue={el.label}
-          key={`${id}-${el.label}`}
+          value={el.label}
           data-testid="board-token-label"
-          onBlur={(e) => {
-            const label = e.target.value.trim().slice(0, 2)
+          onChange={(e) => {
+            const label = e.target.value.slice(0, 2)
             if (label !== el.label) applyBoard((b) => setStyle(b, id, { label }))
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur()
           }}
         />
       </label>
@@ -146,23 +171,7 @@ function TokenControls({ item }: { item: BoardItem }): JSX.Element | null {
     return (
       <label className="board-bar__group">
         <span className="board-bar__caption">{ru.board.item.number}</span>
-        <input
-          className="input board-bar__short"
-          type="number"
-          min={1}
-          max={99}
-          defaultValue={el.n}
-          key={`${id}-${el.n}`}
-          data-testid="board-number"
-          onBlur={(e) => {
-            const n = Math.round(Number(e.target.value))
-            if (Number.isFinite(n) && n >= 1 && n <= 99 && n !== el.n)
-              applyBoard((b) => setStyle(b, id, { n }))
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur()
-          }}
-        />
+        <NumberField key={id} id={id} n={el.n} />
       </label>
     )
   return null

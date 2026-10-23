@@ -8,15 +8,24 @@ import { useViewStore } from '../../app/viewStore'
 import { ru } from '../../i18n/ru'
 import { renderBoardPng, renderBoardThumb, renderBoardVideoFrames } from './boardRender'
 import { useBoardStore } from './boardStore'
-import { useBoardUi } from './boardUi'
+import { useBoardUi, type BoardJob } from './boardUi'
+import { beginVideoJob, cancelCurrentVideoJob, endVideoJob, isCurrentVideoJob } from './videoJob'
+import { logError } from '../../app/errorLog'
 
 const THUMB_LIMIT = 80_000
 
 /** Кадры рисуются из Blob (обычный ArrayBuffer); схема IPC ждёт именно такой Uint8Array. */
 const bytes = (a: Uint8Array): Uint8Array<ArrayBuffer> => a as Uint8Array<ArrayBuffer>
 
+/** Текст для пользователя — только по-русски: непереведённое (например, сообщение проверки схемы) пишется в журнал. */
+export function russianMessage(message: string, fallback: string = ru.board.unknownError): string {
+  if (/[а-яё]/i.test(message)) return message
+  logError('board', new Error(message))
+  return fallback
+}
+
 const messageOf = (error: unknown): string =>
-  error instanceof Error && error.message ? error.message : ru.board.unknownError
+  error instanceof Error && error.message ? russianMessage(error.message) : ru.board.unknownError
 
 const store = (): ReturnType<typeof useBoardStore.getState> => useBoardStore.getState()
 const ui = (): ReturnType<typeof useBoardUi.getState> => useBoardUi.getState()
@@ -28,7 +37,7 @@ export const canEditBoard = (): boolean => store().board !== null && !store().pl
 export function applyBoard(fn: (b: Board) => Board): boolean {
   if (!canEditBoard()) return false
   const error = store().apply(fn)
-  if (error) ui().notify('error', error)
+  if (error) ui().notify('error', russianMessage(error, ru.board.editFailed))
   return error === null
 }
 
@@ -45,6 +54,8 @@ export function openNewBoard(): void {
 /** «← Главная». Task 12 добавит вопрос о несохранённых изменениях. */
 export async function goHome(): Promise<void> {
   stopBoardPlay()
+  // Уходим с доски — сохранение видео отменяется (иначе оно осталось бы без хода и «Отмены»).
+  cancelVideo()
   if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined)
   useViewStore.getState().setView('start')
   store().reset()
@@ -114,9 +125,6 @@ export async function saveImage(): Promise<boolean> {
 
 // --- Видео ---
 
-let videoAbort: AbortController | null = null
-let videoToken: string | null = null
-
 export const canSaveVideo = (): boolean => (store().board?.frameCount ?? 0) > 1 && ui().job === null
 
 export async function saveVideo(): Promise<boolean> {
@@ -136,12 +144,15 @@ export async function saveVideo(): Promise<boolean> {
   }
   if (!started) return false
   const { token, path } = started
-  const abort = new AbortController()
-  videoAbort = abort
-  videoToken = token
-  ui().setJob({ phase: 'render', done: 0, total })
+  const job = beginVideoJob(token)
+  const abort = job.abort
+  // Ход показывается только у текущего задания (старое, уже отменённое, его не перетирает).
+  const progress = (p: BoardJob): void => {
+    if (isCurrentVideoJob(job)) ui().setJob(p)
+  }
+  progress({ phase: 'render', done: 0, total })
   const offProgress = window.api.onBoardVideoProgress((p) => {
-    if (p.token === token) ui().setJob({ phase: 'encode', done: p.done, total: p.total })
+    if (p.token === token) progress({ phase: 'encode', done: p.done, total: p.total })
   })
   try {
     let batch: Uint8Array<ArrayBuffer>[] = []
@@ -153,12 +164,12 @@ export async function saveVideo(): Promise<boolean> {
         await window.api.stageBoardFrames({ token, start, pngs: batch })
         start = index + 1
         batch = []
-        ui().setJob({ phase: 'render', done: start, total })
+        progress({ phase: 'render', done: start, total })
       }
     }
     abort.signal.throwIfAborted()
     if (batch.length > 0) await window.api.stageBoardFrames({ token, start, pngs: batch })
-    ui().setJob({ phase: 'encode', done: 0, total })
+    progress({ phase: 'encode', done: 0, total })
     abort.signal.throwIfAborted()
     await window.api.finishBoardVideo(token)
     ui().notify('info', ru.board.videoSaved(path))
@@ -170,16 +181,13 @@ export async function saveVideo(): Promise<boolean> {
     return false
   } finally {
     offProgress()
-    videoAbort = null
-    videoToken = null
-    ui().setJob(null)
+    if (endVideoJob(job)) ui().setJob(null)
   }
 }
 
 /** «Отмена» в строке состояния. */
 export function cancelVideo(): void {
-  videoAbort?.abort()
-  if (videoToken) void window.api.cancelBoardVideo(videoToken).catch(() => undefined)
+  cancelCurrentVideoJob((token) => void window.api.cancelBoardVideo(token).catch(() => undefined))
 }
 
 // --- Проигрывание ---

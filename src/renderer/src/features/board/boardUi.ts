@@ -56,6 +56,9 @@ interface BoardUiState {
   job: BoardJob | null
   /** Время проигрывания, с; null — не проигрывается. */
   playTime: number | null
+  /** Идёт протяжка мышью на поле (проигрывание в это время не запускается). */
+  dragging: boolean
+  setDragging: (dragging: boolean) => void
   setBrush: (section: BoardSection, color: string) => void
   setView: (zoom: number, pan: { x: number; y: number }) => void
   resetView: () => void
@@ -74,7 +77,8 @@ const initial = {
   hand: false,
   notice: null,
   job: null,
-  playTime: null
+  playTime: null,
+  dragging: false
 }
 
 export const useBoardUi = create<BoardUiState>()((set) => ({
@@ -91,7 +95,9 @@ export const useBoardUi = create<BoardUiState>()((set) => ({
   clearNotice: () => set({ notice: null }),
   setJob: (job) => set({ job }),
   setPlayTime: (playTime) => set({ playTime }),
-  reset: () => set({ ...initial, brush: {} })
+  // Ход сохранения видео живёт до конца задания (его снимает само задание), поэтому сброс его не трогает.
+  reset: () => set((s) => ({ ...initial, brush: {}, job: s.job, dragging: false })),
+  setDragging: (dragging) => set({ dragging })
 }))
 
 /** Цвет кисти раздела (выбранный или по умолчанию). */

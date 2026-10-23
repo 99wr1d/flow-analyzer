@@ -903,6 +903,7 @@ export const ru = {
     videoEncode: (pct: number) => `Сохранение видео: сборка MP4 ${pct}%`,
     videoCancel: 'Отмена',
     unknownError: 'неизвестная ошибка',
+    editFailed: 'Не получилось изменить доску',
     frameWord: 'кадр',
     dismiss: 'Закрыть',
     viewsLabel: 'Вид поля:',

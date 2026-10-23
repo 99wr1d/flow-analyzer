@@ -41,6 +41,7 @@ import {
 } from '../board/boardActions'
 import { MAX_FRAMES } from '../../../../shared/board/schema'
 import { useBoardStore } from '../board/boardStore'
+import { useBoardUi } from '../board/boardUi'
 
 export interface Command extends CommandMeta {
   run: () => void
@@ -425,7 +426,7 @@ export const BOARD_COMMANDS: readonly Command[] = [
     label: 'Проиграть / пауза',
     defaults: [key('Space')],
     run: toggleBoardPlay,
-    enabled: () => (board().board?.frameCount ?? 0) > 1
+    enabled: () => (board().board?.frameCount ?? 0) > 1 && !useBoardUi.getState().dragging
   }),
   boardCommand({
     id: 'board:prev-frame',

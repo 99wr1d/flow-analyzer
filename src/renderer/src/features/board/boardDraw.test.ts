@@ -86,3 +86,25 @@ describe('drawElement', () => {
     ).toBe(true)
   })
 })
+
+describe('за краем поля', () => {
+  const out = [
+    { x: 0.8, y: 0.5 },
+    { x: 1.2, y: 0.6 },
+    { x: 1.4, y: -0.3 }
+  ]
+  for (const k of ['arrow', 'pen', 'hatch-rect'] as const) {
+    it(`${k}: точки прижимаются к краю, элемент создаётся и проходит схему`, () => {
+      const el = drawElement(k, out, '#ffffff', ANN)
+      expect(el).not.toBeNull()
+      expect(BoardElementSchema.safeParse(el).success).toBe(true)
+      const b2 = addItem(board, el!, 0, '44444444-4444-4444-8444-444444444444')
+      expect(b2.items).toHaveLength(1)
+    })
+  }
+
+  it('подпись у края', () => {
+    const el = textElement('Край', { x: 1.3, y: -0.2 }, '#ffffff', ANN)
+    expect(BoardElementSchema.safeParse(el).success).toBe(true)
+  })
+})

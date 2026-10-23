@@ -14,6 +14,7 @@ import { BoardTray } from './BoardTray'
 import { useBoardUi } from './boardUi'
 import { BoardViews } from './BoardViews'
 import './board.css'
+import './boardPanels.css'
 
 const NOTICE_MS = 5000
 

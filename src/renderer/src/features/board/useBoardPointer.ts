@@ -12,7 +12,7 @@ import { applyBoard, canEditBoard } from './boardActions'
 import { TEXT_SIZE, drawElement, placeElement, textElement } from './boardDraw'
 import { dragHandle, handlesFor, type HandleKind } from './boardHandles'
 import { useBoardStore, type BoardDraw } from './boardStore'
-import { brushColor, useBoardUi } from './boardUi'
+import { MAX_ZOOM, MIN_ZOOM, brushColor, useBoardUi } from './boardUi'
 import { clampDelta, clientToBoard, hitTest, moveGeom, type Point } from './canvasMath'
 import { BOARD_W } from './art/constants'
 
@@ -157,6 +157,11 @@ export function useBoardPointer(
   }
 
   const onPointerDown = (e: ReactPointerEvent<HTMLElement>): void => {
+    pointerDown(e)
+    if (drag.current) useBoardUi.getState().setDragging(true)
+  }
+
+  const pointerDown = (e: ReactPointerEvent<HTMLElement>): void => {
     if (textEdit) return // потеря фокуса поля ввода сама завершит подпись
     const st = useBoardStore.getState()
     const { board, frame, tool, selection } = st
@@ -286,6 +291,7 @@ export function useBoardPointer(
   const finish = (e: ReactPointerEvent<HTMLElement>, commit: boolean): void => {
     const d = drag.current
     drag.current = null
+    useBoardUi.getState().setDragging(false)
     if (e.currentTarget.hasPointerCapture(e.pointerId))
       e.currentTarget.releasePointerCapture(e.pointerId)
     setPreview(null)
@@ -328,7 +334,7 @@ export function useBoardPointer(
     const stage = stageRef.current?.getBoundingClientRect()
     if (!stage || e.deltaY === 0) return
     const ui = useBoardUi.getState()
-    const zoom = Math.min(4, Math.max(1, ui.zoom * Math.exp(-e.deltaY * 0.0015)))
+    const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, ui.zoom * Math.exp(-e.deltaY * 0.0015)))
     // Точка под курсором остаётся на месте.
     const cx = fit.x + fit.w / 2
     const cy = fit.y + fit.h / 2

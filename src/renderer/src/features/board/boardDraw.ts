@@ -6,7 +6,7 @@ import { defaultControl } from '../../../../shared/tools/curve'
 import { simplifyStroke } from '../../../../shared/tools/simplify'
 import type { BoardDraw } from './boardStore'
 import { pitchView } from './art/pitchViews'
-import { ASPECT, dist, type Point } from './canvasMath'
+import { ASPECT, clampUnit, dist, type Point } from './canvasMath'
 
 /** Толщина линий по умолчанию, доля высоты (не тоньше 0.006 — читается на проекторе). */
 export const LINE_WIDTH = 0.008
@@ -67,11 +67,13 @@ const lineStyle = (color: string, dashed: boolean, width = LINE_WIDTH): LineStyl
 /** Нарисованный элемент: points — путь мыши (для линий важны первая и последняя точки). null — слишком мало. */
 export function drawElement(
   draw: BoardDraw,
-  points: readonly Point[],
+  raw: readonly Point[],
   color: string,
   annId: string
 ): BoardElement | null {
-  if (points.length === 0) return null
+  if (raw.length === 0) return null
+  // Мышь могла уйти за край поля (захват указателя): точки прижимаются к краю, элемент не теряется.
+  const points = raw.map(clampUnit)
   const a = pt(points[0])
   const b = pt(points[points.length - 1])
   const long = dist(a, b) >= MIN_DRAG
@@ -165,7 +167,7 @@ export function textElement(text: string, p: Point, color: string, annId: string
       id: annId,
       space: 'screen',
       type: 'text',
-      pos: pt(p),
+      pos: pt(clampUnit(p)),
       text,
       style: { color, size: TEXT_SIZE, background: false, shadow: true }
     }
