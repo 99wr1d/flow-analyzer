@@ -42,8 +42,6 @@ export interface Snapshot {
 
 export const HISTORY_DEPTH = 100
 
-const CENTER = { x: 0.5, y: 0.5 }
-
 /** Инструмент по умолчанию для раздела палитры. */
 export function toolForSection(section: BoardSection): BoardTool {
   switch (section) {
@@ -58,7 +56,7 @@ export function toolForSection(section: BoardSection): BoardTool {
           set,
           pose: FIGURE_POSES[set][0],
           facing: 'front',
-          pos: CENTER,
+          pos: { x: 0.5, y: 0.5 },
           scale: 1,
           rotation: 0,
           color: DEFAULT_COLOR[set]
@@ -72,7 +70,7 @@ export function toolForSection(section: BoardSection): BoardTool {
         el: {
           kind: 'equip',
           item,
-          pos: CENTER,
+          pos: { x: 0.5, y: 0.5 },
           scale: 1,
           rotation: 0,
           color: DEFAULT_EQUIP_COLOR[item]
@@ -82,12 +80,12 @@ export function toolForSection(section: BoardSection): BoardTool {
     case 'tokens':
       return {
         kind: 'place',
-        el: { kind: 'token', pos: CENTER, scale: 1, color: '#e53935', label: '' }
+        el: { kind: 'token', pos: { x: 0.5, y: 0.5 }, scale: 1, color: '#e53935', label: '' }
       }
     case 'numbers':
       return {
         kind: 'place',
-        el: { kind: 'number', pos: CENTER, scale: 1, color: '#1a1a1a', n: 1 }
+        el: { kind: 'number', pos: { x: 0.5, y: 0.5 }, scale: 1, color: '#1a1a1a', n: 1 }
       }
     case 'arrows':
       return { kind: 'draw', draw: 'arrow' }
@@ -154,6 +152,8 @@ export const useBoardStore = create<BoardState>()((set, get) => ({
     }
     set({
       board: next,
+      frame: Math.min(frame, next.frameCount - 1),
+      selection: selection.filter((id) => next.items.some((i) => i.id === id)),
       past: [...past, { board, frame, selection }].slice(-HISTORY_DEPTH),
       future: [],
       dirty: true

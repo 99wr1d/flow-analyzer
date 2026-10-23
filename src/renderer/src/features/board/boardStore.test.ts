@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { addFrame, addItem, setTitle } from '../../../../shared/board/edit'
-import { newBoard } from '../../../../shared/board/schema'
-import { useBoardStore } from './boardStore'
+import { addFrame, addItem, deleteItem, removeFrame, setTitle } from '../../../../shared/board/edit'
+import { BoardElementSchema, newBoard } from '../../../../shared/board/schema'
+import { toolForSection, useBoardStore } from './boardStore'
 
 const s = (): ReturnType<typeof useBoardStore.getState> => useBoardStore.getState()
 const fresh = (): ReturnType<typeof newBoard> => newBoard('T', new Date('2026-01-01T00:00:00Z'))
@@ -132,5 +132,38 @@ describe('boardStore', () => {
     expect(s().dirty).toBe(false)
     s().reset()
     expect(s().board).toBeNull()
+  })
+  it('removeFrame на последнем кадре зажимает frame, undo возвращает его', () => {
+    s().apply((b) => addFrame(b, 0))
+    s().setFrame(1)
+    expect(s().apply((b) => removeFrame(b, 1))).toBeNull()
+    expect(s().frame).toBe(0)
+    s().undo()
+    expect(s().frame).toBe(1)
+  })
+
+  it('удаление выделенного элемента чистит выделение, undo возвращает', () => {
+    const id = '00000000-0000-4000-8000-000000000001'
+    s().apply((b) =>
+      addItem(
+        b,
+        { kind: 'token', pos: { x: 0.5, y: 0.5 }, scale: 1, color: '#e53935', label: '' },
+        0,
+        id
+      )
+    )
+    s().select([id])
+    s().apply((b) => deleteItem(b, id))
+    expect(s().selection).toEqual([])
+    s().undo()
+    expect(s().selection).toEqual([id])
+  })
+
+  it('элементы по умолчанию всех разделов проходят схему', () => {
+    for (const sec of ['equipment', 'gk', 'player', 'coach', 'tokens', 'numbers'] as const) {
+      const t = toolForSection(sec)
+      expect(t.kind).toBe('place')
+      if (t.kind === 'place') expect(BoardElementSchema.safeParse(t.el).success).toBe(true)
+    }
   })
 })
