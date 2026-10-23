@@ -140,11 +140,17 @@ export class MultiTracker {
     return null
   }
 
+  /**
+   * Рамки, закреплённые за другими целями. Рамка цели с живой цепочкой (личность в эпизоде не подтверждена) не
+   * считается занятой: она может быть чужой ошибкой, и настоящий игрок спрашиваемой цели не должен пропадать из вариантов.
+   * Если выбрана такая рамка, её прежняя владелица откатывается и проходит кадр заново (см. settle).
+   */
   private ownedByOthers(i: number): Box[] {
     const out: Box[] = []
-    this.slots.forEach((_, j) => {
+    this.slots.forEach((s, j) => {
       const b = j === i ? null : this.owned(j)
-      if (b) out.push(b)
+      if (!b || (s.kind === 'track' && this.chains[j])) return
+      out.push(b)
     })
     return out
   }
@@ -275,10 +281,7 @@ export class MultiTracker {
       const c = this.chains[i]
       const s = this.slots[i]
       if (!c || s.kind !== 'track' || s.coasting) continue
-      // Общую детекцию (её уступила спорная цель) подтвердить нечем: ждём.
       const det = s.det
-      const shared = det !== null && this.excluded.some((list) => list.includes(det))
-      if (shared) continue
       const agree = !c.broken && c.det && det && sameBox(c.det.box, det.box)
       if (agree) {
         if (!unsettled(i)) this.chains[i] = null
@@ -291,12 +294,77 @@ export class MultiTracker {
     }
   }
 
+  /**
+   * Дополнительные варианты вопроса: игроки вокруг последней уверенной рамки цели. Прогноз пережидающей цели мог уйти
+   * не туда (отскок), и настоящий игрок оказаться вне ворот трекера: без этих вариантов ответить правильно было бы нельзя.
+   */
+  private extras(i: number, have: Detection[]): Detection[] {
+    const last = this.lastConf[i]
+    const c0 = centre(last)
+    const norm = Math.max(last.h, MIN_NORM_HEIGHT)
+    return this.dets
+      .filter((d) => {
+        const ratio = d.box.h / last.h
+        return ratio >= SIZE_RATIO_MIN && ratio <= SIZE_RATIO_MAX && !have.includes(d)
+      })
+      .map((d) => {
+        const c = centre(d.box)
+        return { d, dist: Math.hypot(c.x - c0.x, c.y - c0.y) / norm }
+      })
+      .filter((x) => x.dist <= GATE_MAX)
+      .sort((a, b) => a.dist - b.dist)
+      .slice(0, ASK_MAX_CANDIDATES)
+      .map((x) => x.d)
+  }
+
   private die(target: number, reason: LostReason): MultiStep {
     this.dead = { kind: 'lost', target, reason }
     return this.dead
   }
 
+  /** Цель откатывается к началу кадра и проходит его заново без детекции det (и всех прежних исключённых). */
+  private redo(i: number, det: Detection): void {
+    this.excluded[i].push(det)
+    this.trackers[i].restore(this.snaps[i])
+    const rest = this.dets.filter((d) => !this.excluded[i].includes(d))
+    this.slots[i] = this.toSlot(
+      this.trackers[i].step({ ...(this.frame as FrameInput), detections: rest }),
+      rest
+    )
+    // Взяла другую детекцию рядом с игроком такой же приметы — та же проверка цепочкой.
+    this.ensureChain(i, true)
+  }
+
+  /**
+   * Общая детекция (её уступила спорная цель) не может давать уверенную рамку, если цепочка победителя разорвана,
+   * отсутствует или ведёт к другой детекции: победитель тоже откатывается (пережидает либо берёт другую).
+   */
+  private demoteUnprovenWinners(): boolean {
+    let changed = false
+    for (let i = 0; i < this.slots.length; i += 1) {
+      const s = this.slots[i]
+      if (s.kind !== 'track' || s.coasting || !s.det) continue
+      const det = s.det
+      if (!this.excluded.some((list) => list.includes(det))) continue
+      const c = this.chains[i]
+      if (c && !c.broken && c.det && sameBox(c.det.box, det.box)) continue
+      this.redo(i, det)
+      changed = true
+    }
+    return changed
+  }
+
   private settle(withVerdicts: boolean): MultiStep {
+    for (;;) {
+      const dead = this.settleConflicts()
+      if (dead) return dead
+      this.checkClaims()
+      if (!this.demoteUnprovenWinners()) break
+    }
+    return this.present(withVerdicts)
+  }
+
+  private settleConflicts(): MultiStep | null {
     for (;;) {
       for (let i = 0; i < this.slots.length; i += 1) {
         const s = this.slots[i]
@@ -331,25 +399,22 @@ export class MultiTracker {
               : j
       const s = this.slots[suspect]
       if (s.kind !== 'track' || !s.det) return this.die(suspect, 'occluded')
-      this.excluded[suspect].push(s.det)
-      this.trackers[suspect].restore(this.snaps[suspect])
-      const rest = this.dets.filter((d) => !this.excluded[suspect].includes(d))
-      this.slots[suspect] = this.toSlot(
-        this.trackers[suspect].step({ ...(this.frame as FrameInput), detections: rest }),
-        rest
-      )
-      this.ensureChain(suspect)
+      this.redo(suspect, s.det)
       // Победитель спора тоже не знает, кто из двоих на общей рамке: его личность подтверждается цепочкой.
       this.ensureChain(suspect === i ? j : i, true)
     }
-    this.checkClaims()
+    return null
+  }
+
+  private present(withVerdicts: boolean): MultiStep {
     if (withVerdicts) this.verdicts()
     for (let i = 0; i < this.slots.length; i += 1) {
       const s = this.slots[i]
       if (s.kind !== 'ask') continue
       // Рамки, закреплённые за другими целями, чужому не предлагаем.
       const others = this.ownedByOthers(i)
-      const candidates = s.cands.filter((c) => !others.some((b) => converges(c.box, b)))
+      const free = (c: Detection): boolean => !others.some((b) => converges(c.box, b))
+      const candidates = [...s.cands.filter(free), ...this.extras(i, s.cands).filter(free)]
       if (candidates.length === 0) return this.die(i, 'occluded')
       return { kind: 'ask', target: i, candidates }
     }

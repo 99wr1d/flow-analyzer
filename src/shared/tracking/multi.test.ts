@@ -110,8 +110,8 @@ describe('MultiTracker', () => {
     expect(asks).toBe(0)
   })
 
-  it('две цели на одной рамке: одна цель ждёт (прогноз), общую рамку не делят', () => {
-    // Два одинаковых игрока рядом; затем виден один и тот же человек посередине, у обоих в воротах.
+  it('две цели одной формы на одной рамке: рамку не получает ни одна (обе ждут), потом решает цепочка/вопрос', () => {
+    // Два одинаковых игрока рядом; затем виден один человек посередине, у обоих в воротах. Кто из них — неизвестно.
     const m = new MultiTracker(
       [{ det: det(200, 270, RED) }, { det: det(250, 270, RED) }],
       FPS,
@@ -121,9 +121,19 @@ describe('MultiTracker', () => {
     const r = m.step(frame(1, [mid, det(330, 270, RED)]))
     expect(r.kind).toBe('track')
     if (r.kind !== 'track') return
-    // рамку mid держит ровно одна цель (старший номер уступает при равенстве), вторая едет по прогнозу
-    expect(r.coasting).toEqual([false, true])
-    expect(r.boxes[0]).toEqual(mid.box)
+    expect(r.coasting).toEqual([true, true])
+  })
+
+  it('разные майки на одной рамке: цель, которой рамка ближе, держит её, вторая ждёт', () => {
+    const m = new MultiTracker(
+      [{ det: det(200, 270, RED) }, { det: det(250, 270, BLUE) }],
+      FPS,
+      FRAME
+    )
+    const r = m.step(frame(1, [det(205, 270, RED)]))
+    expect(r.kind).toBe('track')
+    if (r.kind !== 'track') return
+    expect(r.coasting[0]).toBe(false)
   })
 
   it('две цели на одной рамке надолго: ждущая цель теряется (стоп всех с её номером), рамка остаётся первой', () => {
@@ -307,16 +317,17 @@ describe('MultiTracker: отскок, близкий проход, скорос�
         const b = (f: number): number => 200 + 2 * v * M - v * f
         const r = runTwo([a, b], [270, 270 + dy], [RED, RED])
         expect(r.swaps).toBe(0)
-        // перекрытие длится дольше секунды: остановка (lost) безопасна, обмен недопустим
+        // неоднозначность не скрывается: либо вопрос, либо безопасная остановка (перекрытие дольше секунды)
+        expect(r.asks + (r.lost ? 1 : 0)).toBeGreaterThan(0)
       }
     }
   })
 
   for (const v of [2, 5]) {
     for (const dy of [10, 30, 45]) {
-      it(`одинаковые майки, проход насквозь v=${v} dy=${dy}: без вопросов, остановки и обмена`, () => {
+      it(`одинаковые майки, проход насквозь v=${v} dy=${dy}: без остановки и обмена, вопросов не больше двух (dy=45: ни одного)`, () => {
         const r = runTwo(pass(v), [270, 270 + dy], [RED, RED])
-        expect(r.asks).toBe(0)
+        expect(r.asks).toBeLessThanOrEqual(dy >= 45 ? 0 : 2)
         expect(r.lost).toBeNull()
         expect(r.swaps).toBe(0)
       })
@@ -325,9 +336,9 @@ describe('MultiTracker: отскок, близкий проход, скорос�
 
   for (const lk of ['RED', 'BLUE']) {
     for (const v of [2, 5]) {
-      it(`близкий проход (dx около 20, dy=10) ${lk} v=${v}: без вопросов и остановки`, () => {
+      it(`близкий проход (dx около 20, dy=10) ${lk} v=${v}: без остановки; разные майки без вопросов`, () => {
         const r = runTwo(pass(v), [270, 280], [RED, lk === 'RED' ? RED : BLUE])
-        expect(r.asks).toBe(0)
+        expect(r.asks).toBeLessThanOrEqual(lk === 'RED' ? 2 : 0)
         expect(r.lost).toBeNull()
         expect(r.swaps).toBe(0)
       })
