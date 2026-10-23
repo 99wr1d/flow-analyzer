@@ -80,6 +80,8 @@ beforeEach(async () => {
   registerTrackingHandlers()
 })
 
+const CUR = { x: 0.4, y: 0.3, w: 0.06, h: 0.28 }
+
 describe('IPC слежения', () => {
   it('отмена: итога нет, чужие ffmpeg не трогаются, место свободно', async () => {
     const sender = new FakeSender()
@@ -116,7 +118,7 @@ describe('IPC слежения', () => {
     const sender = new FakeSender()
     let asked: Promise<number | 'none' | null> | null = null
     impl = async (o) => {
-      asked = o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 0)
+      asked = o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 0, CUR)
       const index = await asked
       return index === null
         ? { kind: 'cancelled' }
@@ -124,7 +126,10 @@ describe('IPC слежения', () => {
     }
     await start(sender)
     await tick()
-    expect(sender.sent.some((s) => s.channel === 'tracking:ask')).toBe(true)
+    const ask = sender.sent.find((s) => s.channel === 'tracking:ask')
+    expect(ask).toBeDefined()
+    // Событие несёт текущую рамку цели (от неё рисуется метка точки в интерфейсе).
+    expect(JSON.stringify(ask)).toContain(JSON.stringify({ current: CUR }).slice(1, -1))
     sender.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false })
     await expect(asked).resolves.toBeNull()
     await tick()
@@ -145,7 +150,8 @@ describe('IPC слежения', () => {
           { x: 0, y: 0, w: 0.1, h: 0.2 },
           { x: 0.5, y: 0, w: 0.1, h: 0.2 }
         ],
-        0
+        0,
+        CUR
       )
       return { kind: 'done', samples: [], stop: null, backend: 'wasm' }
     }
@@ -163,7 +169,7 @@ describe('IPC слежения', () => {
     const sender = new FakeSender()
     let answer: number | 'none' | null = -1
     impl = async (o) => {
-      answer = await o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 0)
+      answer = await o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 0, CUR)
       return {
         kind: 'done',
         samples: [[]],
@@ -189,7 +195,7 @@ describe('IPC слежения', () => {
     let seenAnchors = 0
     impl = async (o) => {
       seenAnchors = o.anchors.length
-      answer = await o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 2)
+      answer = await o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 2, CUR)
       return {
         kind: 'done',
         samples: [[], [], []],

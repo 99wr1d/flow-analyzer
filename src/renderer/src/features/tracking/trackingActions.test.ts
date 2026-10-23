@@ -14,6 +14,8 @@ import {
   planTracking,
   planSeconds,
   rememberBackend,
+  footMarker,
+  staleOtherPoints,
   startAskKind,
   stopMessage,
   type TrackPlan
@@ -815,9 +817,7 @@ describe('связка: траектории → ключи points', () => {
       labels: boolean
     }
     expect(back.type).toBe('plink')
-    expect(back.points[0]).toEqual({ x: 12, y: 16 })
-    expect(back.labels).toBe(true)
-    expect(keysOf(back)).toHaveLength(0)
+    expect(back).toEqual(plink)
   })
 })
 
@@ -846,13 +846,36 @@ describe('связка: сообщения', () => {
 
 describe('связка: вопрос на старте', () => {
   it('несколько рамок — выбор; одна рамка — две точки стоят на одном игроке', () => {
-    expect(startAskKind([box, box])).toBe('pick')
-    expect(startAskKind([box])).toBe('same-player')
-    expect(startAskKind(undefined)).toBe('same-player')
+    expect(startAskKind({ candidates: [box, box] })).toBe('pick')
+    expect(startAskKind({ candidates: [box], cause: 'same-player' })).toBe('same-player')
+    expect(startAskKind({ candidates: [box, box], cause: 'same-player' })).toBe('same-player')
+    expect(startAskKind({})).toBe('same-player')
   })
   it('тексты: вопрос по точке и «две точки на одном игроке» с номером', () => {
     expect(ru.tracking.pickPoint(2)).toBe('Точка 2: кто из них ваш? Щёлкните по игроку.')
     expect(ru.tracking.samePlayer(3)).toContain('Точка 3')
     expect(ru.tracking.samePlayer(3)).toContain('одном игроке')
+    expect(ru.tracking.samePlayerPoints(1, 3)).toContain('Точки 1 и 3 стоят на одном игроке')
+  })
+  it('метка в вопросе на ходу: у ног цели с подъёмом как у точек, а не у точки до слежения', () => {
+    const m = footMarker({ x: 0.4, y: 0.3, w: 0.06, h: 0.28 })
+    expect(m.x).toBeCloseTo(0.43, 9)
+    expect(m.y).toBeCloseTo(0.58 - 0.07 * 0.28, 9)
+  })
+})
+
+describe('связка: «Продолжить» после правки одной точки', () => {
+  it('правка одной точки в последнем ключе: остальные стоят по старому ключу — нужна проверка', () => {
+    const a0 = linkOf()
+    const first = applyTrackResult(a0, runs3(1, 3), planOf(a0), { fps: FPS, aspect: 16 / 9 })
+    if (!first.ok) throw new Error(first.reason)
+    expect(staleOtherPoints(first.annotation, FPS)).toBe(false)
+    const at = geomAt(first.annotation, 4.02) as unknown as { points: Pts }
+    const moved = { points: at.points.map((p, i) => (i === 1 ? { x: p.x, y: p.y + 0.02 } : p)) }
+    expect(staleOtherPoints(upsertKey(first.annotation, 4.02, moved, FPS), FPS)).toBe(true)
+    // Правка всех точек сразу или кольцо — подсказки нет.
+    const all = { points: at.points.map((p) => ({ x: p.x, y: p.y + 0.02 })) }
+    expect(staleOtherPoints(upsertKey(first.annotation, 4.02, all, FPS), FPS)).toBe(false)
+    expect(staleOtherPoints(circle(), FPS)).toBe(false)
   })
 })

@@ -213,13 +213,38 @@ export function stopMessage(
 }
 
 /**
- * Вопрос после неудачного старта (ambiguous-start): рамки на выбор или одна рамка. Одна рамка значит, что две точки связки
- * стоят на одном игроке: выбирать нечего, надо развести точки.
+ * Вопрос после неудачного старта (ambiguous-start): выбор из нескольких рамок или «две точки на одном игроке» (cause
+ * same-player от задачи): выбирать нечего, надо развести точки. Меньше двух рамок без причины тоже выбирать не из чего.
  */
-export function startAskKind(
-  candidates: readonly FractionBox[] | undefined
-): 'pick' | 'same-player' {
-  return candidates && candidates.length >= 2 ? 'pick' : 'same-player'
+export function startAskKind(failure: {
+  cause?: 'same-player'
+  candidates?: readonly FractionBox[]
+}): 'pick' | 'same-player' {
+  if (failure.cause === 'same-player') return 'same-player'
+  return failure.candidates && failure.candidates.length >= 2 ? 'pick' : 'same-player'
+}
+
+/** Метка точки в вопросе на ходу: у ног цели (низ её текущей рамки с тем же подъёмом, что у точек связки). */
+export function footMarker(box: FractionBox): Pt {
+  return { x: clamp01(box.x + box.w / 2), y: clamp01(box.y + box.h - FOOT_LIFT * box.h) }
+}
+
+/**
+ * «Продолжить слежение» связки от ручной правки: правилась одна точка, а остальные в этом ключе стоят там, где были на
+ * предыдущем (старом) ключе. Тогда перед продолжением стоит их проверить.
+ */
+export function staleOtherPoints(a: Annotation, fps: number): boolean {
+  if (!isLinkType(a)) return false
+  const keys = keysOf(a)
+  if (keys.length < 2) return false
+  const last = keys[keys.length - 1]
+  const prev = keys[keys.length - 2]
+  if (last.auto || last.t - prev.t < 3 / (fps > 0 ? fps : FALLBACK_FPS)) return false
+  const now = (last.geom as { points?: Pt[] }).points ?? []
+  const old = (prev.geom as { points?: Pt[] }).points ?? []
+  if (now.length !== old.length) return false
+  const same = now.map((p, i) => Math.hypot(p.x - old[i].x, p.y - old[i].y) < 1e-6)
+  return same.some(Boolean) && !same.every(Boolean)
 }
 
 export interface ApplyOptions {

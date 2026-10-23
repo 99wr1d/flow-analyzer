@@ -36,7 +36,13 @@ export interface RunTrackingOptions {
    * Вопрос «Кто из них ваш?» по цели target: индекс выбранной рамки, 'none' («моего игрока тут нет» — стоп на последнем
    * надёжном кадре, причина not-here) или null, если отменили. Остальные цели ждут.
    */
-  onAsk: (t: number, candidates: FractionBox[], target: number) => Promise<TrackingAnswer | null>
+  onAsk: (
+    t: number,
+    candidates: FractionBox[],
+    target: number,
+    /** Где цель сейчас: последняя уверенная рамка (или прогноз, если цель пережидает), доли кадра. */
+    current: FractionBox
+  ) => Promise<TrackingAnswer | null>
 }
 
 export type TrackingOutcome =
@@ -54,6 +60,9 @@ export type TrackingOutcome =
       /** Номер цели, для которой не удался старт. */
       target: number
       candidates?: FractionBox[]
+      /** same-player: рамка цели уже занята другой целью other (а не выбор из нескольких игроков). */
+      cause?: 'same-player'
+      other?: number
     }
   | { kind: 'cancelled' }
 
@@ -203,12 +212,15 @@ function pickStarts(
     if (!start) throw new Error('Не удалось определить игрока на старте')
     const chosen = start
     // Две цели не могут стоять на одной рамке.
-    if (starts.some((s) => converges(s.det.box, chosen.box))) {
+    const taken = starts.findIndex((s) => converges(s.det.box, chosen.box))
+    if (taken >= 0) {
       return {
         kind: 'failed',
         error: 'ambiguous-start',
         target,
-        candidates: [toFraction(chosen.box, fw, fh)]
+        candidates: [toFraction(chosen.box, fw, fh)],
+        cause: 'same-player',
+        other: taken
       }
     }
     starts.push({
@@ -322,7 +334,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         const index = await opts.onAsk(
           frame.t,
           cands.map((d) => toFraction(d.box, fw, fh)),
-          target
+          target,
+          toFraction(tracker.predictBoxes(frame.index)[target], fw, fh)
         )
         if (signal.aborted) return { kind: 'cancelled' }
         if (index === 'none') {

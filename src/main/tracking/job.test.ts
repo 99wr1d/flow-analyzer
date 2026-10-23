@@ -205,14 +205,18 @@ describe('runTrackingJob', () => {
       if (f < 42) return [a(f), a(f)]
       return [mine(f), other(f)]
     }, calls)
-    const asks: Array<{ t: number; n: number }> = []
+    const asks: Array<{
+      t: number
+      n: number
+      cur: { x: number; y: number; w: number; h: number }
+    }> = []
     const out = await runTrackingJob(
       options({
         frames: frames(100),
         createDetector: () => Promise.resolve(det),
         anchors: [{ x: 100 / W, y: 270 / H }],
-        onAsk: (t, candidates) => {
-          asks.push({ t, n: candidates.length })
+        onAsk: (t, candidates, _target, cur) => {
+          asks.push({ t, n: candidates.length, cur })
           // «мой» — тот, что ниже (больше y)
           const idx = candidates.findIndex((c) => c.y > 250 / H)
           return Promise.resolve(idx)
@@ -221,6 +225,10 @@ describe('runTrackingJob', () => {
     )
     expect(asks).toHaveLength(1)
     expect(asks[0].n).toBe(2)
+    // Вопрос несёт текущую рамку цели: она ушла от старта (x 100 → ~190) и стоит там, где игрок на кадре вопроса.
+    const f0 = Math.round(asks[0].t * FPS - 0.5)
+    expect(asks[0].cur.x + asks[0].cur.w / 2).toBeCloseTo((100 + 3 * f0) / W, 1)
+    expect(asks[0].cur.y + asks[0].cur.h).toBeCloseTo((270 + 45) / H, 1)
     expect(out.kind).toBe('done')
     if (out.kind !== 'done') return
     expect(out.samples[0]).toHaveLength(100)
@@ -544,7 +552,13 @@ describe('runTrackingJob: несколько целей', () => {
         ]
       })
     )
-    expect(out).toMatchObject({ kind: 'failed', error: 'ambiguous-start', target: 1 })
+    expect(out).toMatchObject({
+      kind: 'failed',
+      error: 'ambiguous-start',
+      target: 1,
+      cause: 'same-player',
+      other: 0
+    })
   })
 
   it('нет игрока под вторым рисунком: no-player с номером цели', async () => {

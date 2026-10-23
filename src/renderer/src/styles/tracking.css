@@ -80,9 +80,8 @@
 }
 .pick-none {
   position: absolute;
-  top: 56px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: 12px;
+  left: 12px;
 }
 /* Подсветка точки связки, о которой вопрос: яркое кольцо с номером. */
 .pick-point {

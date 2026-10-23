@@ -14,10 +14,12 @@ import { geomAt } from '../../../../shared/animation'
 import {
   anchorsOfGeom,
   applyTrackResult,
+  footMarker,
   isLinkType,
   planSeconds,
   rememberBackend,
   planTracking,
+  staleOtherPoints,
   startAskKind,
   stopMessage,
   type PlanFailure,
@@ -124,7 +126,7 @@ export function answerPick(answer: PickAnswer): void {
   running?.answerPick?.(answer)
 }
 
-/** Где точка связки стоит на кадре t: ею подсвечивается точка на картинке. Для одиночного слежения — null. */
+/** Где точка связки стоит на стартовом кадре (якорь): ею подсвечивается точка на картинке. Для одиночного слежения — null. */
 function markerOf(plan: TrackPlan, target: number, t: number): { x: number; y: number } | null {
   if (!isLinkType(plan.base)) return null
   return anchorsOfGeom(plan.base, geomAt(plan.base, t))[target] ?? null
@@ -181,7 +183,8 @@ function runJob(
         useTrackingStore.getState().setPick({
           candidates: ask.candidates,
           point: link ? ask.target : null,
-          marker: markerOf(plan, ask.target, ask.t)
+          // Метка — у ног цели на кадре вопроса (текущая рамка из задачи), а не там, где связка нарисована до слежения.
+          marker: link ? footMarker(ask.current) : null
         })
       } else if (ev.done.jobId === job.jobId) {
         job.finish({ kind: 'done', done: ev.done })
@@ -329,6 +332,12 @@ export async function startTracking(annotationId: string): Promise<void> {
     getVideoElement()?.pause()
     const seconds = planSeconds(plan, player.fps)
     if (seconds > LONG_SECONDS && !(await confirmOnce(ru.tracking.longWarning(seconds)))) return
+    if (
+      plan.mode === 'continue' &&
+      staleOtherPoints(plan.base, player.fps) &&
+      !(await confirmOnce(ru.tracking.checkOthers))
+    )
+      return
     if (plan.replaceCount > 0 && !(await confirmOnce(ru.tracking.replaceManual(plan.replaceCount))))
       return
 
@@ -340,9 +349,14 @@ export async function startTracking(annotationId: string): Promise<void> {
         break
       const failure = end.done
       const target = failure.target
-      if (startAskKind(failure.candidates) === 'same-player') {
-        // Одна рамка: две точки связки стоят на одном игроке — выбирать нечего.
-        warn(ru.tracking.samePlayer(target + 1), LONG_TOAST_MS)
+      if (startAskKind(failure) === 'same-player') {
+        // Две точки связки стоят на одном игроке — выбирать нечего.
+        warn(
+          failure.other === undefined
+            ? ru.tracking.samePlayer(target + 1)
+            : ru.tracking.samePlayerPoints(failure.other + 1, target + 1),
+          LONG_TOAST_MS
+        )
         return
       }
       // Эта цель уже отвечена, а старт опять неоднозначен: дальше спрашивать бесполезно.

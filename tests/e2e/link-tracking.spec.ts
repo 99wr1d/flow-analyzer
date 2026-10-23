@@ -18,6 +18,8 @@ const STUB = { FLOW_DETECTOR_STUB: '1' }
 const THREE = fixture('stub-three.json')
 const THREE_LOST = fixture('stub-three-lost.json')
 const ASK = fixture('stub-three-ask.json')
+/** То же, но средний игрок бежит быстро (0.08 кадра/с): к вопросу (≈ 2.2 с) он далеко от места, где стояла точка. */
+const ASK_FAST = fixture('stub-three-ask-fast.json')
 const AMBIGUOUS = fixture('stub-three-ambiguous.json')
 
 const shot = (win: Page, name: string): Promise<Buffer> =>
@@ -90,6 +92,11 @@ const AT_ONE_THREE: Frac[] = [
   [0.68, 0.94]
 ]
 /** stub-three-ask.json на секунде 1 (игроки движутся медленнее). */
+const AT_ONE_ASK_FAST: Frac[] = [
+  [0.15, 0.3],
+  [0.51, 0.62],
+  [0.83, 0.94]
+]
 const AT_ONE_ASK: Frac[] = [
   [0.15, 0.3],
   [0.45, 0.62],
@@ -174,10 +181,10 @@ test.describe('связка: следить за игроками (заглуш�
   })
 
   test('вопрос на ходу по точке 2: «Точка 2: кто из них ваш?», подсвечена точка 2; ответ — слежение идёт за выбранным', async () => {
-    const ctx = await openStub(ASK)
+    const ctx = await openStub(ASK_FAST)
     const { app, win } = ctx
     try {
-      await drawLink(win, AT_ONE_ASK)
+      await drawLink(win, AT_ONE_ASK_FAST)
       const before = await pointsOf(win)
       await win.getByTestId('track-button').click()
       await expect(win.getByTestId('pick-overlay')).toBeVisible({ timeout: 30_000 })
@@ -189,13 +196,17 @@ test.describe('связка: следить за игроками (заглуш�
       await expect(mark).toHaveCount(1)
       await expect(mark).toHaveAttribute('data-point', '2')
       await expect(mark).toHaveText('2')
-      // Метка стоит на точке 2 связки (в рисунке она ещё не сдвинута слежением).
+      // Метка стоит у ног цели на кадре вопроса (где игрок сейчас), а не там, где точка была до слежения.
+      const askT = await win.evaluate(() => document.querySelector('video')!.currentTime)
+      expect(askT).toBeGreaterThan(1.8)
       const layer = (await win.getByTestId('annotation-layer').boundingBox())!
       const m = (await mark.boundingBox())!
       const cx = (m.x + m.width / 2 - layer.x) / layer.width
       const cy = (m.y + m.height / 2 - layer.y) / layer.height
-      expect(Math.abs(cx - before[1].x)).toBeLessThan(0.01)
-      expect(Math.abs(cy - before[1].y)).toBeLessThan(0.01)
+      expect(Math.abs(cx - (0.4 + 0.08 * askT + 0.03))).toBeLessThan(0.04)
+      expect(Math.abs(cy - (0.64 - 0.07 * 0.28))).toBeLessThan(0.03)
+      // и далеко от прежнего места точки 2 (рисунок слежением ещё не тронут)
+      expect(cx - before[1].x).toBeGreaterThan(0.07)
       await expect(win.getByTestId('pick-box')).toHaveCount(2)
       await shot(win, 'ask-point-2')
       // Выбираем нижнего двойника (рамка ниже на экране).
@@ -281,7 +292,7 @@ test.describe('связка: следить за игроками (заглуш�
       await drawLink(win, [AT_ONE_THREE[0], [0.18, 0.28], AT_ONE_THREE[2]])
       const before = await pointsOf(win)
       await win.getByTestId('track-button').click()
-      await expect(toast(win)).toContainText('Точка 2 стоит на одном игроке с другой точкой', {
+      await expect(toast(win)).toContainText('Точки 1 и 2 стоят на одном игроке', {
         timeout: 30_000
       })
       await expect(win.getByTestId('pick-overlay')).toHaveCount(0)
@@ -393,6 +404,9 @@ test.describe('связка: следить за игроками (заглуш�
       await expect(win.getByTestId('track-button')).toHaveAttribute('data-mode', 'continue')
       const runs = await runsOf(win)
       await win.getByTestId('track-button').click()
+      // Правилась одна точка: остальные стоят по старому ключу — перед продолжением просят их проверить.
+      await expect(win.getByTestId('tracking-confirm-text')).toContainText('Проверьте их')
+      await win.getByTestId('tracking-confirm-yes').click()
       // Последний ключ — правка тренера: слежение продолжается от неё, точка 2 стоит на ногах нижнего двойника — вопроса нет.
       await waitRun(win, runs)
       await expect(toast(win)).toContainText('Слежение готово')

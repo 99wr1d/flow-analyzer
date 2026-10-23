@@ -21,7 +21,10 @@ export const TrackingStartSchema = z
     from: z.number().finite().min(0),
     to: z.number().finite().min(0),
     /** Щелчки по целям (по одному на игрока): одиночное слежение — один якорь. */
-    anchors: z.array(z.object({ x: fraction, y: fraction })).min(1).max(MAX_TRACK_TARGETS),
+    anchors: z
+      .array(z.object({ x: fraction, y: fraction }))
+      .min(1)
+      .max(MAX_TRACK_TARGETS),
     /** Рамки, выбранные щелчком после ambiguous-start (доли кадра), по номеру цели; null — для цели выбора не было. */
     picks: z.array(fractionBox.nullable()).max(MAX_TRACK_TARGETS).optional()
   })
@@ -81,6 +84,8 @@ export interface TrackingAsk {
   /** Номер цели, по которой вопрос; остальные цели ждут ответа. */
   target: number
   candidates: FractionBox[]
+  /** Где цель сейчас (последняя уверенная рамка или прогноз, если она пережидает), доли кадра: от неё рисуется метка точки. */
+  current: FractionBox
 }
 
 export type TrackingDone =
@@ -98,6 +103,9 @@ export type TrackingDone =
       /** Номер цели, для которой не удался старт. */
       target: number
       candidates?: FractionBox[]
+      /** same-player: у цели та же рамка, что у цели other (две точки на одном игроке), выбирать нечего. */
+      cause?: 'same-player'
+      other?: number
     }
   | { jobId: string; error: 'failed'; message: string }
 

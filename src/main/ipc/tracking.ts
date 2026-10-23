@@ -160,7 +160,7 @@ async function startTracking(
             lastProgress = now
             send(IPC_EVENTS.trackingProgress, { jobId: job.id, done, total })
           },
-          onAsk: (t, candidates: FractionBox[], target) =>
+          onAsk: (t, candidates: FractionBox[], target, current: FractionBox) =>
             new Promise<TrackingAnswer | null>((resolve) => {
               if (controller.signal.aborted) return resolve(null)
               job.asking = {
@@ -171,7 +171,7 @@ async function startTracking(
                   resolve(index)
                 }
               }
-              send(IPC_EVENTS.trackingAsk, { jobId: job.id, t, target, candidates })
+              send(IPC_EVENTS.trackingAsk, { jobId: job.id, t, target, candidates, current })
             })
         })
         if (outcome.kind === 'done') {
@@ -186,7 +186,8 @@ async function startTracking(
             jobId: job.id,
             error: outcome.error,
             target: outcome.target,
-            ...(outcome.candidates ? { candidates: outcome.candidates } : {})
+            ...(outcome.candidates ? { candidates: outcome.candidates } : {}),
+            ...(outcome.cause ? { cause: outcome.cause, other: outcome.other } : {})
           }
         }
       } catch (error) {
