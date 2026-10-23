@@ -1,7 +1,7 @@
 // Слежение: отправка ответа на «Кто из них ваш?». Отклонённый ответ не должен оставлять задачу висеть молча.
 
 export interface AnswerApi {
-  resolveTracking(jobId: string, index: number, target?: number): Promise<void>
+  resolveTracking(jobId: string, index: number | 'none', target?: number): Promise<void>
   cancelTracking(jobId: string): Promise<void>
 }
 

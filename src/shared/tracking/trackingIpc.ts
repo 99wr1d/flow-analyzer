@@ -30,12 +30,18 @@ export const TrackingStartSchema = z
 
 export const TrackingResolveSchema = z.object({
   jobId: z.string().min(1).max(100),
-  /** Номер варианта в списке вопроса (не больше ASK_MAX_CANDIDATES_TOTAL вариантов). */
-  index: z
-    .number()
-    .int()
-    .min(0)
-    .max(ASK_MAX_CANDIDATES_TOTAL - 1),
+  /**
+   * Номер варианта в списке вопроса (не больше ASK_MAX_CANDIDATES_TOTAL вариантов) либо 'none' — «моего игрока тут нет»:
+   * слежение останавливается на последнем надёжном кадре.
+   */
+  index: z.union([
+    z
+      .number()
+      .int()
+      .min(0)
+      .max(ASK_MAX_CANDIDATES_TOTAL - 1),
+    z.literal('none')
+  ]),
   /** Цель, на вопрос по которой отвечаем (должна совпасть с задаваемой); без неё — цель 0 (одиночное слежение). */
   target: z
     .number()
@@ -57,7 +63,11 @@ export interface FractionBox {
   h: number
 }
 
-export type StopReason = 'cut' | 'out' | 'occluded'
+/** not-here — пользователь ответил «моего игрока тут нет». */
+export type StopReason = 'cut' | 'out' | 'occluded' | 'not-here'
+
+/** Ответ на вопрос «Кто из них ваш?»: номер варианта или «моего игрока тут нет». */
+export type TrackingAnswer = number | 'none'
 
 export interface TrackingProgress {
   jobId: string

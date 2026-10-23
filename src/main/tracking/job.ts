@@ -4,7 +4,7 @@
 import { converges, MultiTracker, type MultiStart } from '../../shared/tracking/multi'
 import { iou, pickStart } from '../../shared/tracking/tracker'
 import type { TrackSample } from '../../shared/tracking/keys'
-import type { FractionBox, StopReason } from '../../shared/tracking/trackingIpc'
+import type { FractionBox, StopReason, TrackingAnswer } from '../../shared/tracking/trackingIpc'
 import type { Box, Detection } from '../../shared/tracking/types'
 import type { DecodedFrame } from './frames'
 import type { Detector } from './detectorWindow'
@@ -32,8 +32,11 @@ export interface RunTrackingOptions {
   /** Создание прерывается сигналом: при отмене окно-детектор уничтожается, обещание отклоняется. */
   createDetector: (signal: AbortSignal) => Promise<Detector>
   onProgress?: (done: number, total: number) => void
-  /** Вопрос «Кто из них ваш?» по цели target: индекс выбранной рамки или null, если отменили. Остальные цели ждут. */
-  onAsk: (t: number, candidates: FractionBox[], target: number) => Promise<number | null>
+  /**
+   * Вопрос «Кто из них ваш?» по цели target: индекс выбранной рамки, 'none' («моего игрока тут нет» — стоп на последнем
+   * надёжном кадре, причина not-here) или null, если отменили. Остальные цели ждут.
+   */
+  onAsk: (t: number, candidates: FractionBox[], target: number) => Promise<TrackingAnswer | null>
 }
 
 export type TrackingOutcome =
@@ -170,6 +173,28 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     let ordinal = 0
     // Последний уверенный (не «пережидаемый») отсчёт каждой цели: при потере всё после него — догадки по прогнозу.
     const lastGood: Array<{ len: number; t: number } | null> = opts.anchors.map(() => null)
+    /** Номер кадра каждого отсчёта (у всех целей одинаковые). */
+    const sampleFrames: number[] = []
+    /** Стоп: все цели обрезаются до общей длины len (последний надёжный кадр у всех). */
+    const stopAt = (len: number, t: number, reason: StopReason, target: number): TrackingOutcome => ({
+      kind: 'done',
+      samples: samples.map((s) => s.slice(0, len)),
+      stop: { t, reason, target },
+      backend: (detector as Detector).backend
+    })
+    /** Самый ранний «последний уверенный» отсчёт среди целей: длина и время. */
+    const commonGood = (fallbackT: number): { len: number; t: number } => {
+      let len = Infinity
+      let t = fallbackT
+      for (const g of lastGood) {
+        const l = g?.len ?? 0
+        if (l < len) {
+          len = l
+          t = g?.t ?? fallbackT
+        }
+      }
+      return { len, t }
+    }
 
     for (;;) {
       const next = await iterator.next()
@@ -219,6 +244,18 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           target
         )
         if (signal.aborted) return { kind: 'cancelled' }
+        if (index === 'none') {
+          // «Моего игрока тут нет»: стоп на последнем надёжном кадре. У спрошенной цели это кадр перед её последним
+          // недоказанным возвращением (перед вопросом могла быть короткая подмена на неотличимом новичке).
+          let { len, t } = commonGood(frame.t)
+          const proven = tracker.provenUntil(target)
+          const keep = proven === null ? 0 : sampleFrames.filter((f) => f <= proven).length
+          if (keep < len) {
+            len = keep
+            t = keep > 0 ? samples[target][keep - 1].t : frame.t
+          }
+          return stopAt(len, t, 'not-here', target)
+        }
         // Пустой или неверный ответ без отмены — сбой: интерфейс не должен ждать итога вечно.
         const chosen = index === null ? undefined : cands[index]
         if (!chosen) throw new Error('Не удалось определить выбранного игрока')
@@ -227,23 +264,11 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       }
       if (step.kind === 'lost') {
         // Стоп — на последнем кадре, где уверены все цели (спека, п. 8): отсчёты «пережидания» после него отбрасываем.
-        let len = Infinity
-        let t = frame.t
-        for (const g of lastGood) {
-          const l = g?.len ?? 0
-          if (l < len) {
-            len = l
-            t = g?.t ?? frame.t
-          }
-        }
-        return {
-          kind: 'done',
-          samples: samples.map((s) => s.slice(0, len)),
-          stop: { t, reason: step.reason, target: step.target },
-          backend: detector.backend
-        }
+        const { len, t } = commonGood(frame.t)
+        return stopAt(len, t, step.reason, step.target)
       }
       coasting = step.coasting.some(Boolean)
+      sampleFrames.push(frame.index)
       step.boxes.forEach((box, i) => {
         samples[i].push(boxToSample(box, frame.t, fw, fh))
         if (!step.coasting[i]) lastGood[i] = { len: samples[i].length, t: frame.t }

@@ -114,7 +114,7 @@ describe('IPC слежения', () => {
 
   it('вопрос без ответа: уход страницы завершает ожидание, слушатели сняты', async () => {
     const sender = new FakeSender()
-    let asked: Promise<number | null> | null = null
+    let asked: Promise<number | 'none' | null> | null = null
     impl = async (o) => {
       asked = o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 0)
       const index = await asked
@@ -137,7 +137,7 @@ describe('IPC слежения', () => {
 
   it('ответ на вопрос: неверный индекс отклоняется, верный доходит до задачи', async () => {
     const sender = new FakeSender()
-    let answer: number | null = -1
+    let answer: number | 'none' | null = -1
     impl = async (o) => {
       answer = await o.onAsk(
         1,
@@ -159,9 +159,33 @@ describe('IPC слежения', () => {
     expect(sender.done()).toHaveLength(1)
   })
 
+  it('ответ «моего тут нет»: index none доходит до задачи; прочие нечисловые ответы отклоняются', async () => {
+    const sender = new FakeSender()
+    let answer: number | 'none' | null = -1
+    impl = async (o) => {
+      answer = await o.onAsk(1, [{ x: 0, y: 0, w: 0.1, h: 0.2 }], 0)
+      return {
+        kind: 'done',
+        samples: [[]],
+        stop: { t: 0.5, reason: 'not-here', target: 0 },
+        backend: 'wasm'
+      }
+    }
+    const jobId = await start(sender)
+    await tick()
+    expect((await call('tracking:resolve', sender, { jobId, index: 'nobody' })).ok).toBe(false)
+    expect((await call('tracking:resolve', sender, { jobId, index: -1 })).ok).toBe(false)
+    expect((await call('tracking:resolve', sender, { jobId, index: 'none', target: 0 })).ok).toBe(
+      true
+    )
+    await tick()
+    expect(answer).toBe('none')
+    expect(sender.done()[0]).toMatchObject({ payload: { stop: { reason: 'not-here', target: 0 } } })
+  })
+
   it('вопрос по цели: событие несёт target, ответ другой цели отклоняется, нужной — доходит', async () => {
     const sender = new FakeSender()
-    let answer: number | null = -1
+    let answer: number | 'none' | null = -1
     let seenAnchors = 0
     impl = async (o) => {
       seenAnchors = o.anchors.length

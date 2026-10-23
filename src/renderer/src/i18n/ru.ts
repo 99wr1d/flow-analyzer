@@ -646,7 +646,8 @@ export const ru = {
     reasons: {
       cut: 'смена плана',
       out: 'вышел из кадра',
-      occluded: 'закрыт другими игроками'
+      occluded: 'закрыт другими игроками',
+      'not-here': 'вы отметили, что вашего игрока на кадре нет'
     } as Record<string, string>,
     diverged: (time: string): string => `Слежение расходится с вашей правкой на ${time}.`,
     pitchToScreen:

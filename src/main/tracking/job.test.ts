@@ -707,3 +707,73 @@ describe('estimateSeconds', () => {
     expect(estimateSeconds(-1, 'wasm')).toBe(0)
   })
 })
+
+describe('runTrackingJob: ответ «моего игрока тут нет»', () => {
+  it('стоп not-here: все цели обрезаны до последнего надёжного кадра, длины равны', async () => {
+    const a = (f: number): Detection => person(100 + 3 * f, 270)
+    const calm = (f: number): Detection => person(100 + 3 * f, 450, 1)
+    const det = scripted((f) => {
+      if (f < 30) return [a(f), calm(f)]
+      if (f < 42) return [a(f), a(f), calm(f)]
+      return [person(100 + 3 * f, 320), person(100 + 3 * f, 220), calm(f)]
+    })
+    const asks: number[] = []
+    const out = await runTrackingJob(
+      options({
+        frames: frames(100),
+        createDetector: () => Promise.resolve(det),
+        anchors: [
+          { x: 100 / W, y: 270 / H },
+          { x: 100 / W, y: 450 / H }
+        ],
+        onAsk: (_t, _c, target) => {
+          asks.push(target)
+          return Promise.resolve('none')
+        }
+      })
+    )
+    expect(asks).toEqual([0])
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(out.stop).toMatchObject({ reason: 'not-here', target: 0 })
+    // цель 0 последний раз уверена на кадре 29 (дальше её рамка двоится): всё после — догадки, обрезаются у всех
+    expect(out.samples[0]).toHaveLength(30)
+    expect(out.samples[1]).toHaveLength(30)
+    expect(out.stop?.t).toBeCloseTo((29 + 0.5) / FPS, 9)
+  })
+
+  it('короткая подмена перед вопросом отрезается: обрезка до кадра перед недоказанным возвращением', async () => {
+    // Цель стоит после кадра 22; её рамка пропадает на кадрах 20–31; на кадре 22 рядом (dx=20) выходит игрок той же
+    // формы и идёт дальше — неотличим от своего (в пределах разброса прогноза), кольцо уходит на него. На кадре 32 свой
+    // снова виден — вопрос; ответ «моего тут нет»: кадры на чужом (после возвращения) выброшены.
+    const own = (f: number): number => 300 + 2 * Math.min(f, 22)
+    const other = (f: number): number => 300 + 2 * f + 20
+    const det = scripted((f) => {
+      const out: Detection[] = []
+      if (f < 20 || f >= 32) out.push(person(own(f), 270))
+      if (f >= 22) out.push(person(other(f), 270))
+      return out
+    })
+    const asked: number[] = []
+    const out = await runTrackingJob(
+      options({
+        frames: frames(60),
+        createDetector: () => Promise.resolve(det),
+        anchors: [{ x: 300 / W, y: 300 / H }],
+        onAsk: (t) => {
+          asked.push(Math.round(t * FPS - 0.5))
+          return Promise.resolve('none')
+        }
+      })
+    )
+    expect(out.kind).toBe('done')
+    if (out.kind !== 'done') return
+    expect(asked.length).toBe(1)
+    expect(out.stop).toMatchObject({ reason: 'not-here', target: 0 })
+    // ни одного оставленного кадра на чужом игроке
+    for (const [k, s] of out.samples[0].entries()) {
+      expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k}`).toBeLessThan(10)
+    }
+    expect(out.samples[0].length).toBeLessThanOrEqual(22)
+  })
+})

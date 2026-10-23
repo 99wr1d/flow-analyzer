@@ -143,6 +143,11 @@ export class MultiTracker {
    * с ней — сомнение (см. newcomerDoubt).
    */
   private readonly recoveredAt: Array<number | null>
+  /**
+   * Кадр последнего возвращения цели после пропуска, не подтверждённого ответом пользователя (в отличие от recoveredAt
+   * не сбрасывается вопросом): рамки с этого кадра могут быть на неотличимом новичке (см. provenUntil).
+   */
+  private readonly unprovenSince: Array<number | null>
   /** Безымянные игроки той же формы рядом с целями (см. Ghost). */
   private ghosts: Ghost[] = []
   private readonly lostFrames: number
@@ -155,6 +160,7 @@ export class MultiTracker {
     this.lastConf = starts.map((s) => ({ ...s.det.box }))
     this.lastConfIndex = starts.map(() => null)
     this.recoveredAt = starts.map(() => null)
+    this.unprovenSince = starts.map(() => null)
     this.lostFrames = Math.max(1, Math.round(LOST_SECONDS * fps))
   }
 
@@ -165,6 +171,17 @@ export class MultiTracker {
   /** Примета цели (только чтение; для проверок). */
   lookOf(target: number): Float32Array {
     return this.trackers[target].appearance
+  }
+
+  /**
+   * До какого кадра (номер, включительно) рамкам цели можно верить: до кадра перед последним возвращением после пропуска,
+   * не подтверждённым ответом (короткая подмена на неотличимом новичке могла начаться там), иначе — до последнего
+   * уверенного кадра. null — уверенных кадров ещё не было. Только чтение (для ответа «моего тут нет»).
+   */
+  provenUntil(target: number): number | null {
+    const since = this.unprovenSince[target]
+    if (since !== null) return since - 1
+    return this.lastConfIndex[target]
   }
 
   /** Где каждая цель ожидается на кадре index (для выреза детектора). */
@@ -202,6 +219,7 @@ export class MultiTracker {
     this.trackers[target].resolve(det)
     this.chains[target] = null
     this.recoveredAt[target] = null
+    this.unprovenSince[target] = null
     // Ответ снимает подозрение, но не забывает соседей: подозреваемые цели остаются обычными безымянными следами
     // (иначе на следующем кадре, если её рамка пропадёт, сосед рядом прошёл бы молча — ответ обнуляет скорость Калмана).
     // След, сидевший на выбранной рамке (по месту, без допуска давности), — это сама цель: он удаляется.
@@ -1008,7 +1026,10 @@ export class MultiTracker {
         if (!s.coasting) {
           const f = this.frame?.index ?? null
           const prev = this.lastConfIndex[i]
-          if (f !== null && prev !== null && prev < f - 1) this.recoveredAt[i] = f
+          if (f !== null && prev !== null && prev < f - 1) {
+            this.recoveredAt[i] = f
+            this.unprovenSince[i] = f
+          }
           this.lastConf[i] = { ...s.box }
           this.lastConfIndex[i] = f
         }

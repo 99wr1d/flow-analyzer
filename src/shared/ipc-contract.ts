@@ -197,7 +197,8 @@ export interface FlowApi {
    * resolveTracking. Отмена и закрытие окна останавливают расчёт без события tracking:done. Ошибка (reject) — запрос отклонён.
    */
   startTracking(request: TrackingStartRequest): Promise<{ jobId: string }>
-  resolveTracking(jobId: string, index: number, target?: number): Promise<void>
+  /** index — номер варианта или 'none' («моего игрока тут нет»: стоп на последнем надёжном кадре, причина not-here). */
+  resolveTracking(jobId: string, index: number | 'none', target?: number): Promise<void>
   cancelTracking(jobId: string): Promise<void>
   onTrackingProgress(callback: (progress: TrackingProgress) => void): () => void
   onTrackingAsk(callback: (ask: TrackingAsk) => void): () => void

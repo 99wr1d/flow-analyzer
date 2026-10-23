@@ -9,6 +9,7 @@ import {
   TrackingResolveSchema,
   TrackingStartSchema,
   type FractionBox,
+  type TrackingAnswer,
   type TrackingDone
 } from '../../shared/tracking/trackingIpc'
 import { getFfmpegPath } from '../ffmpeg/path'
@@ -46,7 +47,11 @@ interface ActiveJob {
   controller: AbortController
   done: Promise<void>
   /** Ждущий ответа вопрос: по какой цели, сколько вариантов и как его завершить. */
-  asking: { target: number; count: number; answer: (index: number | null) => void } | null
+  asking: {
+    target: number
+    count: number
+    answer: (index: TrackingAnswer | null) => void
+  } | null
 }
 
 let active: ActiveJob | null = null
@@ -156,7 +161,7 @@ async function startTracking(
             send(IPC_EVENTS.trackingProgress, { jobId: job.id, done, total })
           },
           onAsk: (t, candidates: FractionBox[], target) =>
-            new Promise<number | null>((resolve) => {
+            new Promise<TrackingAnswer | null>((resolve) => {
               if (controller.signal.aborted) return resolve(null)
               job.asking = {
                 target,
@@ -220,10 +225,14 @@ export function registerTrackingHandlers(): void {
     if (!job || job.id !== parsed.data.jobId || !job.asking) {
       return { ok: false, error: TRACKING_IPC_ERRORS.unknownJob }
     }
-    if (parsed.data.target !== job.asking.target || parsed.data.index >= job.asking.count) {
+    const index = parsed.data.index
+    if (
+      parsed.data.target !== job.asking.target ||
+      (index !== 'none' && index >= job.asking.count)
+    ) {
       return { ok: false, error: TRACKING_IPC_ERRORS.badAnswer }
     }
-    job.asking.answer(parsed.data.index)
+    job.asking.answer(index)
     return OK
   })
 
