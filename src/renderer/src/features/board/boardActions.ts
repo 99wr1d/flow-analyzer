@@ -6,9 +6,11 @@ import { LEAD_IN, boardDuration } from '../../../../shared/board/resolve'
 import { newBoard, type Board } from '../../../../shared/board/schema'
 import { useViewStore } from '../../app/viewStore'
 import { ru } from '../../i18n/ru'
+import { askUnsaved } from '../project/unsavedStore'
 import { renderBoardPng, renderBoardThumb, renderBoardVideoFrames } from './boardRender'
 import { useBoardStore } from './boardStore'
 import { useBoardUi, type BoardJob } from './boardUi'
+import { leavePlan } from './leave'
 import { beginVideoJob, cancelCurrentVideoJob, endVideoJob, isCurrentVideoJob } from './videoJob'
 import { logError } from '../../app/errorLog'
 
@@ -43,7 +45,7 @@ export function applyBoard(fn: (b: Board) => Board): boolean {
 
 // --- Документ ---
 
-/** Открывает новую пустую доску (кнопка «Новая доска» появится на начальном экране в Task 12). */
+/** Открывает новую пустую доску (кнопка «Новая доска» на начальном экране). */
 export function openNewBoard(): void {
   stopBoardPlay()
   ui().reset()
@@ -51,8 +53,40 @@ export function openNewBoard(): void {
   useViewStore.getState().setView('board')
 }
 
-/** «← Главная». Task 12 добавит вопрос о несохранённых изменениях. */
-export async function goHome(): Promise<void> {
+/** Читает файл доски и открывает его. Возвращает текст ошибки по-русски или null, если открылось. */
+export async function loadBoardFromFile(path: string): Promise<string | null> {
+  try {
+    const result = await window.api.openBoard(path)
+    if (!result.ok) return russianMessage(result.message, ru.board.unreadable)
+    stopBoardPlay()
+    ui().reset()
+    store().load(result.board, result.path)
+    useViewStore.getState().setView('board')
+    return null
+  } catch (error) {
+    return messageOf(error)
+  }
+}
+
+/**
+ * Перед тем как закрыть доску: если есть несохранённое — спрашивает «Сохранить изменения?».
+ * true — можно уходить (сохранено или решено не сохранять), false — пользователь отменил или сохранить не вышло.
+ */
+export async function confirmLeaveBoard(): Promise<boolean> {
+  const plan = leavePlan({
+    onBoard: store().board !== null,
+    dirty: store().dirty,
+    videoRunning: false
+  })
+  if (!plan.askSave) return true
+  const choice = await askUnsaved()
+  if (choice === 'cancel') return false
+  if (choice === 'save') return saveBoard()
+  return true
+}
+
+/** Закрывает доску без вопросов и показывает начальный экран. */
+export async function closeBoard(): Promise<void> {
   stopBoardPlay()
   // Уходим с доски — сохранение видео отменяется (иначе оно осталось бы без хода и «Отмены»).
   cancelVideo()
@@ -60,6 +94,12 @@ export async function goHome(): Promise<void> {
   useViewStore.getState().setView('start')
   store().reset()
   ui().reset()
+}
+
+/** «← Главная»: спрашивает про несохранённое и закрывает доску. */
+export async function goHome(): Promise<void> {
+  if (!(await confirmLeaveBoard())) return
+  await closeBoard()
 }
 
 let saving = false

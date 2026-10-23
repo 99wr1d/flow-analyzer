@@ -1,12 +1,24 @@
 import { useEffect, useRef } from 'react'
 import { ru } from '../../i18n/ru'
+import { useViewStore } from '../../app/viewStore'
+import { useBoardStore } from '../board/boardStore'
 import { useProjectStore } from './projectStore'
 import { answerUnsaved, useUnsavedStore } from './unsavedStore'
 
 /** Модальное окно «Сохранить изменения в проекте?». Esc — отмена, Tab не выпускает фокус наружу. */
 export function UnsavedDialog(): React.JSX.Element | null {
   const open = useUnsavedStore((s) => s.open)
-  const name = useProjectStore((s) => s.name)
+  const kind = useUnsavedStore((s) => s.kind)
+  const onBoard = useViewStore((s) => s.view === 'board')
+  const projectName = useProjectStore((s) => s.name)
+  const boardTitle = useBoardStore((s) => s.board?.title ?? '')
+  const video = kind === 'video'
+  const title = video
+    ? ru.board.videoCloseTitle
+    : onBoard
+      ? ru.board.unsavedTitle(boardTitle)
+      : ru.project.unsavedTitle(projectName)
+  const text = video ? ru.board.videoCloseText : ru.project.unsavedText
   const dialogRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -56,10 +68,10 @@ export function UnsavedDialog(): React.JSX.Element | null {
       >
         <div className="modal__body modal__body--prompt">
           <h2 id="unsaved-title" className="modal__title">
-            {ru.project.unsavedTitle(name)}
+            {title}
           </h2>
           <p id="unsaved-text" className="modal__text">
-            {ru.project.unsavedText}
+            {text}
           </p>
         </div>
         <footer className="modal__foot modal__foot--end">
@@ -69,7 +81,7 @@ export function UnsavedDialog(): React.JSX.Element | null {
             data-testid="unsaved-cancel"
             onClick={() => answerUnsaved('cancel')}
           >
-            {ru.project.unsavedCancel}
+            {video ? ru.board.videoCloseKeep : ru.project.unsavedCancel}
           </button>
           <button
             type="button"
@@ -77,17 +89,19 @@ export function UnsavedDialog(): React.JSX.Element | null {
             data-testid="unsaved-discard"
             onClick={() => answerUnsaved('discard')}
           >
-            {ru.project.unsavedDiscard}
+            {video ? ru.board.videoCloseStop : ru.project.unsavedDiscard}
           </button>
-          <button
-            type="button"
-            className="btn btn--primary"
-            data-autofocus
-            data-testid="unsaved-save"
-            onClick={() => answerUnsaved('save')}
-          >
-            {ru.project.unsavedSave}
-          </button>
+          {!video && (
+            <button
+              type="button"
+              className="btn btn--primary"
+              data-autofocus
+              data-testid="unsaved-save"
+              onClick={() => answerUnsaved('save')}
+            >
+              {ru.project.unsavedSave}
+            </button>
+          )}
         </footer>
       </div>
     </div>

@@ -12,6 +12,7 @@ import {
   modifiedKey
 } from './cardsView'
 import { useDialogsStore } from './dialogsStore'
+import { useMenuBehavior } from './useMenuBehavior'
 import { locateCard, openCard, removeCard, revealCard } from './libraryActions'
 
 /** Эскиз приходит байтами: из них собирается blob-адрес (он освобождается, когда карточка исчезает). */
@@ -62,35 +63,7 @@ function CardMenu({
   const ok = card.status === 'ok'
   const removable = card.status !== 'ok' || !card.inDefaultFolder
 
-  useEffect(() => {
-    ref.current?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus()
-    const onPointerDown = (e: PointerEvent): void => {
-      if (!ref.current?.contains(e.target as Node)) onClose(false)
-    }
-    const onKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        e.stopPropagation()
-        onClose(true)
-        return
-      }
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
-      e.preventDefault()
-      const items = Array.from(
-        ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? []
-      )
-      if (items.length === 0) return
-      const index = items.indexOf(document.activeElement as HTMLElement)
-      const next = e.key === 'ArrowDown' ? index + 1 : index - 1
-      items[(next + items.length) % items.length].focus()
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown, true)
-    }
-  }, [onClose])
+  useMenuBehavior(ref, onClose)
 
   const run = (action: () => unknown): void => {
     onClose(false)
