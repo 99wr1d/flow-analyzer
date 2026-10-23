@@ -56,10 +56,16 @@ function upsertState(
   return [...rest, merged].sort((a, c) => a.frame - c.frame)
 }
 
+function checkElement(el: BoardElement): void {
+  const r = BoardElementSchema.safeParse(el)
+  if (!r.success) throw new Error(r.error.issues[0]?.message ?? 'Некорректный элемент')
+}
+
 export function addItem(b: Board, el: BoardElement, frame: number, id: string): Board {
   checkFrame(b, frame)
   if (b.items.some((i) => i.id === id)) throw new Error(`Элемент ${id} уже есть`)
   if (b.items.length >= MAX_ITEMS) throw new Error('Слишком много элементов')
+  checkElement(el)
   const item: BoardItem = { id, show: { from: frame, to: b.frameCount - 1 }, el, states: [] }
   return { ...b, items: [...b.items, item] }
 }
@@ -70,13 +76,16 @@ export function editGeom(b: Board, id: string, frame: number, geom: Rec): Board 
   const allowed = geomKeys(it.el)
   for (const k of Object.keys(geom))
     if (!allowed.includes(k)) throw new Error(`Поле ${k} не геометрия для ${it.el.kind}`)
+  const apply = (e: BoardElement): BoardElement =>
+    e.kind === 'shape'
+      ? ({ ...e, ann: { ...e.ann, ...geom } } as BoardElement)
+      : ({ ...e, ...geom } as BoardElement)
   if (frame === it.show.from) {
-    const el =
-      it.el.kind === 'shape'
-        ? ({ ...it.el, ann: { ...it.el.ann, ...geom } } as BoardElement)
-        : ({ ...it.el, ...geom } as BoardElement)
+    const el = apply(it.el)
+    checkElement(el)
     return replaceItem(b, id, { ...it, el })
   }
+  checkElement(apply(elementAt(it, frame)))
   return replaceItem(b, id, { ...it, states: upsertState(it.states, frame, { geom }) })
 }
 
@@ -128,8 +137,7 @@ export function setStyle(b: Board, id: string, patch: Rec): Board {
       if (!allowed.includes(k)) throw new Error(`Поле ${k} не стиль для ${it.el.kind}`)
     el = { ...it.el, ...patch } as BoardElement
   }
-  const r = BoardElementSchema.safeParse(el)
-  if (!r.success) throw new Error(r.error.issues[0]?.message ?? 'Некорректный стиль')
+  checkElement(el)
   return replaceItem(b, id, { ...it, el })
 }
 
@@ -140,7 +148,7 @@ export function setShow(b: Board, id: string, from: number, to: number): Board {
   if (to < from) throw new Error('to меньше from')
   // Состояния с frame <= from сливаются в базу; при from <= show.from база не меняется.
   const el = from > it.show.from ? elementAt(it, from) : it.el
-  const states = it.states.filter((s) => s.frame > from)
+  const states = it.states.filter((s) => s.frame > from && s.frame <= to)
   return replaceItem(b, id, { ...it, el, show: { from, to }, states })
 }
 
@@ -200,9 +208,7 @@ export function removeFrame(b: Board, frame: number): Board {
   for (const it of b.items) {
     const { from, to } = it.show
     if (from === frame && to === frame) continue
-    if (to < frame) {
-      items.push(it)
-    } else if (from > frame) {
+    if (from > frame) {
       items.push({ ...it, show: { from: from - 1, to: to - 1 }, states: it.states.map(shift) })
     } else if (from === frame) {
       // Первый кадр элемента удалён: база = бывший следующий кадр.
@@ -213,7 +219,7 @@ export function removeFrame(b: Board, frame: number): Board {
         states: it.states.filter((s) => s.frame > frame + 1).map(shift)
       })
     } else {
-      // from < frame <= to: состояние удаляемого кадра сливается в следующий.
+      // from < frame: состояние удаляемого кадра сливается в следующий (в т.ч. за пределами show).
       const own = it.states.find((s) => s.frame === frame)
       const next = it.states.find((s) => s.frame === frame + 1)
       const states: BoardState[] = []
@@ -224,7 +230,7 @@ export function removeFrame(b: Board, frame: number): Board {
         } else if (s.frame === frame + 1 && own) continue
         else states.push(shift(s))
       }
-      items.push({ ...it, show: { from, to: to - 1 }, states })
+      items.push({ ...it, show: { from, to: to >= frame ? to - 1 : to }, states })
     }
   }
   return { ...b, frameCount: b.frameCount - 1, items }

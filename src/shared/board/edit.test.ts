@@ -189,6 +189,39 @@ describe('setShow / hideFrom', () => {
   })
 })
 
+describe('исправления ревью', () => {
+  it('removeFrame: состояние за пределами show сдвигается, доска валидна', () => {
+    const b0 = board([
+      item(A, figureEl, {
+        show: { from: 0, to: 0 },
+        states: [{ frame: 2, geom: { scale: 2 } }]
+      })
+    ])
+    const b = removeFrame(b0, 1)
+    expect(b.frameCount).toBe(2)
+    expect(b.items[0].states).toEqual([{ frame: 1, geom: { scale: 2 } }])
+    valid(b)
+  })
+  it('hideFrom затем setShow: старые поздние состояния не возвращаются', () => {
+    const b0 = board([
+      item(A, figureEl, { states: [{ frame: 2, geom: { pos: { x: 0.9, y: 0.5 } } }] })
+    ])
+    const hidden = hideFrom(b0, A, 1)
+    expect(hidden.items[0].states).toEqual([])
+    const back = setShow(hidden, A, 0, 2)
+    expect(back.items[0].states).toEqual([])
+    expect(pos(back, A, 2)).toBe(0.2)
+    valid(hidden)
+    valid(back)
+  })
+  it('editGeom и addItem отклоняют неверные значения', () => {
+    const b0 = board([item(A, figureEl)])
+    expect(() => editGeom(b0, A, 0, { pos: 'x' })).toThrow()
+    expect(() => editGeom(b0, A, 1, { scale: 99 })).toThrow()
+    expect(() => addItem(b0, { ...ballEl, color: 'red' } as BoardElement, 0, B)).toThrow()
+  })
+})
+
 describe('порядок и удаление', () => {
   const b0 = board([item(A, figureEl), item(B, ballEl), item(C, arrowEl)])
   it('deleteItem', () => {
