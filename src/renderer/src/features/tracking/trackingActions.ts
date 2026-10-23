@@ -20,6 +20,7 @@ import {
   type TrackPlan
 } from './trackingApply'
 import { useTrackingStore } from './trackingStore'
+import { sendAnswer } from './answer'
 
 /** Предупреждение «это займёт около N с», если расчёт дольше этого (секунды). */
 export const LONG_SECONDS = 60
@@ -154,7 +155,10 @@ function runJob(plan: TrackPlan, videoId: string, pick?: FractionBox): Promise<J
           job.answerPick = null
           useTrackingStore.getState().setPick(null)
           if (index === null) return
-          void window.api.resolveTracking(ask.jobId, index, ask.target).catch(() => undefined)
+          // Отклонённый ответ: задача отменяется и показывается обычное сообщение об ошибке слежения.
+          void sendAnswer(window.api, ask.jobId, index, ask.target).then((message) => {
+            if (message !== null) job.finish({ kind: 'error', message })
+          })
         }
         useTrackingStore.getState().setPick({ candidates: ask.candidates })
       } else if (ev.done.jobId === job.jobId) {

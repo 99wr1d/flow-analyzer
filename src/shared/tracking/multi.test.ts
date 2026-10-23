@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { lookOf } from './appearance'
 import { MultiTracker, type MultiStep } from './multi'
+import { CHAIN_NEIGHBOUR_DIST } from './tuning'
 import { SingleTracker } from './tracker'
 import { frameHistOf } from './sceneCut'
 import type { Box, Detection, FrameInput, StepResult } from './types'
@@ -397,18 +398,30 @@ function stepKey(r: StepResult | MultiStep): string {
   return `track:${r.coasting ? 'c' : ''}${box(r.box)}`
 }
 
-/** Одна цель: MultiTracker ведёт себя ровно как SingleTracker (решения, вопросы с теми же вариантами, рамки). */
+/**
+ * Одна цель: MultiTracker ведёт себя ровно как SingleTracker (решения, вопросы с теми же вариантами, рамки), пока рядом
+ * (не дальше CHAIN_NEIGHBOUR_DIST высот) нет другого игрока той же формы. С таким соседом слой нескольких целей
+ * намеренно строже (чужой игрок той же формы не подменяет пропавшего) — сравнение заканчивается.
+ */
 function parity(
   start: Detection,
   detsAt: (f: number) => Detection[],
   frames: number
 ): { asks: number; steps: number } {
+  let last = start.box
+  const kinNear = (dets: Detection[]): boolean =>
+    dets.filter(
+      (d) =>
+        d.look === start.look &&
+        Math.hypot(cx(d.box) - cx(last), cy(d.box) - cy(last)) <= CHAIN_NEIGHBOUR_DIST * BH
+    ).length > 1
   const s = new SingleTracker(start, FPS, { frame: FRAME })
   const m = new MultiTracker([{ det: start }], FPS, FRAME)
   let asks = 0
   let steps = 0
   for (let f = 1; f < frames; f += 1) {
     const fi = frame(f, detsAt(f))
+    if (kinNear(fi.detections)) break
     const a = s.step(fi)
     const b = m.step(fi)
     steps += 1
@@ -421,12 +434,16 @@ function parity(
       )
     }
     if (a.kind === 'lost') break
+    if (a.kind === 'track') last = a.box
   }
   return { asks, steps }
 }
 
-describe('MultiTracker с одной целью = SingleTracker', () => {
-  it('скрылся и вернулся рядом с двойником одной формы и игроками другой формы (40 вариантов)', () => {
+// «Сомнительная» примета: не та же форма (дальше CHAIN_SIMILAR_LOOK), но и не явно чужая — трекер из-за неё спрашивает.
+const NEAR_RED = lookMix(RED, BLUE, 0.95)
+
+describe('MultiTracker с одной целью = SingleTracker (без соседей той же формы)', () => {
+  it('скрылся и вернулся (иногда далеко от прогноза) среди игроков другой и почти такой же формы (40 вариантов)', () => {
     let asks = 0
     for (let sc = 0; sc < 40; sc += 1) {
       const r = parity(
@@ -436,11 +453,11 @@ describe('MultiTracker с одной целью = SingleTracker', () => {
           if (f < 20) return [det(x, 270, RED), det(x + 150, 270, BLUE)]
           if (f < 20 + (sc % 30)) return [det(x + 150, 270, BLUE), det(x - 40 - sc, 300, BLUE)]
           return [
-            det(x, 270, RED),
-            det(x + 30 + sc, 280, RED),
+            det(x + (sc % 2) * 100, 270, RED),
+            det(x + 40, 280, NEAR_RED),
             det(x - 60, 270, BLUE),
-            det(x + 100, 260, BLUE),
-            det(x - 150, 270, RED)
+            det(x + 200, 260, BLUE),
+            det(x - 400, 270, RED)
           ]
         },
         80
@@ -451,7 +468,7 @@ describe('MultiTracker с одной целью = SingleTracker', () => {
     expect(asks).toBeGreaterThan(0)
   })
 
-  it('проход мимо игрока такой же формы, сосед другой формы вплотную, пропуски рамок', () => {
+  it('проход мимо игрока такой же формы (до сближения), сосед другой формы вплотную, пропуски рамок', () => {
     const rnd = ((): (() => number) => {
       let a = 12345
       return () => {
@@ -512,5 +529,37 @@ describe('MultiTracker: варианты вопроса', () => {
       expect(r.kind).toBe('track')
     }
     expect(asks).toBeGreaterThan(0)
+  })
+})
+
+describe('одна цель и чужой игрок той же формы (одиночное кольцо)', () => {
+  it('детектор теряет свою рамку у прохода рядом с чужим: кольцо не переходит на чужого, вопросы — с настоящим игроком', () => {
+    // Цель идёт вправо, чужой той же формы — навстречу (dy=10); у сближения своя рамка пропадает через кадр.
+    const own = (f: number): number => 200 + 4 * f
+    const other = (f: number): number => 520 - 4 * f
+    for (const lost of [
+      [34, 36, 38, 40, 42, 44],
+      [37, 38, 41, 43, 44, 47],
+      [30, 31, 32, 45, 46, 48]
+    ]) {
+      const m = new MultiTracker([{ det: det(own(0), 270, RED) }], FPS, FRAME)
+      for (let f = 1; f < 90; f += 1) {
+        const mine = det(own(f), 270, RED)
+        const dets = [det(other(f), 280, RED), ...(lost.includes(f) ? [] : [mine])]
+        let r = m.step(frame(f, dets))
+        while (r.kind === 'ask') {
+          const pick = r.candidates.find((c) => c === mine)
+          expect(pick, `кадр ${f}: в вопросе есть настоящий игрок`).toBeDefined()
+          r = m.resolve(0, pick as Detection)
+        }
+        if (r.kind === 'lost') break
+        if (r.coasting[0]) continue
+        const x = cx(r.boxes[0])
+        // уверенная рамка — у своего игрока, а не у чужого (если они не вплотную)
+        if (Math.abs(own(f) - other(f)) > 20) {
+          expect(Math.abs(x - own(f)), `кадр ${f}`).toBeLessThan(Math.abs(x - other(f)))
+        }
+      }
+    }
   })
 })

@@ -103,11 +103,14 @@ function run(players: Player[], o: Opts): Res {
   const tIdx = players.map((p, i) => (p.target ? i : -1)).filter((i) => i >= 0)
   // Кто чей игрок, по мнению пользователя (меняется только при ошибочном ответе).
   const own = [...tIdx]
+  // Как задача слежения: старт по детекциям кадра 0, и этот же кадр — первый шаг трекера (видны все игроки).
+  const start = players.map((p, i) => mk(p.x(0), p.y(0), [i], false))
   const m = new MultiTracker(
-    tIdx.map((i) => ({ det: mk(players[i].x(0), players[i].y(0), [i], false) })),
+    tIdx.map((i) => ({ det: start[i] })),
     FPS,
     FRAME
   )
+  m.step({ index: 0, t: 0.5 / FPS, detections: start, frameHist: WF })
   const res: Res = {
     swaps: 0,
     firstSwap: -1,
@@ -663,5 +666,127 @@ describe('состязательные сценарии: нет молчалив
         S2
       )
     check('wrong-answer')
+  })
+})
+
+// n игроков на эллипсе проходят через центр (или разворачиваются в нём); первые nT — цели, остальные — та же форма
+const crowd = (nT: number, nD: number, v: number, rev: boolean, spread = 6): Player[] => {
+  const n = nT + nD
+  const g = (f: number): number => (rev ? Math.min(f, M) - Math.max(0, f - M) : f) - M
+  return Array.from({ length: n }, (_, i) => {
+    const a = (Math.PI * 2 * i) / n + 0.3
+    const ox = spread * Math.cos(i * 2.1)
+    const oy = spread * Math.sin(i * 1.7)
+    return {
+      x: (f: number): number => 450 + ox + v * Math.cos(a) * g(f),
+      y: (f: number): number => 270 + oy + 0.45 * v * Math.sin(a) * g(f),
+      target: i < nT
+    }
+  })
+}
+// A стоит; B (цель или нет) подходит, стоит вплотную (dx, dy) H кадров и уходит; третья цель далеко
+const linger = (H: number, dx: number, dy: number, bTarget: boolean): Player[] => [
+  { x: () => 400, y: () => 270, target: true },
+  {
+    x: (f) =>
+      f < 30 ? 400 + dx + 4 * (30 - f) : f < 30 + H ? 400 + dx : 400 + dx + 4 * (f - 30 - H),
+    y: () => 270 + dy,
+    target: bTarget
+  },
+  { x: (f) => 250 + f, y: () => 120, target: true }
+]
+// одна цель и игрок той же формы, который не цель (одиночное кольцо рядом с партнёром)
+const passDecoy = (v: number, dy: number): Player[] =>
+  pass(v, dy).map((p, i) => ({ ...p, target: i === 0 }))
+const bounceDecoy = (v: number, dy: number): Player[] =>
+  bounce(v, dy).map((p, i) => ({ ...p, target: i === 0 }))
+
+describe('игрок той же формы, который не цель (в том числе одиночное кольцо)', () => {
+  it('пропуски 20/30 %: чужой игрок не подменяет пропавшего (1 цель + 1, толпа T1+D5, T2+D4, T4+D2)', () => {
+    const o = { J: 4, hj: 0.05 }
+    for (const dropP of [0.2, 0.3]) {
+      family(
+        'decoy-drop',
+        `pass+decoy v=4 dy=10 drop${dropP}`,
+        () => passDecoy(4, 10),
+        { ...o, dropP },
+        12,
+        S2
+      )
+      family(
+        'decoy-drop',
+        `bounce+decoy v=4 dy=10 drop${dropP}`,
+        () => bounceDecoy(4, 10),
+        { ...o, dropP },
+        12,
+        S2
+      )
+      for (const [nT, nD] of [
+        [1, 5],
+        [2, 4],
+        [4, 2]
+      ])
+        family(
+          'decoy-drop',
+          `crowd T${nT}+D${nD} bounce v=4 drop${dropP}`,
+          () => crowd(nT, nD, 4, true),
+          { ...o, dropP },
+          12,
+          S2
+        )
+    }
+    check('decoy-drop')
+  })
+
+  it('без пропусков: проход и отскок мимо чужого, стоит рядом — без подмен (число вопросов в отчёте)', () => {
+    for (const v of [3, 4, 6])
+      for (const dy of [0, 10, 30])
+        for (const J of [0, 3]) {
+          family(
+            'decoy-clean',
+            `pass+decoy v=${v} dy=${dy} J=${J}`,
+            () => passDecoy(v, dy),
+            jit(J),
+            J ? 6 : 1,
+            S2
+          )
+          family(
+            'decoy-clean',
+            `bounce+decoy v=${v} dy=${dy} J=${J}`,
+            () => bounceDecoy(v, dy),
+            jit(J),
+            J ? 6 : 1,
+            S2
+          )
+        }
+    for (const H of [10, 20, 30])
+      for (const [dx, dy] of [
+        [8, 5],
+        [25, 5],
+        [40, 0]
+      ])
+        family(
+          'decoy-clean',
+          `linger H=${H} dx=${dx} decoy`,
+          () => linger(H, dx, dy, false),
+          jit(3),
+          6,
+          S2
+        )
+    for (const [nT, nD] of [
+      [1, 5],
+      [2, 4],
+      [4, 2]
+    ])
+      for (const rev of [false, true])
+        family(
+          'decoy-clean',
+          `crowd T${nT}+D${nD} rev=${rev} v=4`,
+          () => crowd(nT, nD, 4, rev),
+          jit(4),
+          6,
+          S2
+        )
+    check('decoy-clean')
   })
 })
