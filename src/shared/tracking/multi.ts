@@ -260,6 +260,14 @@ export class MultiTracker {
     return this.trackers.map((t) => t.predictBox(index))
   }
 
+  /**
+   * Где цель ожидалась на последнем кадре step() — прогноз ДО кадра (ни одна детекция кадра его не трогала). Для метки в
+   * вопросе: рамка самой цели, а не принятая фильтром спорная рамка. Только чтение.
+   */
+  askBox(target: number): Box {
+    return this.preds[target]
+  }
+
   /** Один кадр: все цели по одним и тем же детекциям. Вопрос по цели — ответ через resolve. */
   step(f: FrameInput): MultiStep {
     if (this.dead) return this.dead

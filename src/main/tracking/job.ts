@@ -335,7 +335,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           frame.t,
           cands.map((d) => toFraction(d.box, fw, fh)),
           target,
-          toFraction(tracker.predictBoxes(frame.index)[target], fw, fh)
+          toFraction(tracker.askBox(target), fw, fh)
         )
         if (signal.aborted) return { kind: 'cancelled' }
         if (index === 'none') {

@@ -240,6 +240,44 @@ describe('runTrackingJob', () => {
     expect(calls[askFrame + 1].roi).toBeUndefined()
   })
 
+  it('метка в вопросе: рамка цели — по прогнозу до кадра, а не по спорной рамке, которую фильтр уже принял', async () => {
+    // Две цели одной формы идут рядом (40 px); на 10-м кадре на три кадра остаётся одна рамка между ними, сдвинутая к цели 1 (спор за неё), затем обе
+    // возвращаются. К вопросу фильтр цели 0 уже принял спорную рамку (от пути цели — десятки px), а метка обязана стоять
+    // на пути самой цели.
+    const gap = 40
+    const det = scripted((f) => {
+      const ax = 100 + 3 * f
+      if (f < 10 || f >= 13) return [person(ax, 200, 0), person(ax + gap, 200, 0)]
+      return [person(ax + gap / 2 + 15, 200, 0)]
+    })
+    const asks: Array<{
+      f: number
+      target: number
+      cur: { x: number; y: number; w: number; h: number }
+    }> = []
+    const out = await runTrackingJob(
+      options({
+        createDetector: () => Promise.resolve(det),
+        anchors: [
+          { x: 100 / W, y: 200 / H },
+          { x: (100 + gap) / W, y: 200 / H }
+        ],
+        onAsk: (t, _c, target, cur) => {
+          asks.push({ f: Math.round(t * FPS - 0.5), target, cur })
+          return Promise.resolve(0)
+        }
+      })
+    )
+    expect(out.kind).toBe('done')
+    const own0 = asks.filter((a) => a.target === 0)
+    expect(own0.length).toBeGreaterThan(0)
+    for (const { f, cur } of own0) {
+      // рамка цели 0 — у её собственного пути (прогноз до кадра), не у спорной рамки и не у соседа
+      expect(Math.abs(cur.x + cur.w / 2 - (100 + 3 * f) / W) * W, 'кадр ' + f).toBeLessThan(8)
+      expect(Math.abs(cur.y + cur.h - (200 + 45) / H) * H, 'кадр ' + f).toBeLessThan(8)
+    }
+  })
+
   it('игрок потерян: done со stop и отсчётами до потери', async () => {
     const det = scripted((f) => (f < 20 ? [person(200 + 2 * f, 270)] : []))
     const out = await runTrackingJob(
