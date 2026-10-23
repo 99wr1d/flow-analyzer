@@ -1,12 +1,15 @@
 /** Файлы досок (.flowboard) в папке «Доски» внутри папки проектов. */
-import { mkdir, readFile, readdir, stat, writeFile } from 'fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
 import { basename, dirname, extname, join } from 'path'
 import type { BoardCard } from '../../shared/board/ipc'
-import { BOARD_EXTENSION, boardToFile, parseBoardText, type Board } from '../../shared/board/schema'
+import { parseBoardText } from '../../shared/board/file'
+import { BOARD_EXTENSION, boardToFile, type Board } from '../../shared/board/schema'
+import { logWarn } from '../log/logger'
 import { writeTextAtomic } from '../project/files'
 
 export const BOARDS_FOLDER_NAME = 'Доски'
 const MAX_BOARD_FILE_BYTES = 10 * 1024 * 1024
+const MAX_CREATE_ATTEMPTS = 1000
 
 export const boardsFolder = (projectsFolder: string): string =>
   join(projectsFolder, BOARDS_FOLDER_NAME)
@@ -34,7 +37,7 @@ export async function createBoardFile(folder: string, base: string, board: Board
   } catch (error) {
     throw new Error(writeErrorMessage(error), { cause: error })
   }
-  for (;;) {
+  for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
     const path = await uniquePath(folder, base, BOARD_EXTENSION)
     try {
       await writeFile(path, '', { flag: 'wx' })
@@ -42,9 +45,16 @@ export async function createBoardFile(folder: string, base: string, board: Board
       if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue
       throw new Error(writeErrorMessage(error), { cause: error })
     }
-    await writeBoardFile(path, board)
+    try {
+      await writeBoardFile(path, board)
+    } catch (error) {
+      // Не оставляем пустую заготовку, если содержимое записать не удалось.
+      await rm(path, { force: true }).catch(() => undefined)
+      throw error
+    }
     return path
   }
+  throw new Error('Не удалось подобрать свободное имя файла. Попробуйте другое название')
 }
 
 export type ReadBoardResult =
@@ -60,7 +70,10 @@ export async function readBoardFile(path: string): Promise<ReadBoardResult> {
   } catch {
     return { ok: false, error: 'read', message: 'Не удалось прочитать файл доски' }
   }
-  return parseBoardText(text)
+  const parsed = parseBoardText(text)
+  if (!parsed.ok && parsed.detail)
+    logWarn('board', `Файл доски не прошёл проверку: ${parsed.detail}`)
+  return parsed
 }
 
 /** Понятный текст для ошибки записи (так же, как в writeTextAtomic). */
@@ -78,7 +91,13 @@ export async function writeBoardFile(path: string, board: Board): Promise<void> 
   } catch (error) {
     throw new Error(writeErrorMessage(error), { cause: error })
   }
-  await writeTextAtomic(path, boardToFile(board))
+  let text: string
+  try {
+    text = boardToFile(board)
+  } catch (error) {
+    throw new Error(writeErrorMessage(error), { cause: error })
+  }
+  await writeTextAtomic(path, text)
 }
 
 /** Карточки всех досок папки; повреждённый файл даёт карточку со status 'error'. Нет папки — пустой список. */

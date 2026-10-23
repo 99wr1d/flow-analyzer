@@ -5,6 +5,7 @@ import { ru } from '../../i18n/ru'
 import { AlertIcon, FilmIcon, MoreIcon } from '../../ui/icons'
 import { useMenuBehavior } from '../library/useMenuBehavior'
 import { askDeleteBoard, openBoardCard, revealBoardCard, useBoardLibrary } from './boardLibrary'
+import { russianMessage } from './boardActions'
 import { boardCardSummary } from './cardsText'
 
 function BoardMenu({
@@ -93,7 +94,7 @@ function BoardCardView({ card, now }: { card: BoardCard; now: number }): React.J
             <div className="pcard__problem" data-testid="board-card-error">
               {ru.board.unreadable}
             </div>
-            <div className="pcard__video">{card.error}</div>
+            <div className="pcard__video">{card.error ? russianMessage(card.error) : ''}</div>
             <div className="pcard__path" title={card.path}>
               {card.path}
             </div>

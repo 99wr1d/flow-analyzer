@@ -1,5 +1,5 @@
 // Верхняя панель доски: «← Главная», название (правится по щелчку), отменить/повторить, сохранить, видео, картинка.
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { JSX } from 'react'
 import { setTitle } from '../../../../shared/board/edit'
 import { MAX_TITLE } from '../../../../shared/board/schema'
@@ -24,8 +24,12 @@ function Title(): JSX.Element {
   const playing = useBoardStore((s) => s.playing)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  /** Правка закрыта (Enter/Escape/потеря фокуса): повторный blur при размонтировании ничего не делает. */
+  const closed = useRef(true)
 
   const commit = (): void => {
+    if (closed.current) return
+    closed.current = true
     setEditing(false)
     const next = draft.replace(/\s+/g, ' ').trim()
     if (next && next !== title) applyBoard((b) => setTitle(b, next))
@@ -48,6 +52,7 @@ function Title(): JSX.Element {
             if (e.key === 'Enter') commit()
             else if (e.key === 'Escape') {
               e.stopPropagation()
+              closed.current = true
               setEditing(false)
             }
           }}
@@ -61,6 +66,7 @@ function Title(): JSX.Element {
           data-testid="board-title"
           onClick={() => {
             setDraft(title)
+            closed.current = false
             setEditing(true)
           }}
         >

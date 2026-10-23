@@ -1,17 +1,16 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { BOARD_VIDEO_FPS } from '../../../../shared/board/ipc'
 import { boardDuration } from '../../../../shared/board/resolve'
-import type { Board } from '../../../../shared/board/schema'
+import { MAX_THUMB, type Board } from '../../../../shared/board/schema'
 import { rasterizeSvg } from '../export/renderOverlays'
 import { BoardScene } from './BoardScene'
 
 export const EXPORT_W = 1920
 export const EXPORT_H = 1080
-export const VIDEO_FPS = 30
 
 const THUMB_W = 320
 const THUMB_H = 180
-const THUMB_MAX_CHARS = 80_000
 
 export type BoardAt = { frame: number } | { time: number }
 
@@ -53,7 +52,7 @@ export interface VideoFramesOptions {
   rasterize?: (svg: string) => Promise<Uint8Array>
 }
 
-/** Кадры видео на i / VIDEO_FPS. Подряд идущие одинаковые кадры растеризуются один раз. */
+/** Кадры видео на i / BOARD_VIDEO_FPS. Подряд идущие одинаковые кадры растеризуются один раз. */
 export async function* renderBoardVideoFrames(
   board: Board,
   opts: VideoFramesOptions = {}
@@ -67,12 +66,12 @@ export async function* renderBoardVideoFrames(
       await rasterizeSvg(svg, canvas, EXPORT_W, EXPORT_H)
       return canvasToBytes(canvas, 'image/png')
     })
-  const total = Math.ceil(boardDuration(board) * VIDEO_FPS)
+  const total = Math.ceil(boardDuration(board) * BOARD_VIDEO_FPS)
   let lastSvg = ''
   let lastPng: Uint8Array | undefined
   for (let i = 0; i < total; i++) {
     signal?.throwIfAborted()
-    const svg = buildBoardSvg(board, { time: i / VIDEO_FPS })
+    const svg = buildBoardSvg(board, { time: i / BOARD_VIDEO_FPS })
     // data-time отличается в каждом кадре, поэтому сравниваем сцену без него
     const key = svg.replace(/ data-time="[^"]*"/, '')
     if (!lastPng || key !== lastSvg) {
@@ -90,7 +89,7 @@ export async function renderBoardThumb(board: Board): Promise<string> {
   let url = ''
   for (let q = 0.8; q >= 0.2; q -= 0.15) {
     url = canvas.toDataURL('image/jpeg', q)
-    if (url.length <= THUMB_MAX_CHARS) break
+    if (url.length <= MAX_THUMB) break
   }
   return url
 }

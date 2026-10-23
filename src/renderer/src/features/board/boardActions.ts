@@ -3,7 +3,7 @@ import { addFrame, deleteItem } from '../../../../shared/board/edit'
 import { safeFileName } from '../../../../shared/board/fileName'
 import { BOARD_VIDEO_FPS, MAX_STAGE_BATCH } from '../../../../shared/board/ipc'
 import { LEAD_IN, boardDuration } from '../../../../shared/board/resolve'
-import { newBoard, type Board } from '../../../../shared/board/schema'
+import { MAX_THUMB, newBoard, type Board } from '../../../../shared/board/schema'
 import { useViewStore } from '../../app/viewStore'
 import { ru } from '../../i18n/ru'
 import { askUnsaved } from '../project/unsavedStore'
@@ -13,8 +13,6 @@ import { useBoardUi, type BoardJob } from './boardUi'
 import { leavePlan } from './leave'
 import { beginVideoJob, cancelCurrentVideoJob, endVideoJob, isCurrentVideoJob } from './videoJob'
 import { logError } from '../../app/errorLog'
-
-const THUMB_LIMIT = 80_000
 
 /** Кадры рисуются из Blob (обычный ArrayBuffer); схема IPC ждёт именно такой Uint8Array. */
 const bytes = (a: Uint8Array): Uint8Array<ArrayBuffer> => a as Uint8Array<ArrayBuffer>
@@ -113,7 +111,7 @@ export async function saveBoard(saveAs = false): Promise<boolean> {
     let thumb: string | undefined
     try {
       const url = await renderBoardThumb(board)
-      if (url.startsWith('data:image/jpeg;base64,') && url.length <= THUMB_LIMIT) thumb = url
+      if (url.startsWith('data:image/jpeg;base64,') && url.length <= MAX_THUMB) thumb = url
     } catch {
       thumb = undefined // без обложки доска всё равно сохраняется
     }

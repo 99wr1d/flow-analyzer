@@ -1,6 +1,5 @@
 // Видео из кадров доски: PNG приходят пачками во временную папку, ffmpeg собирает MP4. Одно видео за раз.
 import { randomUUID } from 'crypto'
-import { rmSync } from 'fs'
 import { copyFile, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -85,17 +84,13 @@ function jobFor(token: string): Job {
   return active
 }
 
-function dispose(job: Job): void {
+/** Освобождает задание и удаляет временную папку (с повторами: ffmpeg может ещё держать файл). */
+async function dispose(job: Job): Promise<void> {
   if (active === job) active = null
   job.controller.abort()
-  try {
-    rmSync(job.dir, { recursive: true, force: true })
-  } catch {
-    // ffmpeg ещё держит файл: повторим, пока он не завершится
-    void rm(job.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(
-      () => undefined
-    )
-  }
+  await rm(job.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }).catch(
+    () => undefined
+  )
 }
 
 export async function stageBoardFrames(
@@ -147,12 +142,12 @@ export async function finishBoardVideo(
     onProgress(job.frameCount, job.frameCount)
     return { path: job.target }
   } finally {
-    dispose(job)
+    await dispose(job)
   }
 }
 
 /** Отмена: без token отменяет текущее видео, если оно есть. */
-export function cancelBoardVideo(token?: string): void {
+export async function cancelBoardVideo(token?: string): Promise<void> {
   if (!active || (token !== undefined && active.token !== token)) return
-  dispose(active)
+  await dispose(active)
 }

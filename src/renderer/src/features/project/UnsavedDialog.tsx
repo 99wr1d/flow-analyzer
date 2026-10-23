@@ -78,6 +78,7 @@ export function UnsavedDialog(): React.JSX.Element | null {
           <button
             type="button"
             className="btn"
+            data-autofocus={video ? true : undefined}
             data-testid="unsaved-cancel"
             onClick={() => answerUnsaved('cancel')}
           >

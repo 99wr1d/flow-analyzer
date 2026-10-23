@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { BoardSchema, boardToFile, newBoard, parseBoardText } from './schema'
+import { parseBoardText } from './file'
+import { BoardSchema, boardToFile, newBoard } from './schema'
 
 const now = new Date('2026-10-23T10:00:00.000Z')
 const ID = '11111111-1111-4111-8111-111111111111'

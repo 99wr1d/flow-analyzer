@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { BOARD_VIDEO_FPS } from '../../../../shared/board/ipc'
 import { newBoard, type Board, type BoardElement } from '../../../../shared/board/schema'
-import { EXPORT_H, EXPORT_W, VIDEO_FPS, buildBoardSvg, renderBoardVideoFrames } from './boardRender'
+import { EXPORT_H, EXPORT_W, buildBoardSvg, renderBoardVideoFrames } from './boardRender'
 
 const uuid = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
 const ball: BoardElement = {
@@ -30,7 +31,7 @@ describe('buildBoardSvg', () => {
     const svg = buildBoardSvg(boardWith([]), { frame: 0 })
     expect(EXPORT_W).toBe(1920)
     expect(EXPORT_H).toBe(1080)
-    expect(VIDEO_FPS).toBe(30)
+    expect(BOARD_VIDEO_FPS).toBe(30)
     expect(svg).toContain('width="1920"')
     expect(svg).toContain('height="1080"')
     expect(svg).toContain('xmlns="http://www.w3.org/2000/svg"')

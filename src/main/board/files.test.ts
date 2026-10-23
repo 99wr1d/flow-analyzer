@@ -1,11 +1,12 @@
-import { mkdtemp, rm, writeFile } from 'fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { safeFileName } from '../../shared/board/fileName'
-import { newBoard } from '../../shared/board/schema'
+import { boardToFile, newBoard, type Board } from '../../shared/board/schema'
 import {
   boardsFolder,
+  createBoardFile,
   listBoards,
   readBoardFile,
   uniquePath,
@@ -95,5 +96,28 @@ describe('файлы досок', () => {
   it('нет папки: пустой список; нет файла: ok false', async () => {
     expect(await listBoards(join(dir, 'нет'))).toEqual([])
     expect((await readBoardFile(join(dir, 'нет.flowboard'))).ok).toBe(false)
+  })
+})
+
+describe('createBoardFile', () => {
+  it('не удалась запись содержимого — пустой файл-заготовка удалён, ошибка по-русски', async () => {
+    const broken = { ...newBoard('Сбой', new Date()), extra: 1n } as unknown as Board
+    await expect(createBoardFile(dir, 'Сбой', broken)).rejects.toThrow(/[а-яё]/i)
+    expect(await readdir(dir)).toEqual([])
+  })
+  it('успешное создание не затирает чужое имя', async () => {
+    const a = await createBoardFile(dir, 'Доска', newBoard('A', new Date()))
+    const b = await createBoardFile(dir, 'Доска', newBoard('B', new Date()))
+    expect(a).not.toBe(b)
+  })
+})
+
+describe('карточка повреждённой доски', () => {
+  it('в карточке фиксированный русский текст', async () => {
+    const good = JSON.parse(boardToFile(newBoard('x', new Date())))
+    const bad = { ...good, frameCount: 0 }
+    await writeFile(join(dir, 'a.flowboard'), JSON.stringify(bad), 'utf8')
+    const cards = await listBoards(dir)
+    expect(cards[0]).toMatchObject({ status: 'error', error: 'Файл доски повреждён' })
   })
 })

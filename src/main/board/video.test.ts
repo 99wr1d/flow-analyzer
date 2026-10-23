@@ -21,7 +21,7 @@ beforeEach(async () => {
   out = await mkdtemp(join(tmpdir(), 'board-video-test-'))
 })
 afterEach(async () => {
-  cancelBoardVideo()
+  await cancelBoardVideo()
   await rm(out, { recursive: true, force: true })
 })
 
@@ -44,7 +44,7 @@ describe('приём кадров', () => {
     await expect(stageBoardFrames(job.token, 1, [PNG])).rejects.toThrow()
     await expect(stageBoardFrames(job.token, 0, [PNG, PNG, PNG])).rejects.toThrow()
     await expect(stageBoardFrames('чужой', 0, [PNG])).rejects.toThrow()
-    cancelBoardVideo()
+    await cancelBoardVideo()
   })
 
   it('второе видео при активном — ошибка', async () => {
@@ -58,7 +58,7 @@ describe('приём кадров', () => {
     const job = await beginBoardVideo({ frameCount: 2, fps: 30, target: join(out, 'a.mp4') })
     await stageBoardFrames(job.token, 0, [PNG])
     expect(existsSync(job.dir)).toBe(true)
-    cancelBoardVideo(job.token)
+    await cancelBoardVideo(job.token)
     expect(existsSync(job.dir)).toBe(false)
   })
 

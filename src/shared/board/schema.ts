@@ -13,6 +13,11 @@ import { GEOM_FIELDS } from '../animation'
 import { EQUIPMENT_IDS, FACINGS, FIGURE_POSES, FIGURE_SETS, PITCH_VIEW_IDS } from './ids'
 
 export const BOARD_FORMAT = 'flowanalyzer-board'
+/**
+ * Версию нужно поднимать, когда меняются id (позы, виды, инвентарь), виды элементов
+ * или встроенные схемы рисунков: старые программы не должны открывать такие файлы как свои.
+ * Формат закреплён тестом на файле tests/fixtures/board-v1.flowboard.
+ */
 export const BOARD_VERSION = 1
 export const BOARD_EXTENSION = 'flowboard'
 
@@ -23,7 +28,8 @@ export const MAX_TRANSITION = 5
 export const DEFAULT_TRANSITION = 1
 export const MAX_TITLE = 120
 export const MAX_TOKEN_LABEL = 2
-const MAX_THUMB = 80_000
+/** Предел размера миниатюры доски (символов data-URL). */
+export const MAX_THUMB = 80_000
 
 const unit = z.number().min(0).max(1)
 const PointSchema = z.object({ x: unit, y: unit })
@@ -200,31 +206,6 @@ export function newBoard(title: string, now: Date): Board {
     createdAt: iso,
     updatedAt: iso
   }
-}
-
-export type ParseBoardResult =
-  | { ok: true; board: Board }
-  | { ok: false; error: 'json' | 'format' | 'newer' | 'invalid'; message: string }
-
-export function parseBoardText(text: string): ParseBoardResult {
-  let raw: unknown
-  try {
-    raw = JSON.parse(text)
-  } catch {
-    return { ok: false, error: 'json', message: 'Файл не является корректным JSON' }
-  }
-  const head = (raw && typeof raw === 'object' ? raw : {}) as {
-    format?: unknown
-    version?: unknown
-  }
-  if (head.format !== BOARD_FORMAT)
-    return { ok: false, error: 'format', message: 'Это не файл доски FlowAnalyzer' }
-  if (typeof head.version === 'number' && head.version > BOARD_VERSION)
-    return { ok: false, error: 'newer', message: 'Доска создана в более новой версии программы' }
-  const r = BoardSchema.safeParse(raw)
-  if (!r.success)
-    return { ok: false, error: 'invalid', message: r.error.issues[0]?.message ?? 'Файл повреждён' }
-  return { ok: true, board: r.data }
 }
 
 export function boardToFile(board: Board): string {

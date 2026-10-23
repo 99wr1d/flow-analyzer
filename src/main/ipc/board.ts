@@ -47,6 +47,19 @@ const pathKey = (p: string): string =>
 /** Пути, выданные saveBoard в этом запуске. */
 const granted = new Set<string>()
 
+/** Слушатели закрытия окна по токену видео: снимаем, когда сохранение закончено или отменено. */
+const destroyListeners = new Map<
+  string,
+  { sender: Electron.WebContents; onDestroyed: () => void }
+>()
+
+function releaseDestroyListener(token: string): void {
+  const entry = destroyListeners.get(token)
+  if (!entry) return
+  destroyListeners.delete(token)
+  entry.sender.removeListener?.('destroyed', entry.onDestroyed)
+}
+
 const BAD_PATH = 'Этот файл не относится к доскам FlowAnalyzer'
 
 /** Путь к .flowboard прямо в папке досок или выданный saveBoard в этом запуске; иначе ошибка. */
@@ -157,7 +170,9 @@ async function exportVideo(
     extname(picked.filePath).toLowerCase() === '.mp4' ? picked.filePath : `${picked.filePath}.mp4`
   const job = await beginBoardVideo({ frameCount, fps, target })
   // Окно закрыли посреди сохранения: убираем временные кадры.
-  event.sender.once?.('destroyed', () => cancelBoardVideo(job.token))
+  const onDestroyed = (): void => void cancelBoardVideo(job.token)
+  event.sender.once?.('destroyed', onDestroyed)
+  destroyListeners.set(job.token, { sender: event.sender, onDestroyed })
   return { token: job.token, path: target }
 }
 
@@ -168,13 +183,19 @@ async function finishVideo(
   if (typeof token !== 'string') throw new Error('Сохранение видео не найдено — начните заново')
   const ffmpeg = getFfmpegPath()
   if (!ffmpeg.ok) {
-    cancelBoardVideo(token)
+    releaseDestroyListener(token)
+    await cancelBoardVideo(token)
     throw new Error(ffmpeg.error)
   }
   const sender = event.sender
-  return finishBoardVideo(token, ffmpeg.path, (done, total) => {
-    if (!sender.isDestroyed?.()) sender.send(IPC_EVENTS.boardVideoProgress, { token, done, total })
-  })
+  try {
+    return await finishBoardVideo(token, ffmpeg.path, (done, total) => {
+      if (!sender.isDestroyed?.())
+        sender.send(IPC_EVENTS.boardVideoProgress, { token, done, total })
+    })
+  } finally {
+    releaseDestroyListener(token)
+  }
 }
 
 export function registerBoardHandlers(): void {
@@ -205,7 +226,9 @@ export function registerBoardHandlers(): void {
     await stageBoardFrames(parsed.data.token, parsed.data.start, parsed.data.pngs)
   })
   strict(IPC_CHANNELS.boardFinishVideo, (e, token: unknown) => finishVideo(e, token))
-  strict(IPC_CHANNELS.boardCancelVideo, (_e, token: unknown) => {
-    if (typeof token === 'string') cancelBoardVideo(token)
+  strict(IPC_CHANNELS.boardCancelVideo, async (_e, token: unknown) => {
+    if (typeof token !== 'string') return
+    releaseDestroyListener(token)
+    await cancelBoardVideo(token)
   })
 }
