@@ -1,6 +1,7 @@
 // Задача слежения на синтетических рамках: детектор — заглушка, кадры — пустые, настоящих моделей и ffmpeg нет.
 import { describe, expect, it } from 'vitest'
 import type { Box, Detection } from '../../shared/tracking/types'
+import type { TrackSample } from '../../shared/tracking/keys'
 import { estimateSeconds } from '../../shared/tracking/trackingIpc'
 import { boxToSample, reconcileAnswer, runTrackingJob, type RunTrackingOptions } from './job'
 import type { DecodedFrame } from './frames'
@@ -1126,4 +1127,100 @@ describe('обрезка результата по последнему сомн
       ).toBeLessThan(10)
     }
   })
+})
+
+describe('раунд 12: ответ после долгой подмены и прикрытие соперником', () => {
+  const cutHist = (bin: number): Float32Array => {
+    const out = new Float32Array(48)
+    for (let c = 0; c < 3; c += 1) out[c * 16 + bin] = 1
+    return out
+  }
+  const at = (t: number, x: number): TrackSample => ({ t, foot: { x, y: 0.5 }, height: 0.17 })
+
+  it('reconcileAnswer: из нескольких границ берётся самая поздняя достижимая', () => {
+    // отсчёты на кадрах 0..9 (25 к/с); границы 2 и 6; ответ на кадре 10 у x=0.30
+    const make = (): TrackSample[] =>
+      Array.from({ length: 10 }, (_, f) => at((f + 0.5) / FPS, f <= 6 ? 0.3 : 0.6))
+    const frames10 = Array.from({ length: 10 }, (_, f) => f)
+    const late = make()
+    // отсчёт на 6-м (0.30) достижим — заменяются только 7..9
+    expect(reconcileAnswer(late, frames10, [2, 6], at(10.5 / FPS, 0.3), 1, FPS)).toBe(3)
+    expect(late[6].foot.x).toBe(0.3)
+    // поздняя граница недостижима (её отсчёт далеко от ответа, а времени мало) — берётся ранняя
+    const far = make().map((s, f) => (f >= 3 ? { ...s, foot: { x: 0.9, y: 0.5 } } : s))
+    expect(reconcileAnswer(far, frames10, [2, 6], at(10.5 / FPS, 0.3), 1, FPS)).toBe(7)
+    expect(far[2].foot.x).toBe(0.3)
+  })
+
+  for (const dx of [0, 15])
+    for (const back of [55, 90])
+      it(`свой стоит невидимым, чужой той же формы ушёл один дольше секунды (dx=${dx}), свой вернулся на ${back}-м и ответ верный: чужих отсчётов нет`, async () => {
+        const own = (f: number): number => 300 + 2 * Math.min(f, 20)
+        const other = (f: number): number => 300 + 2 * f + dx
+        const det = scripted((f) => {
+          const out: Detection[] = []
+          if (f < 20 || f >= back) out.push(person(own(f), 270))
+          if (f >= 22) out.push(person(other(f), 272))
+          return out
+        })
+        let asked = 0
+        const out = await runTrackingJob(
+          options({
+            frames: frames(back + 20),
+            createDetector: () => Promise.resolve(det),
+            anchors: [{ x: 300 / W, y: 315 / H }],
+            onAsk: (t, candidates) => {
+              asked += 1
+              const f = Math.round(t * FPS - 0.5)
+              let best = 0
+              const err = (k: number): number =>
+                Math.abs((candidates[k].x + candidates[k].w / 2) * W - own(f))
+              candidates.forEach((_, k) => {
+                if (err(k) < err(best)) best = k
+              })
+              expect(err(best)).toBeLessThan(10)
+              return Promise.resolve(best)
+            }
+          })
+        )
+        expect(out.kind).toBe('done')
+        if (out.kind !== 'done') return
+        expect(asked).toBeGreaterThan(0)
+        for (const [k, s] of out.samples[0].entries()) {
+          expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k}`).toBeLessThan(27)
+        }
+      })
+
+  for (const dx of [15, 20, 25])
+    it(`чужой той же формы встаёт под прикрытием игрока другой формы (dx=${dx}), затем смена плана: его кадров нет`, async () => {
+      // Свой останавливается и пропадает с 20-го; игрок другой формы закрывает место прогноза на 17–35-м; под ним на
+      // месте прогноза (+dx) встаёт чужой той же формы и продолжает движение своего. Смена плана на 44-м.
+      const own = (f: number): number => 300 + 2 * Math.min(f, 20)
+      const det: Detector = {
+        backend: 'wasm',
+        detect(frame: DetectorFrame): Promise<DetectOutput> {
+          const f = frame.index ?? 0
+          const out: Detection[] = []
+          if (f < 20) out.push(person(own(f), 270, 0))
+          if (f >= 20) out.push(person(300 + 2 * f + dx, 272, 0))
+          if (f >= 17 && f < 36) out.push(person(300 + 2 * f + 3, 268, 1))
+          return Promise.resolve({ detections: out, frameHist: cutHist(f >= 44 ? 12 : 4) })
+        },
+        close() {
+          // нечего освобождать
+        }
+      }
+      const out = await runTrackingJob(
+        options({
+          frames: frames(60),
+          createDetector: () => Promise.resolve(det),
+          anchors: [{ x: 300 / W, y: 315 / H }]
+        })
+      )
+      expect(out.kind).toBe('done')
+      if (out.kind !== 'done') return
+      for (const [k, s] of out.samples[0].entries()) {
+        expect(Math.abs(s.foot.x * W - own(k)), `кадр ${k} на чужом`).toBeLessThan(27)
+      }
+    })
 })

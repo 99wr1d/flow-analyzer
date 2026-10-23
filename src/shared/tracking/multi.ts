@@ -34,6 +34,8 @@ import {
   ASK_MAX_CANDIDATES,
   ASK_MAX_CANDIDATES_TOTAL,
   CHAIN_COUNT_RADIUS,
+  COVER_STEP,
+  RECOVERY_BOUNDS,
   CHAIN_MAX_SHIFT,
   CHAIN_MISS_COST,
   CHAIN_NEIGHBOUR_DIST,
@@ -172,6 +174,10 @@ export class MultiTracker {
   private readonly trimSeen: number[]
   /** С последнего уверенного кадра цели все кадры были «на виду без соседей» (см. settleDoubts). */
   private readonly seenThrough: boolean[]
+  /** Рамка, которую продолжает пропуск «насквозь на виду»: своя уверенная, затем рамка под прикрытием (см. settleDoubts). */
+  private readonly coverBox: Array<Box | null>
+  /** Последние уверенные кадры перед недоказанными возвращениями с прошлого ответа (см. answerBounds). */
+  private readonly recoveryBounds: number[][]
   /** Безымянные игроки той же формы рядом с целями (см. Ghost). */
   private ghosts: Ghost[] = []
   private readonly lostFrames: number
@@ -192,6 +198,8 @@ export class MultiTracker {
     this.trimProven = starts.map(() => null)
     this.trimSeen = starts.map(() => 0)
     this.seenThrough = starts.map(() => true)
+    this.coverBox = starts.map(() => null)
+    this.recoveryBounds = starts.map(() => [])
     this.lostFrames = Math.max(1, Math.round(LOST_SECONDS * fps))
   }
 
@@ -217,6 +225,19 @@ export class MultiTracker {
   provenUntil(target: number): number | null {
     if (this.trimSince[target] !== null) return this.trimProven[target]
     return this.lastConfIndex[target]
+  }
+
+  /**
+   * Границы для сверки противоречащего ответа (job.ts, reconcileAnswer): последние уверенные кадры перед недоказанными
+   * возвращениями с прошлого ответа (по возрастанию, не больше RECOVERY_BOUNDS). В отличие от provenUntil не снимаются
+   * «чистым» затишьем: одиночный чужой, ушедший один дольше LOST_SECONDS, при возвращении своего и верном ответе всё равно
+   * заменяется. Последней в списке всегда идёт provenUntil (если она позже: цель пережидает с последнего уверенного кадра).
+   */
+  answerBounds(target: number): number[] {
+    const list = [...this.recoveryBounds[target]]
+    const p = this.provenUntil(target)
+    if (p !== null && (list.length === 0 || p > list[list.length - 1])) list.push(p)
+    return list
   }
 
   /** Где каждая цель ожидается на кадре index (для выреза детектора). */
@@ -258,6 +279,7 @@ export class MultiTracker {
     this.unprovenClean[target] = false
     this.trimSince[target] = null
     this.trimProven[target] = null
+    this.recoveryBounds[target] = []
     // Ответ снимает подозрение, но не забывает соседей: подозреваемые цели остаются обычными безымянными следами
     // (иначе на следующем кадре, если её рамка пропадёт, сосед рядом прошёл бы молча — ответ обнуляет скорость Калмана).
     // След, который и есть выбранная рамка, — это сама цель: удаляется только он. Ищем по последней виденной рамке
@@ -1078,7 +1100,14 @@ export class MultiTracker {
           ) ||
           this.ghosts.some((g) => similar(g.look) && apart(g.box, own, norm) <= CHAIN_COUNT_RADIUS)
         clean = !neighbour
-        covered = clean
+        // Уверенный кадр сам должен продолжать прошлую рамку (не дальше COVER_STEP высоты): скачок на соседнюю рамку той
+        // же формы (новичок за полшага от цели) не начинает цепочку «насквозь на виду».
+        const prevOwn = this.coverBox[i]
+        covered =
+          clean &&
+          (prevOwn === null ||
+            apart(own, prevOwn, Math.max(prevOwn.h, MIN_NORM_HEIGHT)) <= COVER_STEP)
+        this.coverBox[i] = { ...own }
       } else {
         const pred = this.preds[i]
         if (pred) {
@@ -1092,7 +1121,14 @@ export class MultiTracker {
           clean = !ghost && near.length > 0 && near.every((d) => sameBox(d.box, near[0].box))
           // Для пропуска «насквозь на виду» этого мало: рамку у прогноза должен перекрывать игрок другой формы (он и
           // объясняет пропуск). Рамка той же формы без такого перекрытия может быть новичком на месте пропавшей цели.
-          covered = clean && this.dets.some((d) => !similar(d.look) && iou(d.box, near[0].box) > 0)
+          // И она должна продолжать свою рамку цели (COVER_STEP высоты от прошлой) — иначе это новичок под прикрытием.
+          const prevBox = this.coverBox[i]
+          covered =
+            clean &&
+            prevBox !== null &&
+            apart(near[0].box, prevBox, Math.max(prevBox.h, MIN_NORM_HEIGHT)) <= COVER_STEP &&
+            this.dets.some((d) => !similar(d.look) && iou(d.box, near[0].box) > 0)
+          this.coverBox[i] = covered ? { ...near[0].box } : null
         }
       }
       // Пропуск «насквозь на виду»: с последнего уверенного кадра у цели каждый кадр был чистым — возвращение после
@@ -1250,9 +1286,17 @@ export class MultiTracker {
             }
             // Граница вывода — по последнему возвращению; окно «чистого» затишья начинается заново. Пропуск, весь
             // прошедший на виду без соседей (seenThrough: цель пережидала за игроком другой формы), обрезку не начинает.
-            if (!this.seenThrough[i]) {
+            // Рамка возвращения сама должна продолжать рамку под прикрытием (COVER_STEP высоты): иначе это сосед.
+            const cover = this.coverBox[i]
+            const continues =
+              cover !== null &&
+              apart(s.box, cover, Math.max(cover.h, MIN_NORM_HEIGHT)) <= COVER_STEP
+            if (!this.seenThrough[i] || !continues) {
               this.trimSince[i] = f
               this.trimProven[i] = prev
+              const bounds = this.recoveryBounds[i]
+              bounds.push(prev)
+              if (bounds.length > RECOVERY_BOUNDS) bounds.shift()
               this.trimSeen[i] = 0
               this.unprovenClean[i] = true
             }

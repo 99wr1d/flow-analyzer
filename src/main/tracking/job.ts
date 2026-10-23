@@ -71,26 +71,50 @@ export function boxToSample(box: Box, t: number, w: number, h: number): TrackSam
 
 /** Ответ «вот мой» дальше этого (в высотах игрока) от последнего отсчёта цели противоречит её недавнему следу. */
 export const ANSWER_CONTRADICTS = 0.3
+/** Наибольшая скорость игрока (высот за кадр) для проверки «надёжный отсчёт достижим из выбранной рамки». */
+export const ANSWER_REACH_PER_FRAME = 0.25
 
 /**
  * Ответ пользователя противоречит недоказанному возвращению (цель шла за неотличимым новичком, пока её игрок не
  * вернулся): отсчёты цели после последнего надёжного кадра (provenFrame) до кадра ответа заменяются прямой от надёжного
  * отсчёта к выбранной рамке — как отсчёты «пережидания» (догадка, а не чужой игрок). Противоречие — выбранная рамка дальше
  * ANSWER_CONTRADICTS высот от последнего отсчёта цели. Возвращает число заменённых отсчётов (0 — ничего не тронуто).
+ * Границ может быть несколько (недоказанные возвращения с прошлого ответа, по возрастанию): берётся САМАЯ ПОЗДНЯЯ, чей
+ * надёжный отсчёт достижим из выбранной рамки (ANSWER_CONTRADICTS + ANSWER_REACH_PER_FRAME высот за кадр между ними);
+ * если ни одна не достижима — самая ранняя.
  */
 export function reconcileAnswer(
   samples: TrackSample[],
   sampleFrames: number[],
-  provenFrame: number | null,
+  bounds: number | null | readonly number[],
   answered: TrackSample,
   /** Ширина кадра / высота: доли ширины и высоты приводятся к долям высоты. */
-  aspect = 1
+  aspect = 1,
+  fps = 25
 ): number {
   const last = samples.at(-1)
   if (!last) return 0
   const dist = Math.hypot((answered.foot.x - last.foot.x) * aspect, answered.foot.y - last.foot.y)
   if (dist <= ANSWER_CONTRADICTS * Math.max(answered.height, last.height)) return 0
-  const keep = provenFrame === null ? 0 : sampleFrames.filter((f) => f <= provenFrame).length
+  const list = bounds === null ? [] : typeof bounds === 'number' ? [bounds] : bounds
+  const keepOf = (b: number): number => sampleFrames.filter((f) => f <= b).length
+  let keep = list.length > 0 ? keepOf(list[0]) : 0
+  for (let j = list.length - 1; j >= 0; j -= 1) {
+    const k = keepOf(list[j])
+    const proven = k > 0 ? samples[k - 1] : null
+    // граница на последнем отсчёте ничего не заменяет — противоречит сам последний отсчёт
+    if (!proven || k >= samples.length) continue
+    const gap = Math.max(0, (answered.t - proven.t) * fps)
+    const h = Math.max(answered.height, proven.height)
+    const d = Math.hypot(
+      (answered.foot.x - proven.foot.x) * aspect,
+      answered.foot.y - proven.foot.y
+    )
+    if (d <= (ANSWER_CONTRADICTS + ANSWER_REACH_PER_FRAME * gap) * h) {
+      keep = k
+      break
+    }
+  }
   if (keep >= samples.length) return 0
   const from = keep > 0 ? samples[keep - 1] : answered
   const span = answered.t - from.t
@@ -303,9 +327,10 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         reconcileAnswer(
           samples[target],
           sampleFrames,
-          tracker.provenUntil(target),
+          tracker.answerBounds(target),
           boxToSample(chosen.box, frame.t, fw, fh),
-          fw / fh
+          fw / fh,
+          frame.fps
         )
         step = tracker.resolve(target, chosen)
         forceFull = true

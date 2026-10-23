@@ -563,3 +563,15 @@ describe('одна цель и чужой игрок той же формы (о�
     }
   })
 })
+
+describe('answerBounds: границы сверки ответа', () => {
+  it('помнит недоказанные возвращения после «чистого» затишья, последней идёт provenUntil при пережидании', () => {
+    // пропуски 10–12 и 50–52 (чистые, сомнение обрезки снимается), затем пропуск с 90-го без возвращения
+    const x = (f: number): number => 200 + 2 * f
+    const seen = (f: number): boolean => !((f >= 10 && f < 13) || (f >= 50 && f < 53) || f >= 90)
+    const m = new MultiTracker([{ det: det(x(0), 270, RED) }], FPS, FRAME)
+    for (let f = 0; f < 95; f += 1) m.step(frame(f, seen(f) ? [det(x(f), 270, RED)] : []))
+    expect(m.provenUntil(0)).toBe(89)
+    expect(m.answerBounds(0)).toEqual([9, 49, 89])
+  })
+})
