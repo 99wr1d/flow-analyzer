@@ -425,3 +425,59 @@ export const HelpIcon = (p: IconProps): React.JSX.Element => (
     <circle cx="12" cy="17" r=".6" fill="currentColor" />
   </Svg>
 )
+
+// --- Доска тренера ---
+
+export const HandIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11m0-5.5V5a1.5 1.5 0 0 1 3 0v6m0-4.5a1.5 1.5 0 0 1 3 0V12m0-3a1.5 1.5 0 0 1 3 0v4.5c0 4-2.700 6.500-6.500 6.500h-1c-2.500 0-3.800-1-5.200-3L4.300 13.700a1.500 1.500 0 0 1 2.400-1.800L8 13.500" />
+  </Svg>
+)
+
+export const ZoomInIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="10.5" cy="10.5" r="6" />
+    <path d="m15 15 5 5M8 10.5h5M10.5 8v5" />
+  </Svg>
+)
+
+export const ZoomOutIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <circle cx="10.5" cy="10.5" r="6" />
+    <path d="m15 15 5 5M8 10.5h5" />
+  </Svg>
+)
+
+export const FitIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <rect x="6" y="8" width="12" height="8" rx="1" />
+    <path d="M3 7V4h3M21 7V4h-3M3 17v3h3M21 17v3h-3" />
+  </Svg>
+)
+
+export const FullscreenIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+  </Svg>
+)
+
+export const FullscreenExitIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+  </Svg>
+)
+
+export const ImageIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <rect x="3.500" y="5" width="17" height="14" rx="2" />
+    <circle cx="9" cy="10" r="1.600" />
+    <path d="m4 17 5-4.500 3.500 3 3-2.500L20 17" />
+  </Svg>
+)
+
+export const SaveIcon = (p: IconProps): React.JSX.Element => (
+  <Svg {...p}>
+    <path d="M5 4h11l3 3v13H5z" />
+    <path d="M8 4v5h7V4M8 20v-6h8v6" />
+  </Svg>
+)

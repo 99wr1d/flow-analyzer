@@ -4,6 +4,7 @@ import type { LoadedProject, ProjectOpenResult, RecoveryItem } from '../../../..
 import { useViewStore } from '../../app/viewStore'
 import { ru } from '../../i18n/ru'
 import { usePlayerStore } from '../../store/playerStore'
+import { closeBoard, confirmLeaveBoard } from '../board/boardActions'
 import { useFeedbackStore } from '../episodes/feedbackStore'
 import { loadWork, resetWork } from '../history/unified'
 import { refreshLibrary } from '../library/libraryActions'
@@ -103,7 +104,12 @@ export function startUntitledProject(keepVideo: boolean): void {
  * сначала спрашивает про него; сама работа заменится, только когда проект будет создан.
  */
 export async function newProject(): Promise<void> {
-  if (useViewStore.getState().view === 'workspace' && !(await confirmLeaveProject())) return
+  const view = useViewStore.getState().view
+  if (view === 'workspace' && !(await confirmLeaveProject())) return
+  if (view === 'board') {
+    if (!(await confirmLeaveBoard())) return
+    await closeBoard()
+  }
   useDialogsStore.setState({ newProject: true })
 }
 
@@ -209,6 +215,11 @@ function applyOpenResult(result: ProjectOpenResult, recoveryKey: string | null):
 
 /** Открыть проект: path = null — выбрать файл в диалоге. */
 export async function openProject(path: string | null = null): Promise<void> {
+  // Проект открывают, пока на экране доска (например, двойным щелчком по файлу): сначала решается судьба доски.
+  if (useViewStore.getState().view === 'board') {
+    if (!(await confirmLeaveBoard())) return
+    await closeBoard()
+  }
   if (!(await confirmLeaveProject())) return
   try {
     applyOpenResult(await window.api.openProject(path), null)

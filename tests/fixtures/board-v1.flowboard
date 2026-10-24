@@ -1,0 +1,497 @@
+{
+  "format": "flowanalyzer-board",
+  "version": 1,
+  "title": "Эталон v1",
+  "view": "half-angle",
+  "frameCount": 4,
+  "transition": 1.5,
+  "items": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "figure",
+        "set": "gk",
+        "pose": "set",
+        "facing": "front",
+        "pos": {
+          "x": 0.5,
+          "y": 0.8
+        },
+        "scale": 1,
+        "rotation": 0,
+        "color": "#ff0000"
+      },
+      "states": [
+        {
+          "frame": 1,
+          "geom": {
+            "pos": {
+              "x": 0.3,
+              "y": 0.8
+            },
+            "rotation": -45
+          },
+          "pose": "dive-low",
+          "facing": "left"
+        },
+        {
+          "frame": 3,
+          "geom": {
+            "scale": 1.2
+          },
+          "pose": "smother"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "show": {
+        "from": 1,
+        "to": 3
+      },
+      "el": {
+        "kind": "figure",
+        "set": "player",
+        "pose": "stand",
+        "facing": "back-right",
+        "pos": {
+          "x": 0.6,
+          "y": 0.5
+        },
+        "scale": 1,
+        "rotation": 0,
+        "color": "#0000ff"
+      },
+      "states": [
+        {
+          "frame": 2,
+          "geom": {
+            "pos": {
+              "x": 0.7,
+              "y": 0.4
+            }
+          },
+          "pose": "run"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000003",
+      "show": {
+        "from": 0,
+        "to": 2
+      },
+      "el": {
+        "kind": "figure",
+        "set": "coach",
+        "pose": "stand-ball",
+        "facing": "front-left",
+        "pos": {
+          "x": 0.1,
+          "y": 0.1
+        },
+        "scale": 0.8,
+        "rotation": 10,
+        "color": "#00aa00"
+      },
+      "states": [
+        {
+          "frame": 1,
+          "pose": "throw"
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000004",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "equip",
+        "item": "ball",
+        "pos": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "scale": 1,
+        "rotation": 0,
+        "color": "#ffffff"
+      },
+      "states": [
+        {
+          "frame": 2,
+          "geom": {
+            "pos": {
+              "x": 0.9,
+              "y": 0.2
+            },
+            "rotation": 90
+          }
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000005",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "equip",
+        "item": "cone",
+        "pos": {
+          "x": 0.2,
+          "y": 0.3
+        },
+        "scale": 1,
+        "rotation": 0,
+        "color": "#ff8800"
+      },
+      "states": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000006",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "token",
+        "pos": {
+          "x": 0.4,
+          "y": 0.4
+        },
+        "scale": 1,
+        "color": "#222222",
+        "label": "A"
+      },
+      "states": [
+        {
+          "frame": 1,
+          "geom": {
+            "pos": {
+              "x": 0.45,
+              "y": 0.45
+            },
+            "scale": 1.5
+          }
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000007",
+      "show": {
+        "from": 2,
+        "to": 3
+      },
+      "el": {
+        "kind": "number",
+        "pos": {
+          "x": 0.35,
+          "y": 0.35
+        },
+        "scale": 1,
+        "color": "#222222",
+        "n": 7
+      },
+      "states": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000008",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "wavy",
+        "p1": {
+          "x": 0.1,
+          "y": 0.1
+        },
+        "p2": {
+          "x": 0.5,
+          "y": 0.5
+        },
+        "color": "#ffffff",
+        "width": 0.01
+      },
+      "states": [
+        {
+          "frame": 1,
+          "geom": {
+            "p2": {
+              "x": 0.6,
+              "y": 0.4
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000009",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "hatch",
+        "shape": "rect",
+        "p1": {
+          "x": 0.2,
+          "y": 0.2
+        },
+        "p2": {
+          "x": 0.4,
+          "y": 0.4
+        },
+        "color": "#ff00ff"
+      },
+      "states": [
+        {
+          "frame": 2,
+          "geom": {
+            "p2": {
+              "x": 0.5,
+              "y": 0.5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000010",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "shape",
+        "ann": {
+          "id": "00000000-0000-4000-8000-000000000110",
+          "space": "screen",
+          "type": "arrow",
+          "p1": {
+            "x": 0.1,
+            "y": 0.2
+          },
+          "p2": {
+            "x": 0.3,
+            "y": 0.4
+          },
+          "style": {
+            "color": "#ffcc00",
+            "width": 0.006,
+            "dash": "solid"
+          }
+        }
+      },
+      "states": [
+        {
+          "frame": 1,
+          "geom": {
+            "p2": {
+              "x": 0.4,
+              "y": 0.5
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000011",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "shape",
+        "ann": {
+          "id": "00000000-0000-4000-8000-000000000111",
+          "space": "screen",
+          "type": "line",
+          "p1": {
+            "x": 0.1,
+            "y": 0.3
+          },
+          "p2": {
+            "x": 0.3,
+            "y": 0.5
+          },
+          "style": {
+            "color": "#ffcc00",
+            "width": 0.006,
+            "dash": "solid"
+          }
+        }
+      },
+      "states": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000012",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "shape",
+        "ann": {
+          "id": "00000000-0000-4000-8000-000000000112",
+          "space": "screen",
+          "type": "circle",
+          "p1": {
+            "x": 0.5,
+            "y": 0.5
+          },
+          "p2": {
+            "x": 0.6,
+            "y": 0.6
+          },
+          "style": {
+            "color": "#ffcc00",
+            "width": 0.006,
+            "dash": "solid"
+          }
+        }
+      },
+      "states": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000013",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "shape",
+        "ann": {
+          "id": "00000000-0000-4000-8000-000000000113",
+          "space": "screen",
+          "type": "text",
+          "pos": {
+            "x": 0.5,
+            "y": 0.1
+          },
+          "text": "Выход",
+          "style": {
+            "color": "#ffffff",
+            "size": 0.04,
+            "background": true
+          }
+        }
+      },
+      "states": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000014",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "shape",
+        "ann": {
+          "id": "00000000-0000-4000-8000-000000000114",
+          "space": "screen",
+          "type": "curve",
+          "p1": {
+            "x": 0.1,
+            "y": 0.9
+          },
+          "p2": {
+            "x": 0.5,
+            "y": 0.9
+          },
+          "c": {
+            "x": 0.3,
+            "y": 0.6
+          },
+          "style": {
+            "color": "#ffcc00",
+            "width": 0.006,
+            "dash": "solid"
+          }
+        }
+      },
+      "states": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000015",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "shape",
+        "ann": {
+          "id": "00000000-0000-4000-8000-000000000115",
+          "space": "screen",
+          "type": "pen",
+          "points": [
+            {
+              "x": 0.1,
+              "y": 0.1
+            },
+            {
+              "x": 0.2,
+              "y": 0.15
+            },
+            {
+              "x": 0.3,
+              "y": 0.1
+            }
+          ],
+          "arrow": false,
+          "style": {
+            "color": "#ffcc00",
+            "width": 0.006,
+            "dash": "solid"
+          }
+        }
+      },
+      "states": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000016",
+      "show": {
+        "from": 0,
+        "to": 3
+      },
+      "el": {
+        "kind": "shape",
+        "ann": {
+          "id": "00000000-0000-4000-8000-000000000116",
+          "space": "screen",
+          "type": "zone",
+          "points": [
+            {
+              "x": 0.6,
+              "y": 0.6
+            },
+            {
+              "x": 0.8,
+              "y": 0.6
+            },
+            {
+              "x": 0.7,
+              "y": 0.8
+            }
+          ],
+          "opacity": 0.3,
+          "style": {
+            "color": "#ffcc00",
+            "width": 0.006,
+            "dash": "solid"
+          }
+        }
+      },
+      "states": []
+    }
+  ],
+  "createdAt": "2026-10-23T10:00:00.000Z",
+  "updatedAt": "2026-10-23T11:00:00.000Z"
+}

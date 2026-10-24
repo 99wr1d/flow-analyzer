@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ru } from '../i18n/ru'
 import { formatStatus } from './platform'
+import { BoardJobStatus } from '../features/board/BoardJobStatus'
 
 export function StatusBar(): React.JSX.Element {
   const [text, setText] = useState<string>(ru.status.loading)
@@ -32,6 +33,7 @@ export function StatusBar(): React.JSX.Element {
       >
         {text}
       </span>
+      <BoardJobStatus />
     </footer>
   )
 }

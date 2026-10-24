@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { AboutDialog } from '../features/help/AboutDialog'
+import { BoardEditor } from '../features/board/BoardEditor'
 import { autoStartTips } from '../features/help/helpStore'
 import { Onboarding } from '../features/help/Onboarding'
 import { ExportDialog } from '../features/export/ExportDialog'
@@ -53,7 +54,7 @@ export function App(): React.JSX.Element {
 
   return (
     <div
-      className={view === 'start' ? 'app app--start' : 'app'}
+      className={view === 'start' ? 'app app--start' : view === 'board' ? 'app app--board' : 'app'}
       data-settings={loaded ? 'loaded' : 'loading'}
       data-view={booting ? 'booting' : view}
     >
@@ -62,6 +63,11 @@ export function App(): React.JSX.Element {
         <ErrorBoundary area="start">
           <StartScreen />
           <CrashProbe area="start" />
+        </ErrorBoundary>
+      ) : view === 'board' ? (
+        <ErrorBoundary area="board" className="boundary--board">
+          <BoardEditor />
+          <CrashProbe area="board" />
         </ErrorBoundary>
       ) : (
         <>

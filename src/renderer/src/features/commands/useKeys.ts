@@ -1,6 +1,6 @@
 import { useSettingsStore } from '../settings/settingsStore'
 import { formatBindings } from './binding'
-import { STATIC_COMMANDS, tagCommand } from './definitions'
+import { BOARD_COMMANDS, STATIC_COMMANDS, tagCommand } from './definitions'
 import { effectiveBindings, type CommandMeta } from './keymap'
 import type { TagDef } from '../../../../shared/settings'
 
@@ -10,7 +10,7 @@ export function useKeysLabel(meta: CommandMeta | undefined): string {
   return meta ? formatBindings(effectiveBindings(meta, overrides)) : ''
 }
 
-const staticById = new Map(STATIC_COMMANDS.map((c) => [c.id, c]))
+const staticById = new Map([...STATIC_COMMANDS, ...BOARD_COMMANDS].map((c) => [c.id, c]))
 
 /** Первая клавиша команды: «A», «Ctrl+O». Пусто, если не назначена (учитывает переназначение). */
 export function useFirstKey(commandId: string): string {

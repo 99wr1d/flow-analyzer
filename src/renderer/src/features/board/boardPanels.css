@@ -1,0 +1,287 @@
+/* ---------- Доска тренера: ряд элементов, кисть, полоса кадров, ход видео ---------- */
+/* Ряд элементов раздела */
+.board-tray {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.board-tray__sep {
+  flex: none;
+  width: 1px;
+  height: 52px;
+  background: var(--border-strong);
+}
+.board-tray__items {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.board-tray__item {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 76px;
+  padding: 4px 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.board-tray__item:hover:not(:disabled) {
+  background: var(--panel-3);
+  color: var(--text);
+}
+.board-tray__item--active,
+.board-tray__item--active:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(43, 214, 123, 0.1);
+  color: var(--accent);
+}
+.board-tray__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.board-tray__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 52px;
+  border-radius: 5px;
+  background: #4f8a40;
+}
+.board-tray__label {
+  max-width: 74px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* Кисть цвета */
+.board-color {
+  position: relative;
+  flex: none;
+}
+.board-color__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.board-color__btn:hover:not(:disabled) {
+  background: var(--panel-3);
+}
+.board-color__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.board-color__dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.board-color__dot--mixed {
+  background: conic-gradient(#e53935, #ffd400, #43a047, #1e66f5, #8e24aa, #e53935);
+}
+.board-color__label {
+  font-size: 12px;
+}
+.board-color__pop {
+  position: absolute;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+.board-color__pop {
+  top: calc(100% + 6px);
+}
+/* В ряду под полем палитра открывается вверх. */
+.board-tray .board-color__pop {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.board-color__grid {
+  display: grid;
+  grid-template-columns: repeat(5, 22px);
+  gap: 8px;
+}
+.board-color__grid .swatch {
+  width: 22px;
+  height: 22px;
+}
+.board-color__custom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.board-color__custom input {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+/* Полоса кадров */
+.board-frames {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--border);
+}
+.board-frames__label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.board-frames__list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.board-frame {
+  flex: none;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--panel-3);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.board-frame:hover:not(:disabled) {
+  border-color: var(--text-faint);
+}
+.board-frame--active,
+.board-frame--active:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #06210f;
+  font-weight: 700;
+}
+.board-frame:disabled {
+  cursor: default;
+}
+.board-frame--add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+}
+.board-frame--add:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.board-frames__spacer {
+  flex: 1;
+}
+.board-frames__transition {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.board-frames__transition .range {
+  width: 120px;
+}
+.board-frames__value {
+  min-width: 34px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.board-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel-2);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  transform: translateY(-100%);
+}
+.board-menu__item {
+  display: block;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.board-menu__item:hover:not(:disabled) {
+  background: var(--panel-3);
+}
+.board-menu__item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Сохранение видео в строке состояния */
+.status-bar__job {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  color: var(--text);
+}
+.status-bar__bar {
+  width: 140px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.status-bar__fill {
+  height: 100%;
+  background: var(--accent);
+}
+.status-bar__cancel {
+  height: 18px;
+  padding: 0 8px;
+  font-size: 11px;
+}

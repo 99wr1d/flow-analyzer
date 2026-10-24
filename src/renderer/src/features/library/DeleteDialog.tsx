@@ -4,21 +4,30 @@ import { ru } from '../../i18n/ru'
 import { useFocusTrap } from '../export/useFocusTrap'
 import { closeDelete, useDialogsStore } from './dialogsStore'
 import { deleteCard } from './libraryActions'
-import type { LibraryCard } from '../../../../shared/library'
+import { closeBoardDelete, deleteBoardCard, useBoardLibrary } from '../board/boardLibrary'
 
-function DeleteForm({ card }: { card: LibraryCard }): React.JSX.Element {
+interface DeleteTarget {
+  title: string
+  heading: string
+  text: string
+  path: string
+  confirm: () => Promise<void>
+  close: () => void
+}
+
+function DeleteForm({ target }: { target: DeleteTarget }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState(false)
 
   useFocusTrap(ref, true, () => {
-    if (!busy) closeDelete()
+    if (!busy) target.close()
   })
 
   const confirm = async (): Promise<void> => {
     if (busy) return
     setBusy(true)
-    await deleteCard(card)
-    closeDelete()
+    await target.confirm()
+    target.close()
   }
 
   return (
@@ -35,13 +44,13 @@ function DeleteForm({ card }: { card: LibraryCard }): React.JSX.Element {
       >
         <div className="modal__body modal__body--prompt">
           <h2 id="delete-title" className="modal__title">
-            {ru.start.deleteTitle(card.title)}
+            {target.heading}
           </h2>
           <p id="delete-text" className="modal__text">
-            {ru.start.deleteText}
+            {target.text}
           </p>
-          <p className="pcard__path" title={card.path}>
-            {card.path}
+          <p className="pcard__path" title={target.path}>
+            {target.path}
           </p>
         </div>
         <footer className="modal__foot modal__foot--end">
@@ -51,7 +60,7 @@ function DeleteForm({ card }: { card: LibraryCard }): React.JSX.Element {
             disabled={busy}
             data-autofocus
             data-testid="delete-cancel"
-            onClick={closeDelete}
+            onClick={target.close}
           >
             {ru.start.deleteCancel}
           </button>
@@ -72,5 +81,34 @@ function DeleteForm({ card }: { card: LibraryCard }): React.JSX.Element {
 
 export function DeleteDialog(): React.JSX.Element | null {
   const card = useDialogsStore((s) => s.deleting)
-  return card ? <DeleteForm card={card} /> : null
+  const board = useBoardLibrary((s) => s.deleting)
+  if (card) {
+    return (
+      <DeleteForm
+        target={{
+          title: card.title,
+          heading: ru.start.deleteTitle(card.title),
+          text: ru.start.deleteText,
+          path: card.path,
+          confirm: () => deleteCard(card),
+          close: closeDelete
+        }}
+      />
+    )
+  }
+  if (board) {
+    return (
+      <DeleteForm
+        target={{
+          title: board.title,
+          heading: ru.board.deleteTitle(board.title),
+          text: ru.board.deleteText,
+          path: board.path,
+          confirm: () => deleteBoardCard(board),
+          close: closeBoardDelete
+        }}
+      />
+    )
+  }
+  return null
 }

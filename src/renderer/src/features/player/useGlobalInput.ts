@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useViewStore } from '../../app/viewStore'
 import { usePlayerStore } from '../../store/playerStore'
 import { importDroppedFile } from './importVideo'
 
@@ -33,6 +34,8 @@ export function useDropImport(): void {
       e.preventDefault()
       depth = 0
       setDragActive(false)
+      // На доске тренера видео не открывается: иначе доска закрылась бы без вопроса.
+      if (useViewStore.getState().view === 'board') return
       const file = e.dataTransfer?.files[0]
       if (file) void importDroppedFile(file)
     }

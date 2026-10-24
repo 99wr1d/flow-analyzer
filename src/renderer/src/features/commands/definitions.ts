@@ -26,6 +26,22 @@ import { useSettingsStore } from '../settings/settingsStore'
 import { makeBinding, type Binding } from './binding'
 import type { CommandMeta } from './keymap'
 import { deleteSelection } from './selectionFocus'
+import {
+  addFrameHere,
+  boardEscape,
+  boardRedo,
+  boardUndo,
+  canEditBoard,
+  deleteSelected,
+  saveBoard,
+  saveImage,
+  selectBoardTool,
+  stepBoardFrame,
+  toggleBoardPlay
+} from '../board/boardActions'
+import { MAX_FRAMES } from '../../../../shared/board/schema'
+import { useBoardStore } from '../board/boardStore'
+import { useBoardUi } from '../board/boardUi'
 
 export interface Command extends CommandMeta {
   run: () => void
@@ -376,6 +392,93 @@ export const STATIC_COMMANDS: readonly Command[] = [
   }
 ]
 
+/** Команды доски тренера: действуют только на её экране (scope 'board'). */
+const boardCommand = (c: Omit<Command, 'group' | 'scope'>): Command => ({
+  ...c,
+  group: 'Доска',
+  scope: 'board'
+})
+const board = (): ReturnType<typeof useBoardStore.getState> => useBoardStore.getState()
+
+export const BOARD_COMMANDS: readonly Command[] = [
+  boardCommand({
+    id: 'board:undo',
+    label: 'Отменить',
+    defaults: [key('KeyZ', { ctrl: true })],
+    run: boardUndo,
+    enabled: () => canEditBoard() && board().past.length > 0
+  }),
+  boardCommand({
+    id: 'board:redo',
+    label: 'Повторить',
+    defaults: [key('KeyY', { ctrl: true }), key('KeyZ', { ctrl: true, shift: true })],
+    run: boardRedo,
+    enabled: () => canEditBoard() && board().future.length > 0
+  }),
+  boardCommand({
+    id: 'board:delete',
+    label: 'Удалить выбранное',
+    defaults: [key('Delete'), key('Backspace')],
+    run: deleteSelected,
+    enabled: () => canEditBoard() && board().selection.length > 0
+  }),
+  boardCommand({
+    id: 'board:play',
+    label: 'Проиграть / пауза',
+    defaults: [key('Space')],
+    run: toggleBoardPlay,
+    enabled: () => (board().board?.frameCount ?? 0) > 1 && !useBoardUi.getState().dragging
+  }),
+  boardCommand({
+    id: 'board:prev-frame',
+    label: 'Предыдущий кадр',
+    defaults: [key('ArrowLeft')],
+    run: () => stepBoardFrame(-1),
+    enabled: () => canEditBoard() && board().frame > 0
+  }),
+  boardCommand({
+    id: 'board:next-frame',
+    label: 'Следующий кадр',
+    defaults: [key('ArrowRight')],
+    run: () => stepBoardFrame(1),
+    enabled: () => canEditBoard() && board().frame < (board().board?.frameCount ?? 1) - 1
+  }),
+  boardCommand({
+    id: 'board:add-frame',
+    label: 'Добавить кадр',
+    defaults: [key('Equal', { shift: true }), key('NumpadAdd'), key('Equal')],
+    run: addFrameHere,
+    enabled: () => canEditBoard() && (board().board?.frameCount ?? MAX_FRAMES) < MAX_FRAMES
+  }),
+  boardCommand({
+    id: 'board:save',
+    label: 'Сохранить доску',
+    defaults: [key('KeyS', { ctrl: true })],
+    run: () => void saveBoard(),
+    enabled: () => board().board !== null
+  }),
+  boardCommand({
+    id: 'board:save-image',
+    label: 'Сохранить картинку',
+    defaults: [key('KeyS', { ctrl: true, shift: true })],
+    run: () => void saveImage(),
+    enabled: () => board().board !== null
+  }),
+  boardCommand({
+    id: 'board:select',
+    label: 'Инструмент «Выбор»',
+    defaults: [key('KeyV')],
+    run: selectBoardTool,
+    enabled: canEditBoard
+  }),
+  boardCommand({
+    id: 'board:escape',
+    label: 'Отмена / снять выделение',
+    defaults: [key('Escape')],
+    run: boardEscape
+  })
+]
+
 /** Команда создания эпизода для тега. Клавиша по умолчанию есть только у стандартных тегов (1–9). */
 export function tagCommand(tag: TagDef): Command {
   const code = DEFAULT_TAG_KEYS[tag.id]
@@ -390,5 +493,5 @@ export function tagCommand(tag: TagDef): Command {
 }
 
 export function allCommands(tags: readonly TagDef[]): Command[] {
-  return [...STATIC_COMMANDS, ...tags.map(tagCommand)]
+  return [...STATIC_COMMANDS, ...BOARD_COMMANDS, ...tags.map(tagCommand)]
 }

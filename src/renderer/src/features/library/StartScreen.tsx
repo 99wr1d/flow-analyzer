@@ -9,6 +9,9 @@ import { Logo } from '../../ui/Logo'
 import { HelpMenu } from '../help/HelpMenu'
 import { useKeyHint } from '../commands/useKeys'
 import { openVideoFromDialog } from '../player/importVideo'
+import { BoardCards } from '../board/BoardCards'
+import { openNewBoard } from '../board/boardActions'
+import { refreshBoards } from '../board/boardLibrary'
 import { newProject, openProject } from '../project/actions'
 import { ProjectBanners } from '../project/ProjectBanners'
 import { useSettingsStore } from '../settings/settingsStore'
@@ -225,6 +228,7 @@ export function StartScreen(): React.JSX.Element {
   useEffect(() => {
     useLibraryStore.setState({ notice: null })
     void refreshLibrary()
+    void refreshBoards()
   }, [])
 
   return (
@@ -267,6 +271,19 @@ export function StartScreen(): React.JSX.Element {
         </button>
         <button
           type="button"
+          className="btn"
+          title={ru.board.newBoardTitle}
+          data-testid="start-new-board"
+          onClick={(e) => {
+            openNewBoard()
+            e.currentTarget.blur()
+          }}
+        >
+          <PlusIcon size={16} />
+          {ru.board.newBoard}
+        </button>
+        <button
+          type="button"
           className="btn btn--primary"
           title={`${ru.start.newProjectTitle}${newHint}`}
           data-testid="start-new"
@@ -299,6 +316,7 @@ export function StartScreen(): React.JSX.Element {
           <h1 className="start__title">{ru.start.title}</h1>
           <Notice />
           <Content />
+          <BoardCards />
           {folder && (
             <p className="start__folder" data-testid="start-folder" title={folder}>
               {ru.start.folderNote(folder)}

@@ -9,7 +9,8 @@ export const COMMAND_GROUPS = [
   'Анализ',
   'Проект',
   'Экспорт',
-  'Общее'
+  'Общее',
+  'Доска'
 ] as const
 export type CommandGroup = (typeof COMMAND_GROUPS)[number]
 
@@ -21,7 +22,12 @@ export interface CommandMeta {
   defaults: Binding[]
   /** Разрешён автоповтор при удержании клавиши (покадровый шаг). */
   repeat?: boolean
+  /** Где действует команда: 'board' — только на доске тренера; нет поля — на остальных экранах. */
+  scope?: CommandScope
 }
+
+export type CommandScope = 'app' | 'board'
+export const scopeOf = (meta: CommandMeta): CommandScope => meta.scope ?? 'app'
 
 /** Переопределения из настроек: id команды → сочетания. Пустой список — клавиша снята. */
 export type Overrides = Readonly<Record<string, readonly Binding[]>>
@@ -62,16 +68,20 @@ export function buildKeymap<T extends CommandMeta>(
   return map
 }
 
-/** Другие команды, у которых уже есть это сочетание. */
+/** Другие команды того же экрана, у которых уже есть это сочетание (доска и видео друг другу не мешают). */
 export function findConflicts<T extends CommandMeta>(
   commands: readonly T[],
   overrides: Overrides,
   commandId: string,
   binding: Binding
 ): T[] {
+  const self = commands.find((c) => c.id === commandId)
+  const scope = self ? scopeOf(self) : 'app'
   return commands.filter(
     (c) =>
-      c.id !== commandId && effectiveBindings(c, overrides).some((b) => bindingsEqual(b, binding))
+      c.id !== commandId &&
+      scopeOf(c) === scope &&
+      effectiveBindings(c, overrides).some((b) => bindingsEqual(b, binding))
   )
 }
 
