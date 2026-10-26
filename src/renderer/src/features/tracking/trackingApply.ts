@@ -270,29 +270,31 @@ type Box2 = { p1: Pt; p2: Pt }
 const PILLAR_FOOTING_RATIO = 0.35
 
 /**
- * Столб стоит на ногах игрока: низ овала — точка ног, ширина столба ≈ ширине фигуры. Если столб, как его поставил тренер,
- * уже стоит у ног игрока и по ширине подходит, он остаётся; иначе овал заменяется следом под ногами (только пока нет ключей).
+ * Столб стоит на ногах игрока: низ овала — точка ног (с тем же подъёмом FOOT_LIFT, что у кольца и точек связки: рамка детектора
+ * заходит ниже подошв), ширина столба ≈ ширине фигуры. Если столб, как его поставил тренер, уже стоит у ног игрока и по ширине
+ * подходит, размер остаётся, а низ-середина встаёт точно к ногам (смещение щелчка не тянется за игроком всё слежение);
+ * иначе овал заменяется следом под ногами. Только пока нет ключей.
  */
 function footPillar(a: Annotation, ref: TrackSample, at: number, aspect: number): Annotation {
-  if (a.type !== 'spot') return a
+  if (a.type !== 'spot' || keysOf(a).length > 0) return a
   const g = geomAt(a, at) as unknown as Box2
   const figureW = (ref.height * FIGURE_ASPECT) / aspect
+  const footY = ref.foot.y - FOOT_LIFT * ref.height
   const cx = (g.p1.x + g.p2.x) / 2
   const rx0 = Math.abs(g.p2.x - g.p1.x) / 2
   const bottom = Math.max(g.p1.y, g.p2.y)
   const width = 2 * rx0 * PILLAR_WIDTH_SHARE
   const placed =
-    Math.abs(bottom - ref.foot.y) <= 0.15 * ref.height &&
+    Math.abs(bottom - footY) <= 0.15 * ref.height &&
     Math.abs(cx - ref.foot.x) <= 0.5 * figureW &&
     width >= 0.6 * figureW &&
     width <= 1.6 * figureW
-  if (placed || keysOf(a).length > 0) return a
-  const rx = figureW / 2 / PILLAR_WIDTH_SHARE
-  const ry = rx * aspect * PILLAR_FOOTING_RATIO
+  const rx = placed ? rx0 : figureW / 2 / PILLAR_WIDTH_SHARE
+  const h = placed ? Math.abs(g.p2.y - g.p1.y) : 2 * rx * aspect * PILLAR_FOOTING_RATIO
   return {
     ...a,
-    p1: { x: ref.foot.x - rx, y: ref.foot.y - 2 * ry },
-    p2: { x: ref.foot.x + rx, y: ref.foot.y }
+    p1: { x: ref.foot.x - rx, y: footY - h },
+    p2: { x: ref.foot.x + rx, y: footY }
   } as Annotation
 }
 

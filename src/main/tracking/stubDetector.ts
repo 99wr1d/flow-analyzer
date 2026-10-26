@@ -10,6 +10,8 @@
 //                        и трекер не может различить их по виду (сценарий «Кто из них ваш?»);
 //   players[].from/until — игрок виден только в этом интервале времени (по умолчанию всегда);
 //   cuts               — моменты «смены плана»: на каждом гистограмма кадра меняется скачком.
+//   feetFromFrame      — true: под рамками на видео нарисованы фигуры, точка ног уточняется по кадру (footX); иначе рамки
+//                        считаются точными (exactBoxes) и ноги — середина нижней кромки.
 // Игроки различаются «приметой» (цветом): номер игрока = его место в списке.
 // Сценарии для слежения за несколькими игроками (Связка): tests/fixtures/stub-three.json (три разных игрока),
 // stub-three-lost.json (средний пропадает на 1,0 с), stub-same-cross.json (два игрока с одной приметой идут навстречу).
@@ -38,7 +40,9 @@ export const StubPatternSchema = z.object({
       })
     )
     .max(20),
-  cuts: z.array(z.number().finite()).max(100).default([])
+  cuts: z.array(z.number().finite()).max(100).default([]),
+  /** true — на видео нарисованы настоящие фигуры под рамками: точку ног уточнять по кадру, как у настоящего детектора. */
+  feetFromFrame: z.boolean().optional()
 })
 
 export type StubPattern = z.infer<typeof StubPatternSchema>
@@ -131,6 +135,7 @@ export function createStubDetector(options: StubOptions = {}): Detector {
 
   return {
     backend: 'wasm',
+    exactBoxes: pattern.feetFromFrame !== true,
     detect,
     close() {
       closed = true

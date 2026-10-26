@@ -118,6 +118,46 @@ describe('runTrackingJob', () => {
     })
   })
 
+  it('boxToSample с кадром: x ног — по тому, что стоит на траве у низа рамки (рамка растянута поднятой ногой)', () => {
+    const rgba = new Uint8Array(W * H * 4)
+    for (let i = 0; i < W * H; i += 1) rgba.set([104, 122, 70, 255], i * 4)
+    // Опорная нога у левого края рамки (x 104..111), низ рамки — 290.
+    for (let y = 270; y < 290; y += 1) {
+      for (let x = 104; x < 112; x += 1) rgba.set([230, 230, 230, 255], (y * W + x) * 4)
+    }
+    const s = boxToSample({ x: 100, y: 200, w: 40, h: 90 }, 1, W, H, rgba)
+    expect(s.foot.x * W).toBeCloseTo(108, 0)
+    expect(s.foot.y).toBeCloseTo(290 / H, 9)
+    expect(s.height).toBeCloseTo(90 / H, 9)
+  })
+
+  it('ноги по кадру у настоящего детектора; у заглушки с точными рамками (exactBoxes) — середина кромки', async () => {
+    // Рамка 280..320 × 225..315, опорная нога у левого края рамки (x 283..289) — до низа рамки.
+    const rgba = new Uint8Array(W * H * 4)
+    for (let i = 0; i < W * H; i += 1) rgba.set([104, 122, 70, 255], i * 4)
+    for (let y = 290; y < 315; y += 1) {
+      for (let x = 283; x < 289; x += 1) rgba.set([235, 235, 235, 255], (y * W + x) * 4)
+    }
+    const run = async (exactBoxes: boolean): Promise<number> => {
+      const det = { ...scripted(() => [person(300, 270)]), exactBoxes }
+      const out = await runTrackingJob(
+        options({
+          anchors: [{ x: 300 / W, y: 0.55 }],
+          frames: (async function* () {
+            for (let i = 0; i < 3; i += 1) {
+              yield { index: i, t: (i + 0.5) / FPS, fps: FPS, rgba, width: W, height: H }
+            }
+          })(),
+          createDetector: () => Promise.resolve(det)
+        })
+      )
+      if (out.kind !== 'done') throw new Error(out.kind)
+      return out.samples[0][0].foot.x * W
+    }
+    expect(await run(false)).toBeCloseTo(286, 0)
+    expect(await run(true)).toBeCloseTo(300, 6)
+  })
+
   it('детекция: целый кадр на старте и раз в секунду, между ними вырез вокруг игрока', async () => {
     const calls: Call[] = []
     const det = scripted((f) => [person(200 + 2 * f, 270)], calls)

@@ -77,6 +77,28 @@ export function keyUV(color: string): { u: number; v: number } {
   return { u: rgbToU(r, g, b), v: rgbToV(r, g, b) }
 }
 
+/**
+ * Какую долю расстояния от цвета газона до нейтрального серого (белая форма, гетры, бутсы, кожа в тени, чёрное) может занять
+ * допуск ключа (similarity + blend). Газон телетрансляции бледный: до серого от него ~0.06–0.10, и прежние 0.07 + 0.05
+ * считали газоном белых игроков и ноги — рисунки «под игроками» ложились поверх них.
+ */
+export const NEUTRAL_SHARE = 0.55
+
+/**
+ * Чувствительность и мягкость края по умолчанию для цвета газона: прежние 0.07 / 0.05, но не шире NEUTRAL_SHARE расстояния
+ * до серого (отношение мягкости к чувствительности то же). Ручные значения пользователя этим не заменяются.
+ */
+export function autoGrassTuning(color: string): { similarity: number; blend: number } {
+  const k = keyUV(color)
+  const toNeutral = Math.sqrt(((k.u - 128) ** 2 + (k.v - 128) ** 2) / (255 * 255 * 2))
+  const full = DEFAULT_GRASS_SIMILARITY + DEFAULT_GRASS_BLEND
+  const total = Math.min(full, NEUTRAL_SHARE * toNeutral)
+  const share = DEFAULT_GRASS_SIMILARITY / full
+  const similarity = Math.max(MIN_GRASS_SIMILARITY, total * share)
+  const blend = (similarity * DEFAULT_GRASS_BLEND) / DEFAULT_GRASS_SIMILARITY
+  return { similarity, blend }
+}
+
 /** Прозрачность по среднему расстоянию diff: то, что возвращает ffmpeg (0..255, дробная часть отбрасывается). */
 export function alphaFromDiff(diff: number, similarity: number, blend: number): number {
   if (blend > 0.0001) {

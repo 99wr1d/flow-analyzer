@@ -2,13 +2,12 @@
 // (пипетка, показ маски, окно настроек). Математика ключа — shared/grassKey.ts.
 import { create } from 'zustand'
 import {
-  DEFAULT_GRASS_BLEND,
   DEFAULT_GRASS_COLOR,
-  DEFAULT_GRASS_SIMILARITY,
   MAX_GRASS_BLEND,
   MAX_GRASS_SIMILARITY,
   MIN_GRASS_BLEND,
   MIN_GRASS_SIMILARITY,
+  autoGrassTuning,
   estimateGrassColor,
   type GrassKey,
   type GrassKeyValues
@@ -71,12 +70,15 @@ export function effectiveKey(
   const found = s.estimate && s.estimate.videoId === videoId ? s.estimate : null
   const estimated = found ? found.color : null
   const from = auto ? found?.time : u?.from
+  const color = auto
+    ? (estimated ?? u?.color ?? DEFAULT_GRASS_COLOR)
+    : (u?.color ?? DEFAULT_GRASS_COLOR)
+  // Пользователь не менял чувствительность — допуск по цвету газона (на бледном газоне уже, чем 0.07 / 0.05).
+  const tuning = u ? { similarity: u.similarity, blend: u.blend } : autoGrassTuning(color)
   return {
-    color: auto
-      ? (estimated ?? u?.color ?? DEFAULT_GRASS_COLOR)
-      : (u?.color ?? DEFAULT_GRASS_COLOR),
-    similarity: u?.similarity ?? DEFAULT_GRASS_SIMILARITY,
-    blend: u?.blend ?? DEFAULT_GRASS_BLEND,
+    color,
+    similarity: tuning.similarity,
+    blend: tuning.blend,
     auto,
     ...(from !== undefined ? { from } : {})
   }
@@ -103,7 +105,8 @@ export const useGrassStore = create<GrassState & GrassActions>()((set, get) => (
     }),
   pickColor: (color, time) =>
     set((s) => {
-      const base = s.userKey ?? effectiveKey(s, usePlayerStore.getState().source?.id)
+      // Чувствительность, которую пользователь не трогал, подстраивается под новый цвет.
+      const base = s.userKey ?? { color, ...autoGrassTuning(color) }
       return {
         userKey: {
           color,

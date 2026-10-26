@@ -8,6 +8,7 @@ import type { FractionBox, StopReason, TrackingAnswer } from '../../shared/track
 import type { Box, Detection } from '../../shared/tracking/types'
 import type { DecodedFrame } from './frames'
 import type { Detector } from './detectorWindow'
+import { footX } from './footing'
 
 /** Полный кадр показываем детектору раз в столько секунд; между ними — только вырез вокруг игрока. */
 export const FULL_DETECT_SECONDS = 1.0
@@ -74,8 +75,17 @@ const toFraction = (b: Box, w: number, h: number): FractionBox => ({
 })
 
 /** Рамка игрока в пикселях → отсчёт: ноги — середина нижней кромки, высота — высота рамки. */
-export function boxToSample(box: Box, t: number, w: number, h: number): TrackSample {
-  return { t, foot: { x: (box.x + box.w / 2) / w, y: (box.y + box.h) / h }, height: box.h / h }
+export function boxToSample(
+  box: Box,
+  t: number,
+  w: number,
+  h: number,
+  rgba?: ArrayLike<number>
+): TrackSample {
+  // Если дан кадр — x ног по тому, что стоит на траве у низа рамки (footX): у бегущего игрока рамку растягивают
+  // поднятая нога и руки, и середина кромки уходит от ног.
+  const x = rgba ? footX(rgba, w, h, box) : box.x + box.w / 2
+  return { t, foot: { x: x / w, y: (box.y + box.h) / h }, height: box.h / h }
 }
 
 /** Ответ «вот мой» дальше этого (в высотах игрока) от последнего отсчёта цели противоречит её недавнему следу. */
@@ -252,6 +262,9 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     iterator = opts.frames[Symbol.asyncIterator]()
 
     const samples: TrackSample[][] = opts.anchors.map(() => [])
+    // Кадр для уточнения точки ног (footX); у заглушки с точными рамками — нет.
+    const feetFrame = (f: DecodedFrame): Uint8Array | undefined =>
+      (detector as Detector).exactBoxes ? undefined : f.rgba
     let tracker: MultiTracker | null = null
     let coasting = false
     let forceFull = false
@@ -351,7 +364,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           samples[target],
           sampleFrames,
           tracker.answerBounds(target),
-          boxToSample(chosen.box, frame.t, fw, fh),
+          boxToSample(chosen.box, frame.t, fw, fh, feetFrame(frame)),
           fw / fh,
           frame.fps,
           tracker.answerProven(target, chosen.box)
@@ -368,7 +381,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       coasting = step.coasting.some(Boolean)
       sampleFrames.push(frame.index)
       step.boxes.forEach((box, i) => {
-        samples[i].push(boxToSample(box, frame.t, fw, fh))
+        samples[i].push(boxToSample(box, frame.t, fw, fh, feetFrame(frame)))
         if (!step.coasting[i]) lastGood[i] = { len: samples[i].length, t: frame.t }
       })
       ordinal += 1

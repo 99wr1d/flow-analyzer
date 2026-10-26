@@ -6,7 +6,14 @@ import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { mkdirSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { ff, frameRgb, pixelAt } from '../../src/main/ffmpeg/ffmpeg.testkit'
-import { grassMask, parseHex, rgbToU, rgbToV, toHex } from '../../src/shared/grassKey'
+import {
+  autoGrassTuning,
+  grassMask,
+  parseHex,
+  rgbToU,
+  rgbToV,
+  toHex
+} from '../../src/shared/grassKey'
 import { SHOTS, SUFFIX, fixture, launch, makeUserData, seekVideo, stubDialog } from './helpers'
 import { calibrate, openPitch, project, saveCalibration, truth, type Pt } from './pitchHelpers'
 import { cardByTitle, createProject, seedProject } from './startHelpers'
@@ -146,7 +153,8 @@ function tsMaskOf(key: Rgb): Uint8Array {
     rgba[i * 4 + 2] = rgb[i * 3 + 2]
     rgba[i * 4 + 3] = 255
   }
-  return grassMask(rgba, W2, H2, { color: hexOf(key), similarity: 0.07, blend: 0.05 })
+  // Чувствительность по умолчанию — по цвету газона (autoGrassTuning), как в приложении.
+  return grassMask(rgba, W2, H2, { color: hexOf(key), ...autoGrassTuning(hexOf(key)) })
 }
 
 /** Ждёт, пока слой нарисовал хотя бы один кадр (маска без рисунков). */
@@ -355,8 +363,14 @@ test.describe('рисунки под игроками', () => {
       // Сброс: цвет снова автоматический, ползунки по умолчанию, маска как вначале.
       await win.getByTestId('grass-reset').click()
       await expect(swatch).toHaveAttribute('data-auto', 'true')
-      await expect(win.getByTestId('grass-similarity-value')).toHaveText('7 %')
-      await expect(win.getByTestId('grass-blend-value')).toHaveText('5 %')
+      // Ползунки по умолчанию — допуск по найденному цвету газона (на этом видео уже прежних 7 % / 5 %).
+      const auto = autoGrassTuning((await swatch.getAttribute('data-color'))!)
+      await expect(win.getByTestId('grass-similarity-value')).toHaveText(
+        `${Math.round(auto.similarity * 100)} %`
+      )
+      await expect(win.getByTestId('grass-blend-value')).toHaveText(
+        `${Math.round(auto.blend * 100)} %`
+      )
       expect(
         uvDistance(parseHex((await swatch.getAttribute('data-color'))!), truthGrass)
       ).toBeLessThan(6)

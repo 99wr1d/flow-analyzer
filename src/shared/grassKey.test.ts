@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_GRASS_BLEND,
   DEFAULT_GRASS_KEY,
+  DEFAULT_GRASS_SIMILARITY,
+  MIN_GRASS_SIMILARITY,
+  autoGrassTuning,
   GrassKeySchema,
   alphaFromDiff,
   chromakeyAlpha,
@@ -233,5 +237,57 @@ describe('GrassKeySchema: время кадра, с которого взят ц
     expect(GrassKeySchema.parse({ ...base, from: 12.4 }).from).toBe(12.4)
     expect(GrassKeySchema.safeParse({ ...base, from: -1 }).success).toBe(false)
     expect(GrassKeySchema.safeParse({ ...base, from: 'x' }).success).toBe(false)
+  })
+})
+
+describe('autoGrassTuning: допуск ключа по цвету газона (кольца не наезжают на игроков)', () => {
+  /** Маска однотонного куска цвета c при ключе key (середина куска 9×9). */
+  const maskOf = (
+    c: [number, number, number],
+    key: { color: string; similarity: number; blend: number }
+  ): number => {
+    const rgba = new Uint8Array(9 * 9 * 4)
+    for (let i = 0; i < 81; i += 1) rgba.set([...c, 255], i * 4)
+    return grassMask(rgba, 9, 9, key)[4 * 9 + 4]
+  }
+  // Бледный газон телетрансляции (цвета, которые находит estimateGrassColor на матчах Лиги чемпионов) и насыщенный газон.
+  const BROADCAST = ['#6c7b48', '#677826', '#648739', '#68891e']
+  const SATURATED = ['#2f8a3f', '#2a7d3e', '#3a9a50']
+  // Белая форма, гетры и бутсы в тени, серое, чёрное, кожа в тени: цветность у всех почти нейтральная.
+  const NEUTRAL: Array<[number, number, number]> = [
+    [245, 245, 245],
+    [200, 204, 206],
+    [150, 150, 152],
+    [128, 128, 128],
+    [60, 60, 62],
+    [20, 20, 20],
+    [150, 120, 105]
+  ]
+
+  it.each([...BROADCAST, ...SATURATED])(
+    'газон %s: белое, серое и чёрное — не газон, сам газон (±шум) — газон',
+    (color) => {
+      const key = { color, ...autoGrassTuning(color) }
+      for (const c of NEUTRAL) expect(maskOf(c, key), String(c)).toBeLessThan(40)
+      const [r, g, b] = parseHex(color)
+      for (const d of [-12, 0, 12]) expect(maskOf([r + d, g + d, b + d], key)).toBeGreaterThan(215)
+    }
+  )
+
+  it('на бледном газоне прежние 0.07/0.05 считали белую форму газоном (причина «кольцо на игроке»)', () => {
+    const old = { color: '#6c7b48', similarity: 0.07, blend: 0.05 }
+    expect(maskOf([245, 245, 245], old)).toBeGreaterThan(200)
+  })
+
+  it('не шире прежних значений по умолчанию, в границах схемы, отношение мягкости к чувствительности прежнее', () => {
+    for (const color of [...BROADCAST, ...SATURATED, '#808080', '#00ff00']) {
+      const t = autoGrassTuning(color)
+      expect(t.similarity + t.blend).toBeLessThanOrEqual(
+        DEFAULT_GRASS_SIMILARITY + DEFAULT_GRASS_BLEND + 1e-9
+      )
+      expect(t.similarity).toBeGreaterThanOrEqual(MIN_GRASS_SIMILARITY)
+      expect(GrassKeySchema.safeParse({ color, auto: true, ...t }).success).toBe(true)
+      expect(t.blend / t.similarity).toBeCloseTo(DEFAULT_GRASS_BLEND / DEFAULT_GRASS_SIMILARITY, 6)
+    }
   })
 })

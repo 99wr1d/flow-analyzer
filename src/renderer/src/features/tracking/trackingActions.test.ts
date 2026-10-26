@@ -4,7 +4,7 @@ import { ru } from '../../i18n/ru'
 import { estimateSeconds } from '../../../../shared/tracking/trackingIpc'
 import { geomAt, keysOf, upsertKey } from '../../../../shared/animation'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
-import type { TrackSample } from '../../../../shared/tracking/keys'
+import { FOOT_LIFT, type TrackSample } from '../../../../shared/tracking/keys'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { autoRuns } from '../annotations/lanes'
 import {
@@ -363,11 +363,12 @@ describe('applyTrackResult: траектория → ключи рисунка',
       const sample = samples.reduce((a, b) => (Math.abs(b.t - t) < Math.abs(a.t - t) ? b : a))
       // Низ-середина овала — ноги игрока (±0.01 доли кадра), а не центр фигуры.
       expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(sample.foot.x, 1)
-      expect(Math.max(g.p1.y, g.p2.y)).toBeCloseTo(sample.foot.y, 1)
+      // Низ — у ног с тем же подъёмом, что у кольца и точек связки (рамка детектора заходит ниже подошв).
+      expect(Math.max(g.p1.y, g.p2.y)).toBeCloseTo(sample.foot.y - FOOT_LIFT * sample.height, 6)
     }
   })
 
-  it('столб, уже стоящий у ног игрока по ширине фигуры, не трогаем', () => {
+  it('столб у ног игрока по ширине фигуры: размер тренера сохраняется, низ встаёт к ногам (как у кольца, с подъёмом FOOT_LIFT)', () => {
     // Ноги на y=0.65, рост 0.3 (aspect 16/9: фигура шириной 0.45·0.3/1.78 ≈ 0.076), столб 1.1·ширина овала ≈ фигуре.
     const spot = {
       id,
@@ -386,8 +387,11 @@ describe('applyTrackResult: траектория → ключи рисунка',
       p1: { x: number; y: number }
       p2: { x: number; y: number }
     }
-    expect(g.p1.y).toBeCloseTo(0.62, 6)
-    expect(g.p2.y).toBeCloseTo(0.66, 6)
+    // Ноги 0.65 − подъём 0.07 · рост 0.3; середина — x ног (0.33 + 0.1 · 0.02); ширина и высота овала — как нарисовал тренер.
+    expect(Math.max(g.p1.y, g.p2.y)).toBeCloseTo(0.65 - FOOT_LIFT * 0.3, 6)
+    expect((g.p1.x + g.p2.x) / 2).toBeCloseTo(0.332, 6)
+    expect(Math.abs(g.p2.x - g.p1.x)).toBeCloseTo(0.0687, 6)
+    expect(Math.abs(g.p2.y - g.p1.y)).toBeCloseTo(0.04, 6)
   })
 
   it('прожектор, уже накрывающий фигуру, не трогаем', () => {
