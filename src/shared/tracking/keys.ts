@@ -11,6 +11,7 @@
 import {
   KEY_EPS,
   LEGACY_RING_FILL,
+  isUnderPlayers,
   type Annotation,
   type Circle,
   type Link,
@@ -324,6 +325,8 @@ export function pitchToScreenForTracking(a: Annotation, cal: Calibration, t: num
     ...(a.dimmed !== undefined ? { dimmed: a.dimmed } : {}),
     beam: a.beam,
     ...(a.form !== undefined ? { form: a.form } : {}),
+    // Столб с поля остаётся под игроками, если лежал под ними.
+    ...(a.form === 'pillar' ? { underPlayers: isUnderPlayers(a) } : {}),
     style: a.style,
     timing: a.timing
   }

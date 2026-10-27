@@ -5,6 +5,7 @@ import {
   canBeUnder,
   defaultUnderPlayers,
   isUnderPlayers,
+  newUnderDefault,
   type AnnotationType
 } from './annotations'
 import { parseProjectText } from './project'
@@ -164,5 +165,37 @@ describe('grassKey в проекте', () => {
     expect(r.ok).toBe(true)
     if (r.ok)
       expect((r.project.annotations[0] as { underPlayers?: boolean }).underPlayers).toBe(true)
+  })
+})
+
+describe('столб под игроками (0.20.1)', () => {
+  const spot = { type: 'spot' }
+  it('прожектор на экране кладётся под игроков только столбом; старый столб без поля — поверх', () => {
+    expect(canBeUnder('spot')).toBe(false)
+    expect(canBeUnder('spot', 'oval')).toBe(false)
+    expect(canBeUnder('spot', 'pillar')).toBe(true)
+    expect(isUnderPlayers({ ...spot, form: 'pillar' })).toBe(false)
+    expect(isUnderPlayers({ ...spot, form: 'pillar', underPlayers: true })).toBe(true)
+    expect(isUnderPlayers({ ...spot, form: 'oval', underPlayers: true })).toBe(false)
+  })
+  it('новый столб по умолчанию — под игроками (на экране и на поле), новый овал — нет', () => {
+    expect(newUnderDefault('spot', 'screen', 'pillar')).toBe(true)
+    expect(newUnderDefault('spot', 'screen', 'oval')).toBe(false)
+    expect(newUnderDefault('spot', 'screen')).toBe(false)
+    expect(newUnderDefault('pspot', 'pitch', 'pillar')).toBe(true)
+  })
+  it('поле underPlayers у прожектора на экране сохраняется в проекте', () => {
+    const a = {
+      ...base,
+      space: 'screen',
+      type: 'spot',
+      form: 'pillar',
+      p1: { x: 0.1, y: 0.1 },
+      p2: { x: 0.2, y: 0.2 },
+      dim: 0.5,
+      underPlayers: true
+    }
+    const r = AnnotationSchema.safeParse(a)
+    expect(r.success && (r.data as { underPlayers?: boolean }).underPlayers).toBe(true)
   })
 })

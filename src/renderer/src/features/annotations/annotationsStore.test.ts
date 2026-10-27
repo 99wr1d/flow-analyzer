@@ -117,6 +117,27 @@ describe('«Под игроками» для новых рисунков', () =>
     expect(r.underPlayers).toBe(false)
   })
 
+  it('новый столб (прожектор формы «столб») — под игроками, пока для экрана не выбрано иное; овал — без флага', () => {
+    useAnnotationsStore.setState({ underNew: { pitch: null, screen: null } })
+    const spot = (n: number, form: 'pillar' | 'oval'): Annotation =>
+      ({
+        id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+        space: 'screen',
+        type: 'spot',
+        form,
+        p1: { x: 0.4, y: 0.6 },
+        p2: { x: 0.5, y: 0.65 },
+        dim: 0,
+        style: { color: '#ffffff', width: 0.01, dash: 'solid' },
+        timing: { mode: 'range', start: 1, duration: 3 }
+      }) as unknown as Annotation
+    s().add(spot(1, 'pillar'))
+    s().add(spot(2, 'oval'))
+    const [p, o] = s().items as Array<Annotation & { underPlayers?: boolean }>
+    expect(p.underPlayers).toBe(true)
+    expect('underPlayers' in o).toBe(false)
+  })
+
   it('явно заданный флаг у добавляемого рисунка не перезаписывается', () => {
     s().add({ ...arrow(1), underPlayers: true } as Annotation)
     expect((s().items[0] as Annotation & { underPlayers?: boolean }).underPlayers).toBe(true)

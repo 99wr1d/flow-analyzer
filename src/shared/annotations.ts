@@ -330,6 +330,8 @@ export const SpotlightSchema = z.object({
   /** Вертикальный «луч» (как у прожектора на траве); появляется при переводе прожектора с поля для слежения. */
   beam: z.boolean().optional(),
   form: spotForm,
+  /** Только у столба (form pillar): столб под игроками. Нет поля — поверх (как до 0.20.1). */
+  underPlayers,
   style: ShapeStyleSchema,
   keyframes: kf(twoPoints),
   timing: TimingSchema
@@ -593,6 +595,8 @@ const UNDER_BY_DEFAULT: ReadonlySet<string> = new Set([
 /** Виды, которым «под игроками» не имеет смысла: подписи, лупа и затемнение прожектора (оно всегда поверх кадра). */
 const NEVER_UNDER: ReadonlySet<string> = new Set(['text', 'ptext', 'loupe', 'spot'])
 
+/** Прожектор-столб на экране: его, в отличие от овала, можно положить под игроков (столб у ног, игрок перед ним). */
+const isPillarForm = (type: string, form?: string): boolean => type === 'spot' && form === 'pillar'
 /** Значение «под игроками» по умолчанию для вида рисунка. Старые проекты поля не имеют — берётся оно. */
 export const defaultUnderPlayers = (type: string): boolean => UNDER_BY_DEFAULT.has(type)
 /** Подсветки на экране, которые с 0.16.4 новыми кладутся под игроков (старые рисунки хранят своё значение). */
@@ -601,13 +605,18 @@ const UNDER_WHEN_NEW_ON_SCREEN: ReadonlySet<string> = new Set(['circle', 'zone',
  * «Под игроками» для НОВОГО рисунка, пока пользователь не выбрал сам: всё на поле, а на экране
  * круг/эллипс и зона (подсветка выделяет игрока, а не закрывает его). Стрелки и линии на экране — поверх.
  */
-export const newUnderDefault = (type: string, space: 'pitch' | 'screen'): boolean =>
-  canBeUnder(type) && (space === 'pitch' || UNDER_WHEN_NEW_ON_SCREEN.has(type))
-/** Можно ли положить рисунок под игроков (подписи и лупа всегда поверх). */
-export const canBeUnder = (type: string): boolean => !NEVER_UNDER.has(type)
+export const newUnderDefault = (type: string, space: 'pitch' | 'screen', form?: string): boolean =>
+  canBeUnder(type, form) &&
+  (space === 'pitch' || UNDER_WHEN_NEW_ON_SCREEN.has(type) || isPillarForm(type, form))
+/** Можно ли положить рисунок под игроков (подписи и лупа всегда поверх; прожектор на экране — только столб). */
+export const canBeUnder = (type: string, form?: string): boolean =>
+  !NEVER_UNDER.has(type) || isPillarForm(type, form)
 /** Лежит ли рисунок под игроками: явное значение или умолчание по виду. Подписи — никогда. */
-export const isUnderPlayers = (a: { type: string; underPlayers?: boolean }): boolean =>
-  canBeUnder(a.type) && (a.underPlayers ?? defaultUnderPlayers(a.type))
+export const isUnderPlayers = (a: {
+  type: string
+  underPlayers?: boolean
+  form?: string
+}): boolean => canBeUnder(a.type, a.form) && (a.underPlayers ?? defaultUnderPlayers(a.type))
 
 /** Рисунок живёт на поле (координаты в метрах). */
 export const isPitchAnnotation = (a: Annotation): a is PitchAnnotation => a.space === 'pitch'

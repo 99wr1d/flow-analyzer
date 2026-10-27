@@ -164,12 +164,14 @@ test.describe('слежение за игроком (заглушка детек
 
       const layerRect = async (): Promise<{ cx: number; top: number; bottom: number }> => {
         const box = (await win.getByTestId('annotation-layer').boundingBox())!
-        const rects = spot.locator('[data-part="pillar-layer"]')
-        const widest = rects.nth(0)
-        const b = (await widest.boundingBox())!
+        // Новый столб лежит под игроками: верх (поверх кадра) и низ (под игроками) — две части одного столба.
+        const upper = spot.locator('[data-section="upper"] [data-part="pillar-layer"]').nth(0)
+        const lower = spot.locator('[data-section="lower"] [data-part="pillar-layer"]').nth(0)
+        const a = (await upper.boundingBox())!
+        const b = (await lower.boundingBox())!
         return {
           cx: (b.x + b.width / 2 - box.x) / box.width,
-          top: (b.y - box.y) / box.height,
+          top: (a.y - box.y) / box.height,
           bottom: (b.y + b.height - box.y) / box.height
         }
       }

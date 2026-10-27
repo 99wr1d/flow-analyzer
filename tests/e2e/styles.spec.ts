@@ -765,7 +765,10 @@ test.describe('световой столб', () => {
       await drawPillar(win, [0.52, 0.72], [0.6, 0.8])
       const spot = shapes(win, 'spot')
       await expect(spot).toHaveAttribute('data-form', 'pillar')
-      await expect(spot.locator('[data-part="pillar"]')).toHaveCount(1)
+      // Новый столб — под игроками: верх поверх кадра, низ (у ног) — под игроками.
+      await expect(spot).toHaveAttribute('data-under', 'true')
+      await expect(spot.locator('[data-part="pillar"][data-section="upper"]')).toHaveCount(1)
+      await expect(spot.locator('[data-part="pillar"][data-section="lower"]')).toHaveCount(1)
       await expect(spot.locator('[data-part="beam"]')).toHaveCount(0)
       // По умолчанию кадр вокруг столба не затемняется; затемнение включается галочкой в «Свойствах».
       await expect(win.getByTestId('spotlight-dim')).toHaveCount(0)

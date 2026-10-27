@@ -189,8 +189,11 @@ function UnderToggle(): React.JSX.Element {
     : tool === 'ruler' || (onPitch && active)
       ? 'pitch'
       : 'screen'
-  const enabled = type !== 'select' && canBeUnder(type)
-  const value = selected ? isUnderPlayers(selected) : underForNew(type, space, underNew)
+  const styleForm = useAnnotationsStore((s) => s.style.form)
+  // Прожектор под игроков кладётся только столбом: форма — у выбранного рисунка его, иначе — из панели.
+  const form = selected ? (selected as { form?: string }).form : styleForm
+  const enabled = type !== 'select' && canBeUnder(type, form)
+  const value = selected ? isUnderPlayers(selected) : underForNew(type, space, underNew, form)
   return (
     <button
       type="button"

@@ -137,8 +137,13 @@ export interface UnderNew {
 }
 
 /** «Под игроками» для нового рисунка вида type в месте space: запомненный выбор или умолчание по виду. */
-export function underForNew(type: string, space: 'pitch' | 'screen', underNew: UnderNew): boolean {
-  return underNew[space] ?? newUnderDefault(type, space)
+export function underForNew(
+  type: string,
+  space: 'pitch' | 'screen',
+  underNew: UnderNew,
+  form?: string
+): boolean {
+  return underNew[space] ?? newUnderDefault(type, space, form)
 }
 
 export interface AnnotationsState extends HistoryState {
@@ -202,10 +207,12 @@ export interface AnnotationsActions {
 
 /** Новому рисунку, которому это имеет смысл, выставляется последний выбор «Под игроками» для его места. */
 export function withUnder(a: Annotation, underNew: AnnotationsState['underNew']): Annotation {
-  if (!canBeUnder(a.type) || (a as { underPlayers?: boolean }).underPlayers !== undefined) return a
+  const form = (a as { form?: string }).form
+  if (!canBeUnder(a.type, form) || (a as { underPlayers?: boolean }).underPlayers !== undefined)
+    return a
   return {
     ...a,
-    underPlayers: underForNew(a.type, a.space === 'pitch' ? 'pitch' : 'screen', underNew)
+    underPlayers: underForNew(a.type, a.space === 'pitch' ? 'pitch' : 'screen', underNew, form)
   } as Annotation
 }
 

@@ -253,6 +253,17 @@ describe('pitchToScreenForTracking', () => {
     expect(out.beam).toBe(true)
     expect(out.dim).toBe(0.55)
     expect(AnnotationSchema.safeParse(out).success).toBe(true)
+    // Овал: флага «под игроками» нет (на экране прожектор-овал всегда поверх).
+    expect('underPlayers' in out).toBe(false)
+    // Столб с поля остаётся под игроками (у прожектора на поле это значение по умолчанию), выключенный — поверх.
+    const col = pitchToScreenForTracking({ ...pspot, form: 'pillar' } as Annotation, cal, 12)
+    expect((col as { underPlayers?: boolean }).underPlayers).toBe(true)
+    const off = pitchToScreenForTracking(
+      { ...pspot, form: 'pillar', underPlayers: false } as Annotation,
+      cal,
+      12
+    )
+    expect((off as { underPlayers?: boolean }).underPlayers).toBe(false)
   })
   it('у анимированного рисунка берётся геометрия на момент t, ключей в результате нет', () => {
     const base = ring({

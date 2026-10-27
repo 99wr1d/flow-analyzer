@@ -378,7 +378,7 @@ function ToolProps({ annotation: a }: { annotation: Annotation }): React.JSX.Ele
       </>
     )
   }
-  const under = canBeUnder(a.type) ? (
+  const under = canBeUnder(a.type, (a as { form?: string }).form) ? (
     <CheckField
       label={ru.grass.underPlayers}
       testId="prop-under"

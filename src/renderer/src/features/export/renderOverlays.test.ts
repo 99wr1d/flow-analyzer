@@ -908,3 +908,56 @@ describe('проявление: рисунок с ключами и коротк
     expect(at(2)).toContain('<polygon')
   })
 })
+
+describe('столб под игроками (0.20.1)', () => {
+  // Столб у ног в (960, 800) кадра 1920×1080: овал шириной 0.06 кадра.
+  const pillar = (underPlayers?: boolean): Annotation =>
+    ({
+      id: '3f2b8c1e-5d4a-4b7e-9c1d-2a6f8e0b4c77',
+      space: 'screen',
+      type: 'spot',
+      form: 'pillar',
+      p1: { x: 0.47, y: 0.72 },
+      p2: { x: 0.53, y: 0.74 },
+      dim: 0,
+      style,
+      timing,
+      ...(underPlayers !== undefined ? { underPlayers } : {})
+    }) as Annotation
+  const rectsOf = (svg: string): Array<{ y: number; h: number }> =>
+    [...svg.matchAll(/data-part="pillar-layer"[^>]*?y="([-\d.]+)"[^>]*?height="([-\d.]+)"/g)].map(
+      (m) => ({ y: Number(m[1]), h: Number(m[2]) })
+    )
+
+  it('под игроками: нижняя часть с лужицей света — на «под игроками», верх — на «поверх», стык без зазора', () => {
+    const a = pillar(true)
+    const under = buildOverlaySvg([a], 1920, 1080, [], { part: 'under' })
+    const over = buildOverlaySvg([a], 1920, 1080, [], { part: 'over' })
+    const low = rectsOf(under)
+    const high = rectsOf(over)
+    expect(low.length).toBeGreaterThan(0)
+    expect(high.length).toBe(low.length)
+    expect(under).toContain('data-part="pillar-pool"')
+    expect(over).not.toContain('data-part="pillar-pool"')
+    // Низ столба — ноги (низ овала: 0.74 · 1080), стык — один и тот же y.
+    expect(low[0].y + low[0].h).toBeCloseTo(0.74 * 1080, 3)
+    expect(high[0].y + high[0].h).toBeCloseTo(low[0].y, 3)
+    // Нижняя часть — около 1.25 роста игрока над ногами (ширина столба ≈ фигура ≈ 0.45 роста), не весь кадр.
+    expect(low[0].h).toBeGreaterThan(150)
+    expect(low[0].h).toBeLessThan(0.74 * 1080 - 100)
+    expect(layersFor([a])).toEqual({ under: true, over: true })
+  })
+
+  it('старый столб (без поля underPlayers) и столб поверх — целиком на «поверх», как раньше', () => {
+    for (const a of [pillar(), pillar(false)]) {
+      expect(rectsOf(buildOverlaySvg([a], 1920, 1080, [], { part: 'under' }))).toHaveLength(0)
+      const all = rectsOf(buildOverlaySvg([a], 1920, 1080, [], { part: 'over' }))
+      expect(all.length).toBeGreaterThan(0)
+      expect(all[0].y + all[0].h).toBeCloseTo(0.74 * 1080, 3)
+      expect(buildOverlaySvg([a], 1920, 1080)).toBe(
+        buildOverlaySvg([a], 1920, 1080, [], { part: 'all' })
+      )
+      expect(layersFor([a])).toEqual({ under: false, over: true })
+    }
+  })
+})

@@ -12,6 +12,7 @@ import { createProject } from './startHelpers'
 import {
   clickAt,
   colorDiff,
+  dragPath,
   layerBox,
   readPng,
   shapes,
@@ -209,6 +210,85 @@ test.describe('кольца у ног не наезжают на игроков'
       await win.screenshot({ path: join(SHOTS, `rings-feet-runner${SUFFIX}.png`) })
     } finally {
       await ctx.app.close()
+    }
+  })
+
+  test('столб под игроком: белый игрок пробегает сквозь столб — тело перед светом, трава в столбе светится; экран = готовое видео', async () => {
+    // Столб у точки (320, 264) на траве; белый игрок (корпус 30 × 70 и ноги до y = 262) бежит вправо 40 px/с: в 1.5 с — в столбе.
+    const video = makeMovingVideo('pillar.mp4', [
+      { c: '0xf2f2f2', w: 30, h: 70, x: '245+40*t', y: 150 },
+      { c: '0xf2f2f2', w: 14, h: 42, x: '253+40*t', y: 220 }
+    ])
+    const ctx = await launch()
+    const { app, win } = ctx
+    try {
+      await createProject(ctx, { title: 'Столб', video })
+      await seekVideo(win, 1.5)
+      await win.keyboard.press('Escape')
+      await win.waitForTimeout(300)
+      const layer = await layerBox(win)
+      const at = (p: Pixels, f: Frac): Rgb =>
+        p.at(layer.x + f[0] * layer.width, layer.y + f[1] * layer.height)
+      const base = await png(win, 'pillar-base')
+      await win.getByTestId('tool-spot').click()
+      await win.getByTestId('form-pillar').click()
+      await dragPath(win, [
+        [298 / W, 258 / H],
+        [342 / W, 264 / H]
+      ])
+      const spot = shapes(win, 'spot')
+      await expect(spot).toHaveCount(1)
+      // Новый столб — под игроками по умолчанию.
+      await expect(spot).toHaveAttribute('data-under', 'true')
+      await win.getByTestId('tool-select').click()
+      await win.keyboard.press('Escape')
+      await expect(win.getByTestId('under-canvas')).toHaveAttribute('data-renderer', 'webgl2')
+      await win.waitForTimeout(600)
+      const shot = await png(win, 'pillar-under')
+      await win.screenshot({ path: join(SHOTS, `rings-feet-pillar${SUFFIX}.png`) })
+      // Корпус игрока (в 1.5 с — x 305..335) внутри столба: не меняется; трава в столбе рядом с ногами — светится.
+      const body: Frac = [320 / W, 200 / H]
+      const legs: Frac = [320 / W, 250 / H]
+      const grass: Frac = [307 / W, 250 / H]
+      const dBody = colorDiff(at(shot, body), at(base, body))
+      const dLegs = colorDiff(at(shot, legs), at(base, legs))
+      const dGrass = colorDiff(at(shot, grass), at(base, grass))
+      console.log(
+        `Столб на экране: корпус ${dBody.toFixed(1)}, ноги ${dLegs.toFixed(1)}, трава ${dGrass.toFixed(1)}`
+      )
+      expect(dBody).toBeLessThan(10)
+      // Верх корпуса (голова) — тоже перед светом.
+      const head: Frac = [320 / W, 156 / H]
+      expect(colorDiff(at(shot, head), at(base, head))).toBeLessThan(10)
+      expect(dLegs).toBeLessThan(10)
+      expect(dGrass).toBeGreaterThan(20)
+
+      // Готовое видео: тот же кадр (1.5 с → кадр 37).
+      const out = join(makeUserData(), 'out')
+      mkdirSync(out)
+      await stubDialog(app, out)
+      await win.getByTestId('export-open').click()
+      await win.getByTestId('export-scope-whole').check()
+      await win.getByTestId('export-start').click()
+      await expect(win.getByTestId('export-result')).toHaveAttribute('data-status', 'done', {
+        timeout: 90_000
+      })
+      const file = join(out, readdirSync(out)[0])
+      const exported = frameRgb(file, 37, W, H)
+      const source = frameRgb(video, 37, W, H)
+      const vdiff = (f: Frac): number =>
+        colorDiff(
+          pixelAt(exported, W, Math.round(f[0] * W), Math.round(f[1] * H)),
+          pixelAt(source, W, Math.round(f[0] * W), Math.round(f[1] * H))
+        )
+      console.log(
+        `Столб в готовом видео: корпус ${vdiff(body).toFixed(1)}, ноги ${vdiff(legs).toFixed(1)}, трава ${vdiff(grass).toFixed(1)}`
+      )
+      expect(vdiff(body)).toBeLessThan(12)
+      expect(vdiff(legs)).toBeLessThan(12)
+      expect(vdiff(grass)).toBeGreaterThan(20)
+    } finally {
+      await app.close()
     }
   })
 })

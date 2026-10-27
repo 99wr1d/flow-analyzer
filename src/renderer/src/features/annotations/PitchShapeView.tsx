@@ -22,6 +22,7 @@ import {
 import {
   PILLAR_LAYERS,
   PILLAR_VERTICAL_STOPS,
+  pillarSplit,
   type PillarPaint
 } from '../../../../shared/tools/pillar'
 import type { Size } from './geometry'
@@ -123,16 +124,25 @@ export function TargetGradient({ id, color }: { id: string; color: string }): Re
 export function Pillar({
   id,
   pillar,
-  color
+  color,
+  section = 'all'
 }: {
   id: string
   pillar: PillarPaint
   color: string
+  /**
+   * Какая часть столба: «lower» — от ног до pillarSplit (у рисунка «под игроками» — под игроками, с лужицей света),
+   * «upper» — выше (всегда поверх кадра), «all» — весь. Градиент общий: части стыкуются без шва.
+   */
+  section?: 'all' | 'lower' | 'upper'
 }): React.JSX.Element {
   const { x, half, top, bottom } = pillar
   const extra = half * 3
+  const split = pillarSplit(pillar)
+  const y0 = section === 'lower' ? split : top - extra
+  const y1 = section === 'upper' ? split : bottom
   return (
-    <g data-part="pillar" pointerEvents="none">
+    <g data-part="pillar" data-section={section} pointerEvents="none">
       <defs>
         <linearGradient
           id={`pillar-${id}`}
@@ -156,22 +166,24 @@ export function Pillar({
           key={i}
           data-part="pillar-layer"
           x={x - half * l.reach}
-          y={top - extra}
+          y={y0}
           width={2 * half * l.reach}
-          height={bottom - top + extra}
+          height={Math.max(0, y1 - y0)}
           fill={`url(#pillar-${id})`}
           fillOpacity={l.alpha}
           stroke="none"
         />
       ))}
-      <ellipse
-        data-part="pillar-pool"
-        cx={x}
-        cy={bottom}
-        rx={half * 1.9}
-        ry={half * 0.55}
-        fill={`url(#pillar-pool-${id})`}
-      />
+      {section !== 'upper' && (
+        <ellipse
+          data-part="pillar-pool"
+          cx={x}
+          cy={bottom}
+          rx={half * 1.9}
+          ry={half * 0.55}
+          fill={`url(#pillar-pool-${id})`}
+        />
+      )}
     </g>
   )
 }
@@ -249,7 +261,17 @@ export function PaintParts({
           stroke="none"
         />
       )}
-      {top && paint.pillar && <Pillar id={id} pillar={paint.pillar} color={color} />}
+      {paint.pillar && top && (
+        <Pillar
+          id={id}
+          pillar={paint.pillar}
+          color={color}
+          section={part === 'all' ? 'all' : 'upper'}
+        />
+      )}
+      {paint.pillar && part === 'ground' && (
+        <Pillar id={id} pillar={paint.pillar} color={color} section="lower" />
+      )}
       {top && paint.beam && (
         <>
           <defs>
