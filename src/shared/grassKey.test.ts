@@ -16,6 +16,8 @@ import {
   parseHex,
   rgbToU,
   rgbToV,
+  rgbToY,
+  LUMA_GAP,
   toHex
 } from './grassKey'
 
@@ -275,8 +277,11 @@ describe('autoGrassTuning: допуск ключа по цвету газона 
   )
 
   it('на бледном газоне прежние 0.07/0.05 считали белую форму газоном (причина «кольцо на игроке»)', () => {
+    // Только ключ по цветности (без порога яркости): белое было «газоном».
     const old = { color: '#6c7b48', similarity: 0.07, blend: 0.05 }
-    expect(maskOf([245, 245, 245], old)).toBeGreaterThan(200)
+    const u = new Uint8Array(9).fill(rgbToU(245, 245, 245))
+    const v = new Uint8Array(9).fill(rgbToV(245, 245, 245))
+    expect(255 - chromakeyAlpha(u, v, 3, 3, old)[4]).toBeGreaterThan(200)
   })
 
   it('не шире прежних значений по умолчанию, в границах схемы, отношение мягкости к чувствительности прежнее', () => {
@@ -289,5 +294,35 @@ describe('autoGrassTuning: допуск ключа по цвету газона 
       expect(GrassKeySchema.safeParse({ color, auto: true, ...t }).success).toBe(true)
       expect(t.blend / t.similarity).toBeCloseTo(DEFAULT_GRASS_BLEND / DEFAULT_GRASS_SIMILARITY, 6)
     }
+  })
+})
+
+describe('яркость: светлее газона на LUMA_GAP — не газон (лаймовые гетры, кремовая форма на бледном газоне)', () => {
+  const maskOf = (c: [number, number, number], color: string): number => {
+    const rgba = new Uint8Array(9 * 9 * 4)
+    for (let i = 0; i < 81; i += 1) rgba.set([...c, 255], i * 4)
+    return grassMask(rgba, 9, 9, { color, ...autoGrassTuning(color) })[4 * 9 + 4]
+  }
+  it('лаймовые гетры и кремовая форма на газоне Лиги чемпионов — не газон', () => {
+    // Цвета взяты с кадров видео (Брюгге 0:51, Интер 2:03): по цветности они почти газон, по яркости — нет.
+    for (const [color, kit] of [
+      ['#688126', [200, 222, 90]],
+      ['#688126', [215, 228, 120]],
+      ['#60783c', [205, 205, 160]],
+      ['#6c7b48', [220, 218, 170]]
+    ] as Array<[string, [number, number, number]]>)
+      expect(maskOf(kit, color), `${color} ${kit.join(',')}`).toBeLessThan(40)
+  })
+  it('сам газон светлее ключа на 25 (полосы стрижки, солнце) — всё ещё газон', () => {
+    for (const color of ['#688126', '#60783c', '#2f8a3f']) {
+      const [r, g, b] = parseHex(color)
+      expect(maskOf([r + 25, g + 25, b + 25], color)).toBeGreaterThan(215)
+    }
+  })
+  it('rgbToY — яркость полного диапазона, LUMA_GAP разумный', () => {
+    expect(rgbToY(0, 0, 0)).toBe(0)
+    expect(rgbToY(255, 255, 255)).toBe(255)
+    expect(LUMA_GAP).toBeGreaterThanOrEqual(35)
+    expect(LUMA_GAP).toBeLessThanOrEqual(60)
   })
 })

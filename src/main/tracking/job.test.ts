@@ -1,7 +1,7 @@
 // Задача слежения на синтетических рамках: детектор — заглушка, кадры — пустые, настоящих моделей и ffmpeg нет.
 import { describe, expect, it } from 'vitest'
 import type { Box, Detection } from '../../shared/tracking/types'
-import type { TrackSample } from '../../shared/tracking/keys'
+import { FOOT_LIFT, type TrackSample } from '../../shared/tracking/keys'
 import { estimateSeconds } from '../../shared/tracking/trackingIpc'
 import { boxToSample, reconcileAnswer, runTrackingJob, type RunTrackingOptions } from './job'
 import type { DecodedFrame } from './frames'
@@ -127,8 +127,12 @@ describe('runTrackingJob', () => {
     }
     const s = boxToSample({ x: 100, y: 200, w: 40, h: 90 }, 1, W, H, rgba)
     expect(s.foot.x * W).toBeCloseTo(108, 0)
-    expect(s.foot.y).toBeCloseTo(290 / H, 9)
+    // Подошвы по кадру — 290; отсчёт хранит их так, чтобы после подъёма FOOT_LIFT точка легла на подошвы.
+    expect(s.foot.y * H - FOOT_LIFT * 90).toBeCloseTo(290, 6)
     expect(s.height).toBeCloseTo(90 / H, 9)
+    // Рамка короче фигуры (низ 284): точка всё равно на подошвах.
+    const short = boxToSample({ x: 100, y: 200, w: 40, h: 84 }, 1, W, H, rgba)
+    expect(short.foot.y * H - FOOT_LIFT * 84).toBeCloseTo(290, 6)
   })
 
   it('ноги по кадру у настоящего детектора; у заглушки с точными рамками (exactBoxes) — середина кромки', async () => {

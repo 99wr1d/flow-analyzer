@@ -3,12 +3,12 @@
 // превращается в доли кадра.
 import { converges, MultiTracker, type MultiStart } from '../../shared/tracking/multi'
 import { iou, pickStart } from '../../shared/tracking/tracker'
-import type { TrackSample } from '../../shared/tracking/keys'
+import { FOOT_LIFT, type TrackSample } from '../../shared/tracking/keys'
 import type { FractionBox, StopReason, TrackingAnswer } from '../../shared/tracking/trackingIpc'
 import type { Box, Detection } from '../../shared/tracking/types'
 import type { DecodedFrame } from './frames'
 import type { Detector } from './detectorWindow'
-import { footX } from './footing'
+import { footPoint } from './footing'
 
 /** Полный кадр показываем детектору раз в столько секунд; между ними — только вырез вокруг игрока. */
 export const FULL_DETECT_SECONDS = 1.0
@@ -52,7 +52,7 @@ export type TrackingOutcome =
       /** Отсчёты по целям (одинаковой длины). */
       samples: TrackSample[][]
       /** Потеря любой цели останавливает всю задачу на последнем кадре, где уверены все цели; target — потерянная. */
-      stop: null | { t: number; reason: StopReason; target: number }
+      stop: null | { t: number; reason: StopReason; target: number; cutAt?: number }
       backend: Detector['backend']
     }
   | {
@@ -74,7 +74,10 @@ const toFraction = (b: Box, w: number, h: number): FractionBox => ({
   h: b.h / h
 })
 
-/** Рамка игрока в пикселях → отсчёт: ноги — середина нижней кромки, высота — высота рамки. */
+/**
+ * Рамка игрока в пикселях → отсчёт: ноги — середина нижней кромки, высота — высота рамки. Получатели отсчёта (кольцо, точки
+ * связки, столб) поднимают точку на FOOT_LIFT высоты: рамка детектора в среднем заходит ниже подошв.
+ */
 export function boxToSample(
   box: Box,
   t: number,
@@ -82,10 +85,14 @@ export function boxToSample(
   h: number,
   rgba?: ArrayLike<number>
 ): TrackSample {
-  // Если дан кадр — x ног по тому, что стоит на траве у низа рамки (footX): у бегущего игрока рамку растягивают
-  // поднятая нога и руки, и середина кромки уходит от ног.
-  const x = rgba ? footX(rgba, w, h, box) : box.x + box.w / 2
-  return { t, foot: { x: x / w, y: (box.y + box.h) / h }, height: box.h / h }
+  if (!rgba)
+    return { t, foot: { x: (box.x + box.w / 2) / w, y: (box.y + box.h) / h }, height: box.h / h }
+  // Есть кадр — ноги по нему (footPoint): x — то, что стоит на траве (у бегущего рамку растягивают поднятая нога и руки,
+  // и середина кромки уходит от ног); y — подошвы. Низ рамки гуляет вокруг подошв (на трансляции в среднем на 0.07 роста
+  // выше и ниже), поэтому y хранится так, чтобы после подъёма FOOT_LIFT точка легла ровно на подошвы.
+  const feet = footPoint(rgba, w, h, box)
+  const y = feet.sole === null ? box.y + box.h : feet.sole + FOOT_LIFT * box.h
+  return { t, foot: { x: feet.x / w, y: y / h }, height: box.h / h }
 }
 
 /** Ответ «вот мой» дальше этого (в высотах игрока) от последнего отсчёта цели противоречит её недавнему следу. */
@@ -278,11 +285,12 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       len: number,
       t: number,
       reason: StopReason,
-      target: number
+      target: number,
+      cutAt?: number
     ): TrackingOutcome => ({
       kind: 'done',
       samples: samples.map((s) => s.slice(0, len)),
-      stop: { t, reason, target },
+      stop: { t, reason, target, ...(cutAt !== undefined ? { cutAt } : {}) },
       backend: (detector as Detector).backend
     })
     /**
@@ -376,7 +384,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         // Стоп — на последнем надёжном кадре всех целей (спека, п. 8): отсчёты «пережидания» и недоказанных
         // возвращений после него отбрасываем.
         const { len, t } = trustedLen(tracker, frame.t)
-        return stopAt(len, t, step.reason, step.target)
+        // Смена плана: кадр, на котором она случилась (рисунок кончается на нём, а не на последнем надёжном кадре).
+        return stopAt(len, t, step.reason, step.target, step.reason === 'cut' ? frame.t : undefined)
       }
       coasting = step.coasting.some(Boolean)
       sampleFrames.push(frame.index)

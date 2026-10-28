@@ -270,7 +270,11 @@ function applySuccess(
   if (!current) return
   const { fps } = usePlayerStore.getState()
   const link = isLinkType(plan.base)
-  const result = applyTrackResult(current, done.samples, plan, { fps, aspect: videoAspect() })
+  const result = applyTrackResult(current, done.samples, plan, {
+    fps,
+    aspect: videoAspect(),
+    stop: done.stop
+  })
   const stop = done.stop ? stopMessage(done.stop, link) : null
   if (!result.ok) {
     if (result.reason === 'diverged' && result.diverged) {
@@ -287,6 +291,7 @@ function applySuccess(
   store.select(annotationId)
   const parts: string[] = []
   if (stop) parts.push(stop)
+  if (result.trimmedAtCut) parts.push(ru.tracking.endedAtCut)
   else if (result.diverged)
     parts.push(ru.tracking.diverged(formatTime(result.diverged.t, { tenths: true })))
   if (plan.convertedFromPitch)

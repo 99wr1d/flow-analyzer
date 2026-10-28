@@ -23,12 +23,17 @@ const both = new Map([['0-1', { over: true, under: true }]])
 const underOnly = new Map([['0', { over: false, under: true }]])
 
 describe('grassMaskFilter / grassMaskLines', () => {
-  it('цепочка: кадр → RGB → YUV полного диапазона → chromakey → маска «газон = белое»', () => {
+  it('граф: кадр → RGB → YUV полного диапазона → chromakey и порог яркости → наибольшая прозрачность → маска «газон = белое»', () => {
     const f = grassMaskFilter(GRASS)
+    // Порог яркости: Y цвета #2a7d3e (93) + LUMA_GAP (45).
     expect(f).toBe(
-      'format=rgb24,scale=out_range=pc,format=yuva444p,' +
-        'chromakey=color=0x2a7d3e:similarity=0.07:blend=0.05,alphaextract,negate'
+      'format=rgb24,scale=out_range=pc,format=yuva444p,split[ka][kb];' +
+        '[ka]chromakey=color=0x2a7d3e:similarity=0.07:blend=0.05,alphaextract[kc];' +
+        "[kb]extractplanes=y,lut=c0='clip((val-138)*255/20,0,255)'[kl];" +
+        '[kc][kl]blend=all_mode=lighten,negate'
     )
+    // Метки внутри графа — с приставкой: несколько масок в одном графе не путаются.
+    expect(grassMaskFilter(GRASS, 'g1k')).toContain('[g1ka]')
   })
 
   it('строки: маска превращается в yuv420p, у которой все три плоскости — маска', () => {

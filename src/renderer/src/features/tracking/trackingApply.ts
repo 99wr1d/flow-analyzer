@@ -3,6 +3,7 @@
 import {
   KEY_EPS,
   MAX_KEYFRAMES,
+  MIN_DURATION,
   type Annotation,
   type AnnotationType
 } from '../../../../shared/annotations'
@@ -251,10 +252,12 @@ export interface ApplyOptions {
   fps: number
   /** Ширина кадра / высота кадра (для овала прожектора). */
   aspect?: number
+  /** Почему слежение остановилось (если остановилось): на смене плана рисунок кончается. */
+  stop?: { t: number; reason: StopReason; cutAt?: number } | null
 }
 
 export type ApplyResult =
-  | { ok: true; annotation: Annotation; diverged?: { t: number } }
+  | { ok: true; annotation: Annotation; diverged?: { t: number }; trimmedAtCut?: boolean }
   | { ok: false; reason: 'empty' | 'too-many' | 'diverged'; diverged?: { t: number } }
 
 /** Ширина фигуры игрока в долях его высоты (в пикселях): запас с учётом рук. */
@@ -386,6 +389,28 @@ function straightenFromPlace(keys: Keyframe[], at: number): Keyframe[] {
   )
 }
 
+/**
+ * Слежение остановилось на смене плана: после неё в кадре другая картинка, и рисунок, застывший на последнем месте, лёг бы
+ * на чужих игроков. Отрезок рисунка кончается в начале кадра смены плана (stop.cutAt), без него — с концом последнего кадра
+ * слежения (null — обрезать нечего). Между последним надёжным кадром и сменой плана рисунок стоит на последнем месте, как
+ * при любой остановке.
+ */
+function endAtCut(
+  a: Annotation,
+  samples: readonly TrackSample[],
+  opts: ApplyOptions
+): Annotation | null {
+  if (opts.stop?.reason !== 'cut' || a.timing.mode !== 'range' || samples.length === 0) return null
+  const fps = opts.fps > 0 ? opts.fps : FALLBACK_FPS
+  const lastEnd = samples[samples.length - 1].t + 0.5 / fps
+  const cutStart = opts.stop.cutAt !== undefined ? opts.stop.cutAt - 0.5 / fps : lastEnd
+  const end = Math.max(lastEnd, cutStart)
+  // Не короче MIN_DURATION: иначе рисунок не пройдёт проверку проекта и экспорта (смена плана в первые кадры).
+  const duration = Math.max(MIN_DURATION, end - a.timing.start)
+  if (!(duration > 0) || duration >= a.timing.duration - 1e-6) return null
+  return { ...a, timing: { ...a.timing, duration } }
+}
+
 /** Расстояние в долях высоты кадра с поправкой на пропорции (x — доли ширины). */
 const dist = (p: Pt, q: Pt, aspect: number): number => Math.hypot((p.x - q.x) * aspect, p.y - q.y)
 
@@ -474,7 +499,14 @@ export function applyTrackResult(
         }
       }
       const keys = straightenFromPlace(all, plan.at)
-      return { ok: true, annotation: withKeys(src, keys), ...(diverged ? { diverged } : {}) }
+      const annotation = withKeys(src, keys)
+      const trimmed = endAtCut(annotation, usable[0], opts)
+      return {
+        ok: true,
+        annotation: trimmed ?? annotation,
+        ...(diverged ? { diverged } : {}),
+        ...(trimmed ? { trimmedAtCut: true } : {})
+      }
     }
     tolerance *= 1.5
   }

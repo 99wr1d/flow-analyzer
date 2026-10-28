@@ -5,7 +5,7 @@
 //      результат — текстура R8: 1 — газон (рисунок виден), 0 — игрок, линия и т. д.;
 //   2) растр рисунков (премультиплицированный) умножается на видимость и выводится на холст размером с картинку.
 // Режим «маска»: вместо рисунков выводится сама видимость (белое — газон).
-import { keyUV, type GrassKeyValues } from '../../../../shared/grassKey'
+import { keyUV, lumaThreshold, LUMA_RAMP, type GrassKeyValues } from '../../../../shared/grassKey'
 
 const VERTEX = `#version 300 es
 out vec2 vUv;
@@ -25,6 +25,8 @@ uniform ivec2 uSize;
 uniform vec2 uKey;
 uniform float uSimilarity;
 uniform float uBlend;
+uniform float uLumaThreshold;
+uniform float uLumaRamp;
 out vec4 outColor;
 
 float distAt(ivec2 p) {
@@ -46,6 +48,10 @@ void main() {
   }
   float diff = sum / 9.0;
   float alpha = uBlend > 0.0001 ? clamp((diff - uSimilarity) / uBlend, 0.0, 1.0) : (diff > uSimilarity ? 1.0 : 0.0);
+  // Яркость (lumaAlpha в shared/grassKey.ts): светлее газона на LUMA_GAP — не газон; берётся наибольшая прозрачность.
+  vec3 c0 = floor(texelFetch(uVideo, p, 0).rgb * 255.0 + 0.5);
+  float y = floor((306.0 * c0.r + 601.0 * c0.g + 117.0 * c0.b + 512.0) / 1024.0);
+  alpha = max(alpha, clamp((y - uLumaThreshold) / uLumaRamp, 0.0, 1.0));
   outColor = vec4(1.0 - alpha);
 }`
 
@@ -229,6 +235,8 @@ export class UnderRenderer {
     gl.uniform2f(gl.getUniformLocation(this.keyProgram, 'uKey'), uv.u, uv.v)
     gl.uniform1f(gl.getUniformLocation(this.keyProgram, 'uSimilarity'), key.similarity)
     gl.uniform1f(gl.getUniformLocation(this.keyProgram, 'uBlend'), key.blend)
+    gl.uniform1f(gl.getUniformLocation(this.keyProgram, 'uLumaThreshold'), lumaThreshold(key.color))
+    gl.uniform1f(gl.getUniformLocation(this.keyProgram, 'uLumaRamp'), LUMA_RAMP)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, this.visTex)

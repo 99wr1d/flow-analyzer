@@ -126,6 +126,13 @@ test.describe('слежение за игроком (заглушка детек
       await expect(win.getByTestId('track-key')).toHaveCount(0)
       await shot(win, 'tracking-band')
 
+      // Рисунок кончается на смене плана (2.4 с): до неё виден, после — нет (дальше в кадре другая картинка).
+      await expect(toast).toContainText('Рисунок закончен на смене плана')
+      await seekVideo(win, 2.2)
+      await expect(circle(win)).toHaveCount(1)
+      await seekVideo(win, 2.7)
+      await expect(circle(win)).toHaveCount(0)
+
       // Кольцо на последнем надёжном кадре (1.3 с) у ног бегуна: центр рамки 0.05 + 0.25 · 1.3 + 0.03, ноги на 0.74 (±3 % кадра).
       await seekVideo(win, (32 + 0.5) / FPS)
       const end = await ringCenter(win)

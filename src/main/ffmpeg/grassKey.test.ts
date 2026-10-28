@@ -12,6 +12,7 @@ import {
   parseHex,
   rgbToU,
   rgbToV,
+  rgbToY,
   type GrassKeyValues
 } from '../../shared/grassKey'
 import { FFMPEG, makePng } from './ffmpeg.testkit'
@@ -113,7 +114,9 @@ describe('grassMask (RGB) против ffmpeg: цепочка, которой п
     ['blue', [29, 78, 216]],
     ['skin', [232, 184, 150]],
     ['yellow', [242, 194, 0]],
-    ['shadow', [14, 30, 20]]
+    ['shadow', [14, 30, 20]],
+    // Лаймовые гетры: по цветности почти газон, по яркости — нет (порог яркости).
+    ['lime', [150, 235, 120]]
   ]
   const B = 24
   const W = BLOCKS.length * B
@@ -151,7 +154,8 @@ describe('grassMask (RGB) против ffmpeg: цепочка, которой п
     const at = (name: string): number =>
       real[(H / 2) * W + BLOCKS.findIndex(([n]) => n === name) * B + B / 2]
     for (const name of ['grass', 'grassLight', 'grassDark']) expect(at(name)).toBeGreaterThan(250)
-    for (const name of ['line', 'red', 'blue', 'skin', 'yellow']) expect(at(name)).toBeLessThan(60)
+    for (const name of ['line', 'red', 'blue', 'skin', 'yellow', 'lime'])
+      expect(at(name)).toBeLessThan(60)
     // Тёмная тень — зелёная, но очень тёмный цвет теряет цветность: газоном считается лишь частично.
     expect(at('shadow')).toBeLessThan(200)
   })
@@ -170,6 +174,34 @@ describe('grassMask (RGB) против ffmpeg: цепочка, которой п
   })
 })
 
+describe('порог яркости против ffmpeg: газон светлеет плавно', () => {
+  it('на всём переходе (газон → на 100 светлее) маска ffmpeg и TS совпадают (±2/255)', () => {
+    const key: GrassKeyValues = { color: '#688126', similarity: 0.037, blend: 0.026 }
+    const W = 101
+    const H = 5
+    const [r0, g0, b0] = parseHex(key.color)
+    const colorAt = (x: number): [number, number, number] => [r0 + x, g0 + x, b0 + x]
+    const png = makePng(W, H, (x) => [...colorAt(x), 255])
+    const rgba = new Uint8Array(W * H * 4)
+    for (let y = 0; y < H; y += 1)
+      for (let x = 0; x < W; x += 1) rgba.set([...colorAt(x), 255], (y * W + x) * 4)
+    const path = join(work, 'ramp.png')
+    writeFileSync(path, png)
+    const real = run([
+      ...['-i', path, '-vf', grassMaskFilter(key)],
+      ...['-f', 'rawvideo', '-pix_fmt', 'gray', '-frames:v', '1', '-']
+    ])
+    const mine = grassMask(rgba, W, H, key)
+    let max = 0
+    for (let x = 1; x < W - 1; x += 1)
+      max = Math.max(max, Math.abs(real[2 * W + x] - mine[2 * W + x]))
+    expect(max).toBeLessThanOrEqual(2)
+    // Начало перехода — газон, конец — не газон.
+    expect(real[2 * W + 10]).toBeGreaterThan(250)
+    expect(real[2 * W + 95]).toBeLessThan(5)
+  })
+})
+
 describe('формулы U и V', () => {
   it('rgbToU/rgbToV совпадают с ffmpeg (полный диапазон) с точностью до единицы', () => {
     const W = 64
@@ -180,7 +212,8 @@ describe('формулы U и V', () => {
     writeFileSync(path, rgb)
     for (const [plane, f] of [
       ['u', rgbToU],
-      ['v', rgbToV]
+      ['v', rgbToV],
+      ['y', rgbToY]
     ] as const) {
       const out = run([
         ...['-f', 'rawvideo', '-pix_fmt', 'rgb24', '-s', `${W}x${H}`, '-i', path],

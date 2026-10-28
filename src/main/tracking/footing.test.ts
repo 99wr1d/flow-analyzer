@@ -1,6 +1,6 @@
 // Точка ног по кадру: середина нижней кромки рамки сдвигается к тому, что реально стоит на траве у низа рамки.
 import { describe, expect, it } from 'vitest'
-import { footX, FOOT_STRIP } from './footing'
+import { footPoint, footX, FOOT_STRIP } from './footing'
 
 const W = 200
 const H = 120
@@ -105,5 +105,43 @@ describe('footX: ноги по кадру, а не середина рамки',
   it('полоса у низа рамки — FOOT_STRIP её высоты', () => {
     expect(FOOT_STRIP).toBeGreaterThan(0.05)
     expect(FOOT_STRIP).toBeLessThan(0.2)
+  })
+})
+
+describe('footPoint: подошвы по кадру (низ рамки детектора гуляет вокруг них)', () => {
+  // Нога до y = 100 (подошвы — нижняя кромка, 100), рамка разной высоты.
+  const leg = frame([
+    { x: 70, y: 40, w: 20, h: 40, c: [200, 30, 40] },
+    { x: 74, y: 80, w: 8, h: 20, c: [220, 200, 190] }
+  ])
+  it('рамка ровно по подошвам — подошвы 100', () => {
+    expect(footPoint(leg, W, H, { x: 60, y: 30, w: 40, h: 70 }).sole).toBeCloseTo(100, 0)
+  })
+  it('рамка короче (низ на 5 px выше подошв) — подошвы всё равно 100', () => {
+    expect(footPoint(leg, W, H, { x: 60, y: 30, w: 40, h: 65 }).sole).toBeCloseTo(100, 0)
+  })
+  it('рамка длиннее (низ на 6 px ниже подошв) — подошвы 100', () => {
+    expect(footPoint(leg, W, H, { x: 60, y: 30, w: 40, h: 76 }).sole).toBeCloseTo(100, 0)
+  })
+  it('бегун: подошвы — у опорной ноги (самой нижней), поднятая нога выше не мешает', () => {
+    const run = frame([
+      { x: 70, y: 40, w: 20, h: 40, c: [200, 30, 40] },
+      { x: 66, y: 80, w: 8, h: 20, c: [220, 200, 190] },
+      { x: 90, y: 78, w: 25, h: 7, c: [220, 200, 190] }
+    ])
+    const p = footPoint(run, W, H, { x: 60, y: 30, w: 60, h: 72 })
+    expect(p.sole).toBeCloseTo(100, 0)
+    expect(Math.abs(p.x - 70)).toBeLessThan(3)
+  })
+  it('ног не видно — подошв нет (null), x — середина рамки', () => {
+    const p = footPoint(frame([]), W, H, { x: 60, y: 30, w: 40, h: 70 })
+    expect(p.sole).toBeNull()
+    expect(p.x).toBeCloseTo(80, 6)
+  })
+  it('footX — то же x', () => {
+    expect(footX(leg, W, H, { x: 60, y: 30, w: 40, h: 70 })).toBeCloseTo(
+      footPoint(leg, W, H, { x: 60, y: 30, w: 40, h: 70 }).x,
+      9
+    )
   })
 })

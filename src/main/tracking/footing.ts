@@ -12,37 +12,48 @@ const NOT_GRASS_FROM = 0.04
 const NOT_GRASS_RAMP = 0.04
 /** Меньше «ног» (в столбцах полосы) — ноги не видны, остаётся середина рамки. */
 const MIN_WEIGHT_COLUMNS = 0.5
-/** Строка полосы, где «не травы» меньше стольких пикселей, ногой не считается (шум). */
-const MIN_ROW_PIXELS = 1
 /** Высота полосы касания над самой нижней строкой с ногами: доля высоты рамки. */
 const CONTACT_BAND = 0.04
 /** Линия разметки проверяется по строкам ниже рамки: отступ от низа рамки и сколько строк смотреть, пиксели. */
 const LINE_GAP = 3
 const LINE_PROBE = 4
+/** Рамка детектора бывает короче фигуры: подошвы ищутся и ниже её низа, на столько её высоты (не меньше 2 px). */
+const BELOW = 0.08
+/** Строка, где «не травы» меньше стольких пикселей, подошвами не считается (шум кодека). */
+const MIN_SOLE_PIXELS = 1.5
 
 const median = (a: number[]): number => {
   const s = [...a].sort((x, y) => x - y)
   return s[Math.floor(s.length / 2)]
 }
 
+type Box = { x: number; y: number; w: number; h: number }
+
+/** x ног (пиксели кадра) для рамки box на кадре RGBA w×h (см. footPoint). */
+export function footX(rgba: ArrayLike<number>, w: number, h: number, box: Box): number {
+  return footPoint(rgba, w, h, box).x
+}
+
 /**
- * x ног (пиксели кадра) для рамки box на кадре RGBA w×h. Цвет травы — медиана полосы у низа рамки (ноги в ней — меньшинство);
- * «ногами» считается то, что отличается от травы цветностью или светлее её (тень темнее травы, но той же цветности, — не ноги).
- * Ног не видно — середина рамки.
+ * Ноги по кадру для рамки box на кадре RGBA w×h: x — середина того, что стоит на траве у низа рамки, sole — подошвы (нижняя
+ * кромка самой нижней ноги), пиксели кадра. Цвет травы — медиана полосы у низа рамки (ноги в ней — меньшинство); «ногами»
+ * считается то, что отличается от травы цветностью или светлее её (тень темнее травы, но той же цветности, — не ноги).
+ * Полоса захватывает и немного ниже рамки: рамка детектора бывает короче фигуры. Ног не видно — середина рамки, sole = null.
  */
-export function footX(
+export function footPoint(
   rgba: ArrayLike<number>,
   w: number,
   h: number,
-  box: { x: number; y: number; w: number; h: number }
-): number {
+  box: Box
+): { x: number; sole: number | null } {
   const centre = box.x + box.w / 2
-  if (!(box.w > 0) || !(box.h > 0) || rgba.length < w * h * 4) return centre
+  const none = { x: centre, sole: null }
+  if (!(box.w > 0) || !(box.h > 0) || rgba.length < w * h * 4) return none
   const x0 = Math.max(0, Math.floor(box.x))
   const x1 = Math.min(w, Math.ceil(box.x + box.w))
-  const yb = Math.min(h, Math.round(box.y + box.h))
-  const ya = Math.max(0, yb - Math.max(3, Math.round(box.h * FOOT_STRIP)))
-  if (x1 - x0 < 2 || yb - ya < 1) return centre
+  const yb = Math.min(h, Math.round(box.y + box.h + Math.max(2, box.h * BELOW)))
+  const ya = Math.max(0, Math.round(box.y + box.h) - Math.max(3, Math.round(box.h * FOOT_STRIP)))
+  if (x1 - x0 < 2 || yb - ya < 1) return none
   // Трава вокруг: та же полоса, по полширины рамки с каждой стороны.
   const gx0 = Math.max(0, Math.floor(box.x - box.w / 2))
   const gx1 = Math.min(w, Math.ceil(box.x + box.w * 1.5))
@@ -117,11 +128,11 @@ export function footX(
   }
   let total = 0
   for (const s of rowSum) total += s
-  if (total < MIN_WEIGHT_COLUMNS * rows) return centre
+  if (total < MIN_WEIGHT_COLUMNS * rows) return none
   // Нога, что стоит на траве, — самая нижняя: середина берётся по самым нижним строкам, где ноги есть (поднятая назад
   // нога выше и в расчёт не входит; обе ноги на земле — середина между ними).
   let lowest = rows - 1
-  while (lowest > 0 && rowSum[lowest] < MIN_ROW_PIXELS) lowest -= 1
+  while (lowest > 0 && rowSum[lowest] < MIN_SOLE_PIXELS) lowest -= 1
   const band = Math.max(2, Math.round(box.h * CONTACT_BAND))
   let sum = 0
   let sumX = 0
@@ -129,7 +140,10 @@ export function footX(
     sum += rowSum[r]
     sumX += rowX[r]
   }
-  if (!(sum > 0)) return centre
+  if (!(sum > 0)) return none
   const found = sumX / sum
-  return Math.min(centre + MAX_SHIFT * box.w, Math.max(centre - MAX_SHIFT * box.w, found))
+  return {
+    x: Math.min(centre + MAX_SHIFT * box.w, Math.max(centre - MAX_SHIFT * box.w, found)),
+    sole: ya + lowest + 1
+  }
 }

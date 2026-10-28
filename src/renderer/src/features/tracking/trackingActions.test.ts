@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_KEYFRAMES, AnnotationSchema, type Annotation } from '../../../../shared/annotations'
+import {
+  MAX_KEYFRAMES,
+  MIN_DURATION,
+  AnnotationSchema,
+  type Annotation
+} from '../../../../shared/annotations'
 import { ru } from '../../i18n/ru'
 import { estimateSeconds } from '../../../../shared/tracking/trackingIpc'
 import { geomAt, keysOf, upsertKey } from '../../../../shared/animation'
@@ -881,5 +886,63 @@ describe('связка: «Продолжить» после правки одн�
     const all = { points: at.points.map((p) => ({ x: p.x, y: p.y + 0.02 })) }
     expect(staleOtherPoints(upsertKey(first.annotation, 4.02, all, FPS), FPS)).toBe(false)
     expect(staleOtherPoints(circle(), FPS)).toBe(false)
+  })
+})
+
+describe('смена плана: рисунок кончается на ней', () => {
+  it('слежение остановилось на смене плана — отрезок рисунка кончается после последнего кадра слежения', () => {
+    const a = circle()
+    const samples = run(1, 2.5)
+    const last = samples.at(-1)!.t
+    const r = applyTrackResult(a, [samples], planOf(a), {
+      fps: FPS,
+      stop: { t: last, reason: 'cut' }
+    })
+    if (!r.ok) throw new Error(r.reason)
+    expect(r.trimmedAtCut).toBe(true)
+    expect(r.annotation.timing.mode).toBe('range')
+    const end = r.annotation.timing.start + (r.annotation.timing as { duration: number }).duration
+    expect(end).toBeCloseTo(last + 0.5 / FPS, 6)
+  })
+  it('смена плана позже последнего надёжного кадра (cutAt) — рисунок виден до самой смены плана', () => {
+    const a = circle()
+    const samples = run(1, 1.5)
+    const cutAt = 2.34 + 0.5 / FPS
+    const r = applyTrackResult(a, [samples], planOf(a), {
+      fps: FPS,
+      stop: { t: samples.at(-1)!.t, reason: 'cut', cutAt }
+    })
+    if (!r.ok) throw new Error(r.reason)
+    const end = r.annotation.timing.start + (r.annotation.timing as { duration: number }).duration
+    // Конец — начало кадра смены плана.
+    expect(end).toBeCloseTo(cutAt - 0.5 / FPS, 6)
+  })
+  it('другие причины остановки (закрыт, вышел из кадра) — отрезок прежний', () => {
+    const a = circle()
+    for (const reason of ['occluded', 'out', 'not-here'] as const) {
+      const r = applyTrackResult(a, [run(1, 2.5)], planOf(a), {
+        fps: FPS,
+        stop: { t: 2.48, reason }
+      })
+      if (!r.ok) throw new Error(r.reason)
+      expect(r.trimmedAtCut).toBeFalsy()
+      expect(r.annotation.timing).toEqual(a.timing)
+    }
+  })
+})
+
+describe('смена плана сразу после старта', () => {
+  it('отрезок не короче MIN_DURATION (иначе рисунок не проходит проверку проекта и экспорта)', () => {
+    const a = circle()
+    const samples = run(1, 1.08)
+    const r = applyTrackResult(a, [samples], planOf(a), {
+      fps: FPS,
+      stop: { t: samples.at(-1)!.t, reason: 'cut' }
+    })
+    if (!r.ok) throw new Error(r.reason)
+    expect((r.annotation.timing as { duration: number }).duration).toBeGreaterThanOrEqual(
+      MIN_DURATION
+    )
+    expect(AnnotationSchema.safeParse(r.annotation).success).toBe(true)
   })
 })

@@ -70,6 +70,9 @@ export const rgbToU = (r: number, g: number, b: number): number =>
   ((-173 * r - 339 * g + 512 * b + ONE_HALF - 1) >> 10) + 128
 export const rgbToV = (r: number, g: number, b: number): number =>
   ((512 * r - 429 * g - 83 * b + ONE_HALF - 1) >> 10) + 128
+/** Яркость Y (полный диапазон), как её даёт ffmpeg при переводе кадра в YUV полного диапазона (scale=out_range=pc). */
+export const rgbToY = (r: number, g: number, b: number): number =>
+  (306 * r + 601 * g + 117 * b + ONE_HALF) >> 10
 
 /** U и V цвета ключа — так их считает ffmpeg. */
 export function keyUV(color: string): { u: number; v: number } {
@@ -97,6 +100,26 @@ export function autoGrassTuning(color: string): { similarity: number; blend: num
   const similarity = Math.max(MIN_GRASS_SIMILARITY, total * share)
   const blend = (similarity * DEFAULT_GRASS_BLEND) / DEFAULT_GRASS_SIMILARITY
   return { similarity, blend }
+}
+
+/**
+ * Яркость: пиксель светлее цвета газона на LUMA_GAP (по Y полного диапазона) и больше — не газон, полностью — ещё через
+ * LUMA_RAMP. Ключ по цветности не отличает от бледного газона лаймовые гетры, кремовую и светло-жёлтую форму: по цветности они
+ * газон, по яркости — нет. Полосы стрижки и солнце светлее газона меньше, чем на LUMA_GAP (проверено на 28 кадрах трансляции:
+ * теряется 0.5 % газона — края белых линий).
+ */
+export const LUMA_GAP = 45
+export const LUMA_RAMP = 20
+
+/** Порог яркости для цвета ключа: lut ffmpeg и шейдер берут его отсюда. */
+export const lumaThreshold = (color: string): number => {
+  const [r, g, b] = parseHex(color)
+  return rgbToY(r, g, b) + LUMA_GAP
+}
+
+/** Прозрачность по яркости y (0..255, как lut ffmpeg: дробная часть отбрасывается). */
+export function lumaAlpha(y: number, threshold: number): number {
+  return Math.trunc(Math.min(255, Math.max(0, ((y - threshold) * 255) / LUMA_RAMP)))
 }
 
 /** Прозрачность по среднему расстоянию diff: то, что возвращает ffmpeg (0..255, дробная часть отбрасывается). */
@@ -168,6 +191,12 @@ export function grassMask(
 ): Uint8Array {
   const { u, v } = uvPlanes(rgba, w, h)
   const alpha = chromakeyAlpha(u, v, w, h, key)
+  // Светлее газона на LUMA_GAP — не газон (blend lighten в ffmpeg — наибольшая из двух прозрачностей).
+  const t = lumaThreshold(key.color)
+  for (let i = 0; i < w * h; i += 1) {
+    const l = lumaAlpha(rgbToY(rgba[i * 4], rgba[i * 4 + 1], rgba[i * 4 + 2]), t)
+    if (l > alpha[i]) alpha[i] = l
+  }
   return alpha.map((a) => 255 - a)
 }
 

@@ -94,7 +94,7 @@ export type TrackingDone =
       /** Отсчёты по целям (в порядке якорей), одинаковой длины. */
       samples: TrackSample[][]
       /** Потеря любой цели останавливает всю задачу; target — номер потерянной цели. */
-      stop: null | { t: number; reason: StopReason; target: number }
+      stop: null | { t: number; reason: StopReason; target: number; cutAt?: number }
       backend: DetectorBackend
     }
   | {
