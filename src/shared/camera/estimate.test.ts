@@ -85,12 +85,18 @@ function sampleBase(base: Float32Array, x: number, y: number): number {
   )
 }
 
-/** «Игрок»: прямоугольник со своей полосатой текстурой, которая едет вместе с ним (пиксели кадра). */
+/**
+ * «Игрок»: прямоугольник со своей текстурой, которая едет вместе с ним (пиксели кадра).
+ * Без tex — полоски; с tex — кусок подложки tex со сдвигом (tx, ty) (случайная текстура).
+ */
 interface Player {
   x: number
   y: number
   w: number
   h: number
+  tex?: Float32Array
+  tx?: number
+  ty?: number
 }
 
 /**
@@ -112,8 +118,12 @@ function render(
       let v = sampleBase(base, q.x + OX, q.y + OY)
       for (const p of players) {
         if (x >= p.x && x < p.x + p.w && y >= p.y && y < p.y + p.h) {
-          const u = Math.floor((x - p.x) / 3) + Math.floor((y - p.y) / 5)
-          v = u % 2 === 0 ? 30 : 220
+          if (p.tex) {
+            v = sampleBase(p.tex, x - p.x + (p.tx ?? 0), y - p.y + (p.ty ?? 0))
+          } else {
+            const u = Math.floor((x - p.x) / 3) + Math.floor((y - p.y) / 5)
+            v = u % 2 === 0 ? 30 : 220
+          }
         }
       }
       v += Math.round(rand() * (2 * noise) - noise)
@@ -258,9 +268,11 @@ describe('estimateMotion', () => {
   })
 
   it('слишком резкий сдвиг (60 px) → ненадёжно, а не ложный сдвиг', () => {
+    // 60 px за кадр далеко за пределом захвата 3-уровневой пирамиды: честный ответ — «ненадёжно».
     const G = shiftPx(60, 0)
     const r = estimateMotion(render(base1, IDENTITY3, 20), render(base1, G, 21), NO_MASKS)
-    if (r.reliable) expect(cornerError(r.H, G)).toBeLessThan(0.5)
+    expect(r.reliable).toBe(false)
+    expect(r.H).toEqual(IDENTITY3)
   })
 
   it('кадры разного размера → ненадёжно', () => {
@@ -273,5 +285,195 @@ describe('estimateMotion', () => {
     const prev = render(base1, IDENTITY3, 23)
     const cur = render(base1, zoomPx(1.03, 2, -1), 24)
     expect(estimateMotion(prev, cur, NO_MASKS)).toEqual(estimateMotion(prev, cur, NO_MASKS))
+  })
+})
+
+// Периодическая текстура (полосы стрижки газона, сетка): сдвиг на полпериода и больше неоднозначен —
+// уверенный неверный сдвиг недопустим, допустимы «ненадёжно» или верный ответ.
+
+/** Подложка по формуле f(x, y) плюс (по желанию) ослабленная случайная текстура base1. */
+function patternBase(f: (x: number, y: number) => number, texture = 0): Float32Array {
+  const out = new Float32Array(BW * BH)
+  for (let y = 0; y < BH; y += 1) {
+    for (let x = 0; x < BW; x += 1) out[y * BW + x] = f(x, y) + texture * (base1[y * BW + x] - 128)
+  }
+  return out
+}
+
+const STRIPE = 24
+const GRID = 16
+const stripes = (x: number): number => 128 + 80 * Math.sin((2 * Math.PI * x) / STRIPE)
+const grid = (x: number, y: number): number =>
+  128 + 55 * Math.sin((2 * Math.PI * x) / GRID) + 55 * Math.sin((2 * Math.PI * y) / GRID)
+
+const periodicCases: {
+  name: string
+  base: Float32Array
+  noise: number
+  shifts: [number, number][]
+}[] = [
+  {
+    name: 'полосы, без шума',
+    base: patternBase((x) => stripes(x)),
+    noise: 0,
+    shifts: [
+      [STRIPE / 2, 0],
+      [STRIPE * 0.7, 0],
+      [STRIPE * 0.7, 3]
+    ]
+  },
+  {
+    name: 'полосы + шум ±2',
+    base: patternBase((x) => stripes(x)),
+    noise: 2,
+    shifts: [
+      [STRIPE / 2, 0],
+      [STRIPE * 0.7, 0],
+      [STRIPE * 0.7, 3]
+    ]
+  },
+  {
+    name: 'полосы + слабая текстура',
+    base: patternBase((x) => stripes(x), 0.3),
+    noise: 2,
+    shifts: [
+      [STRIPE / 2, 0],
+      [STRIPE * 0.7, 0],
+      [STRIPE * 0.7, 3]
+    ]
+  },
+  {
+    name: 'сетка, без шума',
+    base: patternBase(grid),
+    noise: 0,
+    shifts: [
+      [GRID / 2, 0],
+      [GRID * 0.7, 0],
+      [GRID * 0.7, GRID * 0.6]
+    ]
+  },
+  {
+    name: 'сетка + шум ±2',
+    base: patternBase(grid),
+    noise: 2,
+    shifts: [
+      [GRID / 2, GRID / 2],
+      [GRID * 0.7, 0],
+      [GRID * 0.7, GRID * 0.6]
+    ]
+  },
+  {
+    name: 'сетка + слабая текстура',
+    base: patternBase(grid, 0.3),
+    noise: 2,
+    shifts: [
+      [GRID / 2, 0],
+      [GRID * 0.7, 0],
+      [GRID * 0.7, GRID * 0.6]
+    ]
+  }
+]
+
+describe('estimateMotion: периодическая текстура не даёт уверенного ложного сдвига', () => {
+  for (const c of periodicCases) {
+    for (const [tx, ty] of c.shifts) {
+      it(`${c.name}, сдвиг (${tx}, ${ty}) px`, () => {
+        const G = shiftPx(tx, ty)
+        const r = estimateMotion(
+          render(c.base, IDENTITY3, 40, c.noise),
+          render(c.base, G, 41, c.noise),
+          NO_MASKS
+        )
+        if (r.reliable) expect(cornerError(r.H, G)).toBeLessThan(0.5)
+        else expect(r.H).toEqual(IDENTITY3)
+      })
+    }
+  }
+})
+
+// Много игроков: больше половины текстурных точек на движущихся рамках со своей текстурой.
+
+/** Сетка 4×3 игроков 90×62 px (≈ 50 % кадра, ≈ 60 % внутренней области); у каждого своя скорость. */
+function crowd(): { before: Player[]; after: Player[]; masks: EstimateOptions['masks'] } {
+  const before: Player[] = []
+  const after: Player[] = []
+  let k = 0
+  for (let r = 0; r < 3; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      const p: Player = {
+        x: 18 + c * 115,
+        y: 14 + r * 86,
+        w: 90,
+        h: 62,
+        tex: base2,
+        tx: 40 + 37 * k,
+        ty: 30 + 23 * k
+      }
+      before.push(p)
+      // Скорости разные и не совпадают с камерой: от −12 до +12 px.
+      after.push({ ...p, x: p.x + ((k * 7) % 25) - 12, y: p.y + ((k * 5) % 13) - 6 })
+      k += 1
+    }
+  }
+  const masks = before.map((p, i) => {
+    const q = after[i]
+    const x0 = Math.min(p.x, q.x) - 2
+    const y0 = Math.min(p.y, q.y) - 2
+    return {
+      x: x0 / W,
+      y: y0 / H,
+      w: (Math.max(p.x, q.x) + p.w + 2 - x0) / W,
+      h: (Math.max(p.y, q.y) + p.h + 2 - y0) / H
+    }
+  })
+  return { before, after, masks }
+}
+
+describe('estimateMotion: много игроков', () => {
+  const G = shiftPx(-5, 2)
+  const { before, after, masks } = crowd()
+  const prev = render(base1, IDENTITY3, 50, 2, before)
+  const cur = render(base1, G, 51, 2, after)
+
+  it('с масками: фон оценён верно или честно «ненадёжно»', () => {
+    const r = estimateMotion(prev, cur, { masks })
+    if (r.reliable) expect(cornerError(r.H, G)).toBeLessThan(0.5)
+    else expect(r.H).toEqual(IDENTITY3)
+  })
+
+  it('без масок: не берёт движение игроков за движение камеры', () => {
+    const r = estimateMotion(prev, cur, NO_MASKS)
+    if (r.reliable) expect(cornerError(r.H, G)).toBeLessThan(0.5)
+    else expect(r.H).toEqual(IDENTITY3)
+  })
+
+  it('без масок, все игроки бегут одной группой: два крупных движения — ненадёжно', () => {
+    // Группа (≈ 60 % точек) и фон (≈ 40 %) — без масок нельзя понять, что из них камера.
+    const together = before.map((p) => ({ ...p, x: p.x + 9, y: p.y + 4 }))
+    const r = estimateMotion(prev, render(base1, G, 52, 2, together), NO_MASKS)
+    expect(r.reliable).toBe(false)
+    expect(r.H).toEqual(IDENTITY3)
+  })
+
+  it('крупный движущийся объект без маски (≈ 60 % точек): соперник фону — ненадёжно; с маской — фон', () => {
+    // Объект справа от x = 170 px: его текстура едет на (+9, +4) px, фон — с камерой (−5, +2).
+    const obj: Player = { x: 170, y: 0, w: W - 170, h: H, tex: base2, tx: 50, ty: 50 }
+    const p0 = render(base1, IDENTITY3, 70, 2, [obj])
+    const p1 = render(base1, G, 71, 2, [{ ...obj, tx: 50 - 9, ty: 50 - 4 }])
+    const bare = estimateMotion(p0, p1, NO_MASKS)
+    expect(bare.reliable).toBe(false)
+    expect(bare.H).toEqual(IDENTITY3)
+    const masked = estimateMotion(p0, p1, { masks: [{ x: 170 / W, y: 0, w: 1 - 170 / W, h: 1 }] })
+    if (masked.reliable) expect(cornerError(masked.H, G)).toBeLessThan(0.5)
+    else expect(masked.H).toEqual(IDENTITY3)
+  })
+
+  it('без масок, половина игроков бежит группой, остальные стоят: ненадёжно или фон', () => {
+    const half = before.map((p, i) =>
+      i < 6 ? { ...p, x: p.x + 9, y: p.y + 4 } : { ...p, x: p.x - 5, y: p.y + 2 }
+    )
+    const r = estimateMotion(prev, render(base1, G, 53, 2, half), NO_MASKS)
+    if (r.reliable) expect(cornerError(r.H, G)).toBeLessThan(0.5)
+    else expect(r.H).toEqual(IDENTITY3)
   })
 })

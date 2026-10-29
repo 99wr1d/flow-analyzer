@@ -5,6 +5,14 @@
 import { fitHomography, hullArea, type Correspondence } from '../pitch/homography'
 import { IDENTITY3, det3, inv3, mul3, type Mat3, type Pt } from '../pitch/linalg'
 import {
+  AMBIGUITY_RADIUS,
+  AMBIGUITY_RATIO,
+  LK_EPS,
+  LK_MAX_FB_ERROR,
+  LK_MAX_ITER,
+  LK_MAX_RESIDUAL,
+  LK_RADIUS,
+  MIN_EIG,
   MOTION_EDGE_MARGIN,
   MOTION_HOMOGRAPHY_MIN_HULL_SHARE,
   MOTION_HOMOGRAPHY_MIN_INLIERS,
@@ -14,6 +22,7 @@ import {
   MOTION_MIN_INLIER_SHARE,
   MOTION_MIN_INLIERS,
   MOTION_RANSAC_THRESHOLD_PX,
+  MOTION_RIVAL_SHARE,
   MOTION_REF_WIDTH
 } from './types'
 
@@ -52,13 +61,6 @@ export interface MotionEstimate {
 
 /** Уровней пирамиды (полный кадр, 1/2, 1/4). */
 const PYRAMID_LEVELS = 3
-/** Окно Лукаса–Канаде: (2r+1)² пикселей. */
-const LK_RADIUS = 5
-const LK_MAX_ITER = 20
-/** Итерации останавливаются, когда шаг меньше (px уровня). */
-const LK_EPS = 0.01
-/** Порог «текстурности» окна: наименьшее собственное число структурного тензора на пиксель окна (уровни яркости²). */
-const MIN_EIG = 4
 /** Угловая точка слабее этой доли от самой сильной в кадре не берётся. */
 const CORNER_REL = 0.01
 /** Полуширина окна структурного тензора для поиска углов. */
@@ -66,10 +68,6 @@ const CORNER_RADIUS = 3
 /** Сетка поиска углов: в каждой клетке — одна лучшая точка (≈ 330 клеток → обычно ≥ 150 точек). */
 const GRID_COLS = 24
 const GRID_ROWS = 14
-/** Средняя разница яркости окна после совмещения больше этого — точка потеряна (другое содержимое). */
-const LK_MAX_RESIDUAL = 12
-/** Ошибка проверки «туда-обратно» больше (px при MOTION_REF_WIDTH) — точка потеряна. */
-const LK_MAX_FB_ERROR = 0.5
 const RANSAC_SEED = 0x5eed1234
 const RANSAC_MAX_ITER = 400
 const RANSAC_CONFIDENCE = 0.999
@@ -198,6 +196,53 @@ function samplePatch(
   }
 }
 
+/** Окно для проверки неоднозначности: (2r+1)² пикселей уровня пирамиды. */
+const AMB_R = 3
+
+/**
+ * Похоже ли окно вокруг (x, y) уровня l само на себя со сдвигом δ, где exclude < |δ|∞ ≤ range
+ * (целые пиксели уровня). Бестекстурное окно тоже считается неоднозначным.
+ */
+function ambiguous(l: Level, x: number, y: number, range: number, exclude: number): boolean {
+  const { w, h, img } = l
+  const cx = Math.round(x)
+  const cy = Math.round(y)
+  if (cx - AMB_R < 0 || cy - AMB_R < 0 || cx + AMB_R >= w || cy + AMB_R >= h) return false
+  const n = (2 * AMB_R + 1) ** 2
+  let mean = 0
+  for (let j = -AMB_R; j <= AMB_R; j += 1) {
+    for (let i = -AMB_R; i <= AMB_R; i += 1) mean += img[(cy + j) * w + cx + i]
+  }
+  mean /= n
+  let contrast = 0
+  for (let j = -AMB_R; j <= AMB_R; j += 1) {
+    for (let i = -AMB_R; i <= AMB_R; i += 1) contrast += Math.abs(img[(cy + j) * w + cx + i] - mean)
+  }
+  contrast /= n
+  if (!(contrast > 1)) return true
+  const limit = AMBIGUITY_RATIO * contrast * n
+  for (let dy = -range; dy <= range; dy += 1) {
+    const oy = cy + dy
+    if (oy - AMB_R < 0 || oy + AMB_R >= h) continue
+    for (let dx = -range; dx <= range; dx += 1) {
+      if (Math.abs(dx) <= exclude && Math.abs(dy) <= exclude) continue
+      const ox = cx + dx
+      if (ox - AMB_R < 0 || ox + AMB_R >= w) continue
+      // Сумма с досрочным выходом: на обычной текстуре почти каждый сдвиг отсекается за несколько пикселей.
+      let sad = 0
+      for (let j = -AMB_R; j <= AMB_R && sad < limit; j += 1) {
+        const a = (cy + j) * w + cx
+        const b = (oy + j) * w + ox
+        for (let i = -AMB_R; i <= AMB_R; i += 1) sad += Math.abs(img[a + i] - img[b + i])
+      }
+      if (sad < limit) return true
+    }
+  }
+  return false
+}
+
+// Рабочие буферы окна потока — общие на модуль: track() не реентерабельна (в одном потоке это безопасно,
+// у каждого worker свой экземпляр модуля).
 const bufT = new Float32Array(WIN_N)
 const bufX = new Float32Array(WIN_N)
 const bufY = new Float32Array(WIN_N)
@@ -579,7 +624,14 @@ export function estimateMotion(prev: Gray, cur: Gray, opts: EstimateOptions): Mo
   const src: Pt[] = []
   const dst: Pt[] = []
   const fb2 = (LK_MAX_FB_ERROR * px) ** 2
+  // Поиск неоднозначности (радиусы — в пикселях своего уровня): на уровне 1/4 — повторы от 12 px полного кадра
+  // до AMBIGUITY_RADIUS; на уровне 1/2 — мелкие повторы от 4 до 12 px, которые уровень 1/4 уже не различает.
+  const ambFar = Math.max(4, Math.round((AMBIGUITY_RADIUS * px) / 4))
+  const ambNear = Math.max(2, Math.round((12 * px) / 2))
   for (const p of corners) {
+    // Периодическая текстура: поток может сойтись к соседнему периоду, и все такие точки «согласятся» на ложный сдвиг.
+    if (ambiguous(pa[2], p.x / 4, p.y / 4, ambFar, 2)) continue
+    if (ambiguous(pa[1], p.x / 2, p.y / 2, ambNear, 1)) continue
     const q = track(pa, pb, p.x, p.y, 0, 0)
     if (!q || q.residual > LK_MAX_RESIDUAL) continue
     // Проверка «туда-обратно»: из найденной точки поток должен вернуть к исходной.
@@ -621,6 +673,17 @@ export function estimateMotion(prev: Gray, cur: Gray, opts: EstimateOptions): Mo
     scale <= MOTION_MAX_SCALE_STEP &&
     scale >= 1 / MOTION_MAX_SCALE_STEP
   if (!reliable) return unreliable(inliers, rmsPx)
+
+  // Соперник: среди несогласованных точек есть второе крупное согласованное движение (например, группа игроков
+  // без масок, бегущая вместе). Тогда неизвестно, какое из них — камера.
+  const restSrc = src.filter((_, i) => !fit.inl[i])
+  const restDst = dst.filter((_, i) => !fit.inl[i])
+  // Один игрок даёт десяток-другой точек — соперником считается только движение не меньше MOTION_MIN_INLIERS.
+  const rivalMin = Math.max(MOTION_MIN_INLIERS, MOTION_RIVAL_SHARE * inliers)
+  if (restSrc.length >= rivalMin) {
+    const rival = ransac(restSrc, restDst, thr, 'similarity')
+    if (rival && count(rival.inl) >= rivalMin) return unreliable(inliers, rmsPx)
+  }
 
   // Из нормированных координат в доли кадра: n = N·f, H_f = N⁻¹·H_n·N.
   const N: Mat3 = [w / half, 0, -w / 2 / half, 0, h / half, -h / 2 / half, 0, 0, 1]
