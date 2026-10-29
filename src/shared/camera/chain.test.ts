@@ -31,16 +31,21 @@ describe('MotionChain', () => {
     expect(q.y).toBeCloseTo(0.4, 9)
   })
 
-  it('порядок перемножения: сдвиг по x в кадре 1, по y в кадре 2', () => {
+  it('порядок перемножения: масштаб ×2 в кадре 1, затем сдвиг +0.1 в кадре 2 (не коммутируют)', () => {
     const chain = new MotionChain()
-    chain.push(motion(1, shift(0.1, 0)))
-    chain.push(motion(2, shift(0, 0.2)))
-    const p = applyH(chain.between(0, 2)!, { x: 0, y: 0 })!
-    expect(p.x).toBeCloseTo(0.1, 9)
-    expect(p.y).toBeCloseTo(0.2, 9)
-    const part = applyH(chain.between(1, 2)!, { x: 0, y: 0 })!
-    expect(part.x).toBeCloseTo(0, 9)
-    expect(part.y).toBeCloseTo(0.2, 9)
+    chain.push(motion(1, [2, 0, 0, 0, 2, 0, 0, 0, 1]))
+    chain.push(motion(2, shift(0.1, 0)))
+    // (0.3, 0.2) -> масштаб (0.6, 0.4) -> сдвиг (0.7, 0.4); при обратном порядке вышло бы (0.8, 0.4)
+    const p = applyH(chain.between(0, 2)!, { x: 0.3, y: 0.2 })!
+    expect(p.x).toBeCloseTo(0.7, 9)
+    expect(p.y).toBeCloseTo(0.4, 9)
+    const q = applyH(chain.between(2, 0)!, { x: 0.7, y: 0.4 })!
+    expect(q.x).toBeCloseTo(0.3, 9)
+    expect(q.y).toBeCloseTo(0.2, 9)
+    // средний участок: только сдвиг кадра 2
+    const mid = applyH(chain.between(1, 2)!, { x: 0.6, y: 0.4 })!
+    expect(mid.x).toBeCloseTo(0.7, 9)
+    expect(mid.y).toBeCloseTo(0.4, 9)
   })
 
   it('ненадёжный кадр посередине даёт null в обе стороны', () => {
