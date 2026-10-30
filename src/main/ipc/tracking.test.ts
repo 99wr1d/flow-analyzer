@@ -122,7 +122,7 @@ describe('IPC слежения', () => {
       const index = await asked
       return index === null
         ? { kind: 'cancelled' }
-        : { kind: 'done', samples: [], stop: null, backend: 'wasm' }
+        : { kind: 'done', samples: [], stop: null, backend: 'wasm', cameraReliable: 0 }
     }
     await start(sender)
     await tick()
@@ -153,7 +153,7 @@ describe('IPC слежения', () => {
         0,
         CUR
       )
-      return { kind: 'done', samples: [], stop: null, backend: 'wasm' }
+      return { kind: 'done', samples: [], stop: null, backend: 'wasm', cameraReliable: 0 }
     }
     const jobId = await start(sender)
     await tick()
@@ -174,7 +174,8 @@ describe('IPC слежения', () => {
         kind: 'done',
         samples: [[]],
         stop: { t: 0.5, reason: 'not-here', target: 0 },
-        backend: 'wasm'
+        backend: 'wasm',
+        cameraReliable: 0
       }
     }
     const jobId = await start(sender)
@@ -200,7 +201,8 @@ describe('IPC слежения', () => {
         kind: 'done',
         samples: [[], [], []],
         stop: { t: 1, reason: 'occluded', target: 2 },
-        backend: 'wasm'
+        backend: 'wasm',
+        cameraReliable: 0
       }
     }
     const three = {
