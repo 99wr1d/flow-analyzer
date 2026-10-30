@@ -12,6 +12,7 @@ import {
   type TrackingAnswer,
   type TrackingDone
 } from '../../shared/tracking/trackingIpc'
+import { CameraEstimator } from '../camera/estimator'
 import { getFfmpegPath } from '../ffmpeg/path'
 import { killAllFfmpeg } from '../ffmpeg/runner'
 import { logError, logInfo } from '../log/logger'
@@ -69,6 +70,9 @@ export async function cancelActiveTracking(): Promise<void> {
   job.asking?.answer(null)
   await Promise.race([job.done, new Promise((r) => setTimeout(r, CANCEL_WAIT_MS))])
 }
+
+/** Камера включена всегда; FLOW_CAMERA=0 выключает (сравнение «с камерой» и «без»). */
+const cameraEnabled = (): boolean => process.env.FLOW_CAMERA !== '0'
 
 async function stubPattern(): Promise<StubPattern> {
   const file = testFlags().detectorStubPattern
@@ -139,6 +143,7 @@ async function startTracking(
       let final: TrackingDone | null = null
       try {
         const outcome = await runTrackingJob({
+          ...(cameraEnabled() ? { camera: new CameraEstimator() } : {}),
           from: request.from,
           to: request.to,
           anchors: request.anchors,
@@ -175,6 +180,10 @@ async function startTracking(
             })
         })
         if (outcome.kind === 'done') {
+          logInfo(
+            'tracking',
+            `слежение ${job.id}: надёжное движение камеры на ${Math.round(outcome.cameraReliable * 100)} % кадров`
+          )
           final = {
             jobId: job.id,
             samples: outcome.samples,

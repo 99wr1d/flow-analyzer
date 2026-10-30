@@ -247,4 +247,35 @@ describe('IPC слежения', () => {
       payload: { error: 'failed', message: 'сломалось' }
     })
   })
+
+  it('камера: по умолчанию передаётся задаче, свой оценщик на каждую задачу; FLOW_CAMERA=0 её отключает', async () => {
+    const sender = new FakeSender()
+    const seen: Array<unknown> = []
+    impl = (o) => {
+      seen.push(o.camera)
+      return Promise.resolve({
+        kind: 'done',
+        samples: [],
+        stop: null,
+        backend: 'wasm',
+        cameraReliable: 0.5
+      })
+    }
+    await start(sender)
+    await tick()
+    await start(sender)
+    await tick()
+    expect(seen[0]).toBeDefined()
+    expect(seen[1]).toBeDefined()
+    expect(seen[0]).not.toBe(seen[1])
+    vi.stubEnv('FLOW_CAMERA', '0')
+    try {
+      await start(sender)
+      await tick()
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(seen).toHaveLength(3)
+    expect(seen[2]).toBeUndefined()
+  })
 })
