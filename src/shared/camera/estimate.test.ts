@@ -477,3 +477,118 @@ describe('estimateMotion: много игроков', () => {
     else expect(r.H).toEqual(IDENTITY3)
   })
 })
+
+// Неподвижная графика трансляции (табло, логотип, подписи): стоит на месте, пока фон едет.
+
+/** Плашка с высококонтрастной текстурой («текст»): пиксели кадра стоят на месте при любом движении камеры. */
+const plate = (x: number, y: number, w: number, h: number, k: number): Player => ({
+  x,
+  y,
+  w,
+  h,
+  tex: base2,
+  tx: 30 + 41 * k,
+  ty: 20 + 17 * k
+})
+const OVERLAYS: Player[] = [plate(70, 200, 340, 56, 0), plate(380, 8, 80, 30, 1)]
+
+describe('estimateMotion: неподвижная графика', () => {
+  it('(а) фон едет, табло и логотип стоят: движение фона найдено в пределах 0.3 px', () => {
+    for (const [tx, ty] of [
+      [5, -2],
+      [-3, 1],
+      [1.2, 0.4]
+    ]) {
+      const G = shiftPx(tx, ty)
+      const r = estimateMotion(
+        render(base1, IDENTITY3, 90, 2, OVERLAYS),
+        render(base1, G, 91, 2, OVERLAYS),
+        NO_MASKS
+      )
+      expect(r.reliable).toBe(true)
+      expect(cornerError(r.H, G)).toBeLessThan(0.3)
+    }
+  })
+
+  it('(а) то же с зумом и поворотом камеры', () => {
+    const G = zoomPx(1.02, 4, -2, (0.3 * Math.PI) / 180)
+    const r = estimateMotion(
+      render(base1, IDENTITY3, 92, 2, OVERLAYS),
+      render(base1, G, 93, 2, OVERLAYS),
+      NO_MASKS
+    )
+    expect(r.reliable).toBe(true)
+    expect(cornerError(r.H, G)).toBeLessThan(0.5)
+  })
+
+  it('(б) сцена целиком неподвижна (камера стоит, графика стоит): единичное движение, надёжно', () => {
+    const r = estimateMotion(
+      render(base1, IDENTITY3, 94, 2, OVERLAYS),
+      render(base1, IDENTITY3, 95, 2, OVERLAYS),
+      NO_MASKS
+    )
+    expect(r.reliable).toBe(true)
+    expect(cornerError(r.H, IDENTITY3)).toBeLessThan(0.1)
+  })
+
+  it('камера почти стоит (0.2 px), графика стоит: не принимает графику за единственное движение', () => {
+    const G = shiftPx(0.2, 0)
+    const r = estimateMotion(
+      render(base1, IDENTITY3, 96, 2, OVERLAYS),
+      render(base1, G, 97, 2, OVERLAYS),
+      NO_MASKS
+    )
+    if (r.reliable) expect(cornerError(r.H, G)).toBeLessThan(0.3)
+    else expect(r.H).toEqual(IDENTITY3)
+  })
+})
+
+// Модель камеры: чистый поворот + зум из одной точки (K₂·R·K₁⁻¹, главная точка в центре кадра).
+
+/** Эталон в пикселях кадра: поворот ω = (wx, wy, wz) рад, зум s, фокус f (в полуширинах кадра). */
+function cameraG(wx: number, wy: number, wz: number, s: number, f: number): Mat3 {
+  const a = Math.hypot(wx, wy, wz)
+  const k1 = Math.sin(a) / a
+  const k2 = (1 - Math.cos(a)) / (a * a)
+  const R: Mat3 = [
+    1 + k2 * (-wy * wy - wz * wz),
+    -k1 * wz + k2 * wx * wy,
+    k1 * wy + k2 * wx * wz,
+    k1 * wz + k2 * wx * wy,
+    1 + k2 * (-wx * wx - wz * wz),
+    -k1 * wx + k2 * wy * wz,
+    -k1 * wy + k2 * wx * wz,
+    k1 * wx + k2 * wy * wz,
+    1 + k2 * (-wx * wx - wy * wy)
+  ]
+  const Kinv: Mat3 = [1 / f, 0, 0, 0, 1 / f, 0, 0, 0, 1]
+  const K2: Mat3 = [f * s, 0, 0, 0, f * s, 0, 0, 0, 1]
+  const Hn = mul3(K2, mul3(R, Kinv))
+  // Пиксели → нормированные (центр — 0, половина ширины — 1) и обратно.
+  const T: Mat3 = [2 / W, 0, -1, 0, 2 / W, -H / W, 0, 0, 1]
+  return mul3(inv3(T)!, mul3(Hn, T))
+}
+
+describe('estimateMotion: модель «поворот + зум камеры»', () => {
+  it('(в) чистый поворот + зум: ошибка углов кадра < 0.5 px', () => {
+    for (const [wx, wy, wz, s] of [
+      [0.004, 0.02, 0.001, 1.01],
+      [-0.006, -0.015, -0.002, 0.985],
+      [0.0, 0.012, 0.0, 1.0]
+    ]) {
+      const G = cameraG(wx, wy, wz, s, 3.7)
+      const r = estimateMotion(render(base1, IDENTITY3, 100, 2), render(base1, G, 101, 2), NO_MASKS)
+      expect(r.reliable).toBe(true)
+      expect(cornerError(r.H, G)).toBeLessThan(0.5)
+    }
+  })
+
+  it('(г) перекос и разный масштаб по осям (модель их не описывает) → ненадёжно', () => {
+    // Сдвиг строк пропорционально высоте + растяжение по x: свободная гомография подгонит, камера — нет.
+    const skew: Mat3 = [1.04, 0.05, -6, 0, 1, 1, 0, 0, 1]
+    const G = mul3(shiftPx(0, 0), skew)
+    const r = estimateMotion(render(base1, IDENTITY3, 102, 2), render(base1, G, 103, 2), NO_MASKS)
+    expect(r.reliable).toBe(false)
+    expect(r.H).toEqual(IDENTITY3)
+  })
+})

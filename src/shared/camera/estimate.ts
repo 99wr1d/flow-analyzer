@@ -1,5 +1,6 @@
 // Оценка движения камеры между двумя соседними кадрами: угловые точки Ши–Томаси → пирамидальный
-// поток Лукаса–Канаде (с проверкой «туда-обратно») → RANSAC → подгонка по согласованным точкам.
+// поток Лукаса–Канаде (с проверкой «туда-обратно») → снятие неподвижной графики трансляции → RANSAC по подобию →
+// подгонка модели «поворот + зум камеры» по согласованным точкам с сужением порога.
 // Чистые функции на обычных массивах, без внешних библиотек. Ложный сдвиг хуже отсутствия сдвига:
 // при любом сомнении результат помечается ненадёжным, а H — единичная.
 import { fitHomography, hullArea, type Correspondence } from '../pitch/homography'
@@ -14,16 +15,18 @@ import {
   LK_RADIUS,
   MIN_EIG,
   MOTION_EDGE_MARGIN,
-  MOTION_HOMOGRAPHY_MIN_HULL_SHARE,
-  MOTION_HOMOGRAPHY_MIN_INLIERS,
   MOTION_MAX_RMS_PX,
+  MOTION_MAX_MODEL_DEVIATION_PX,
+  MOTION_MAX_ROLL,
   MOTION_MAX_SCALE_STEP,
   MOTION_MIN_HULL_SHARE,
   MOTION_MIN_INLIER_SHARE,
   MOTION_MIN_INLIERS,
   MOTION_RANSAC_THRESHOLD_PX,
   MOTION_RIVAL_SHARE,
-  MOTION_REF_WIDTH
+  MOTION_REF_WIDTH,
+  MOTION_STATIC_FLOW_PX,
+  MOTION_STATIC_MEDIAN_PX
 } from './types'
 
 /** Кадр в оттенках серого: data — width·height байт, построчно. */
@@ -59,8 +62,8 @@ export interface MotionEstimate {
   rms: number
 }
 
-/** Уровней пирамиды (полный кадр, 1/2, 1/4). */
-const PYRAMID_LEVELS = 3
+/** Уровней пирамиды (полный кадр, 1/2, 1/4, 1/8): захват потока до ≈ 60 px/кадр при ширине 480. */
+const PYRAMID_LEVELS = 4
 /** Угловая точка слабее этой доли от самой сильной в кадре не берётся. */
 const CORNER_REL = 0.01
 /** Полуширина окна структурного тензора для поиска углов. */
@@ -436,44 +439,6 @@ function transferError2(H: Mat3, p: Pt, q: Pt): number {
   return u * u + v * v
 }
 
-const cross = (a: Pt, b: Pt, c: Pt): number => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
-
-/** Гомография точно по 4 парам (h33 = 1, система 8×8 методом Гаусса). null — вырожденная выборка. */
-function homography4(src: readonly Pt[], dst: readonly Pt[]): Mat3 | null {
-  // Тройки почти на одной прямой дают неустойчивую модель.
-  for (const [i, j, k] of [
-    [0, 1, 2],
-    [0, 1, 3],
-    [0, 2, 3],
-    [1, 2, 3]
-  ]) {
-    if (Math.abs(cross(src[i], src[j], src[k])) < 1e-3) return null
-    if (Math.abs(cross(dst[i], dst[j], dst[k])) < 1e-3) return null
-  }
-  const A: number[][] = []
-  for (let n = 0; n < 4; n += 1) {
-    const { x, y } = src[n]
-    const { x: u, y: v } = dst[n]
-    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y, u])
-    A.push([0, 0, 0, x, y, 1, -v * x, -v * y, v])
-  }
-  for (let col = 0; col < 8; col += 1) {
-    let piv = col
-    for (let r = col + 1; r < 8; r += 1) if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r
-    if (Math.abs(A[piv][col]) < 1e-12) return null
-    ;[A[col], A[piv]] = [A[piv], A[col]]
-    for (let r = 0; r < 8; r += 1) {
-      if (r === col) continue
-      const f = A[r][col] / A[col][col]
-      if (f === 0) continue
-      for (let k = col; k < 9; k += 1) A[r][k] -= f * A[col][k]
-    }
-  }
-  const h = A.map((row, i) => row[8] / row[i])
-  const H: Mat3 = [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1]
-  return H.every(Number.isFinite) ? H : null
-}
-
 /** Подобие (сдвиг + масштаб + поворот) по методу наименьших квадратов; от двух пар — точно. */
 function similarity(src: readonly Pt[], dst: readonly Pt[]): Mat3 | null {
   const n = src.length
@@ -518,24 +483,21 @@ function homographyLsq(src: readonly Pt[], dst: readonly Pt[]): Mat3 | null {
   return r.H.map((v) => v / r.H[8]) as unknown as Mat3
 }
 
-type Model = 'homography' | 'similarity'
-
 function inlierMask(M: Mat3, src: readonly Pt[], dst: readonly Pt[], thr2: number): boolean[] {
   return src.map((p, i) => transferError2(M, p, dst[i]) <= thr2)
 }
 
 /**
- * RANSAC (оценка MSAC) с детерминированным ГПСЧ и уточнением: модель по всем согласованным точкам,
+ * RANSAC (оценка MSAC) по подобию с детерминированным ГПСЧ и уточнением: модель по всем согласованным точкам,
  * пересчёт согласованных, ещё раз модель.
  */
 function ransac(
   src: readonly Pt[],
   dst: readonly Pt[],
-  thr: number,
-  model: Model
+  thr: number
 ): { M: Mat3; inl: boolean[] } | null {
   const n = src.length
-  const k = model === 'homography' ? 4 : 2
+  const k = 2
   if (n < k) return null
   const thr2 = thr * thr
   const rand = prng(RANSAC_SEED)
@@ -551,7 +513,7 @@ function ransac(
     }
     const s = idx.map((j) => src[j])
     const d = idx.map((j) => dst[j])
-    const M = model === 'homography' ? homography4(s, d) : similarity(s, d)
+    const M = similarity(s, d)
     if (!M || !(det3(M) > 0)) continue
     let score = 0
     let count = 0
@@ -577,8 +539,7 @@ function ransac(
   for (let round = 0; round < 2; round += 1) {
     const s = src.filter((_, i) => inl[i])
     const d = dst.filter((_, i) => inl[i])
-    const refit =
-      model === 'homography' ? (s.length >= 4 ? homographyLsq(s, d) : null) : similarity(s, d)
+    const refit = similarity(s, d)
     if (!refit) break
     const next = inlierMask(refit, src, dst, thr2)
     if (next.filter(Boolean).length < inl.filter(Boolean).length) break
@@ -586,6 +547,183 @@ function ransac(
     inl = next
   }
   return { M, inl }
+}
+
+/**
+ * Модель камеры «поворот + зум из одной точки»: H = K₂·R·K₁⁻¹, главная точка в центре кадра (начало
+ * нормированных координат), K₁ = diag(f, f, 1), K₂ = diag(f·s, f·s, 1), R — поворот на вектор ω = (wx, wy, wz).
+ * Параметры p = [wx, wy, wz, ln s, ln f]; f — фокус в полуширинах кадра (слабо определяется данными: при
+ * малых поворотах он задаёт лишь перспективу).
+ */
+type CamParams = [number, number, number, number, number]
+
+function cameraMatrix(p: readonly number[]): Mat3 {
+  const [wx, wy, wz, ls, lf] = p
+  const f = Math.exp(lf)
+  const s = Math.exp(ls)
+  const a = Math.hypot(wx, wy, wz)
+  // Родригес: R = I + sin(a)/a·[ω]× + (1 − cos a)/a²·[ω]×².
+  const k1 = a > 1e-9 ? Math.sin(a) / a : 1
+  const k2 = a > 1e-9 ? (1 - Math.cos(a)) / (a * a) : 0.5
+  const R00 = 1 + k2 * (-wy * wy - wz * wz)
+  const R01 = -k1 * wz + k2 * wx * wy
+  const R02 = k1 * wy + k2 * wx * wz
+  const R10 = k1 * wz + k2 * wx * wy
+  const R11 = 1 + k2 * (-wx * wx - wz * wz)
+  const R12 = -k1 * wx + k2 * wy * wz
+  const R20 = -k1 * wy + k2 * wx * wz
+  const R21 = k1 * wx + k2 * wy * wz
+  const R22 = 1 + k2 * (-wx * wx - wy * wy)
+  return [s * R00, s * R01, s * f * R02, s * R10, s * R11, s * f * R12, R20 / f, R21 / f, R22]
+}
+
+/** Решение небольшой симметричной системы A·x = b методом Гаусса; null — вырождена. */
+function solveSmall(A: number[][], b: number[]): number[] | null {
+  const n = b.length
+  const M = A.map((row, i) => [...row, b[i]])
+  for (let c = 0; c < n; c += 1) {
+    let piv = c
+    for (let r = c + 1; r < n; r += 1) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r
+    if (Math.abs(M[piv][c]) < 1e-18) return null
+    ;[M[c], M[piv]] = [M[piv], M[c]]
+    for (let r = 0; r < n; r += 1) {
+      if (r === c) continue
+      const k = M[r][c] / M[c][c]
+      for (let j = c; j <= n; j += 1) M[r][j] -= k * M[c][j]
+    }
+  }
+  return M.map((row, i) => row[n] / row[i])
+}
+
+/**
+ * Доли порога RANSAC для последовательных подгонок (каждая — по согласованным точкам предыдущей): сужение до 1/3
+ * (≈ 0.5 px при 480) и несколько повторов на нём, пока набор не перестанет меняться. Остановка раньше оставляет
+ * в подгонке медленные точки (игроки, которых ведёт камера) и сдвиг оценки к нулю: в замере среднее расхождение
+ * на согласованных точках при трёх шагах было ≈ −0.1 px/кадр, при шести — 0.
+ */
+const MOTION_FIT_SHRINK = [1, 2 / 3, 4 / 9, 1 / 3, 1 / 3, 1 / 3]
+const CAM_F0 = Math.log(3.7)
+/** Фокус в полуширинах кадра: 1.5 (≈ 67° по ширине) … 40 (≈ 3°). */
+const CAM_LN_F_MIN = Math.log(1.5)
+const CAM_LN_F_MAX = Math.log(40)
+
+/** Ошибка переноса (u, v) для всех точек; null — точка ушла за плоскость (w ≤ 0). */
+function camResiduals(
+  p: readonly number[],
+  src: readonly Pt[],
+  dst: readonly Pt[],
+  out: Float64Array
+): boolean {
+  const M = cameraMatrix(p)
+  for (let i = 0; i < src.length; i += 1) {
+    const w = M[6] * src[i].x + M[7] * src[i].y + M[8]
+    if (!(w > 1e-6)) return false
+    out[2 * i] = (M[0] * src[i].x + M[1] * src[i].y + M[2]) / w - dst[i].x
+    out[2 * i + 1] = (M[3] * src[i].x + M[4] * src[i].y + M[5]) / w - dst[i].y
+  }
+  return true
+}
+
+/**
+ * Подгонка модели камеры по точкам методом Левенберга–Марквардта (якобиан — конечные разности).
+ * Начало — подобие init (сдвиг → малый поворот, масштаб → зум, поворот в плоскости → wz).
+ */
+function fitCamera(src: readonly Pt[], dst: readonly Pt[], init: Mat3): Mat3 | null {
+  const n = src.length
+  if (n < 3) return null
+  const s0 = Math.sqrt(Math.abs(init[0] * init[4] - init[1] * init[3]))
+  if (!(s0 > 0.1) || !Number.isFinite(s0)) return null
+  const f0 = Math.exp(CAM_F0)
+  let p: CamParams = [
+    -init[5] / (f0 * s0),
+    init[2] / (f0 * s0),
+    Math.atan2(init[3], init[0]),
+    Math.log(s0),
+    CAM_F0
+  ]
+  const r = new Float64Array(2 * n)
+  const r2 = new Float64Array(2 * n)
+  if (!camResiduals(p, src, dst, r)) return null
+  let cost = r.reduce((a, v) => a + v * v, 0)
+  let lambda = 1e-3
+  const J: Float64Array[] = [0, 1, 2, 3, 4].map(() => new Float64Array(2 * n))
+  for (let iter = 0; iter < 30; iter += 1) {
+    for (let k = 0; k < 5; k += 1) {
+      const h = 1e-6
+      const q = [...p]
+      q[k] += h
+      if (!camResiduals(q, src, dst, r2)) return null
+      for (let i = 0; i < 2 * n; i += 1) J[k][i] = (r2[i] - r[i]) / h
+    }
+    const A: number[][] = []
+    const g: number[] = []
+    for (let a = 0; a < 5; a += 1) {
+      A.push([])
+      let ga = 0
+      for (let i = 0; i < 2 * n; i += 1) ga += J[a][i] * r[i]
+      g.push(-ga)
+      for (let b = 0; b < 5; b += 1) {
+        let v = 0
+        for (let i = 0; i < 2 * n; i += 1) v += J[a][i] * J[b][i]
+        A[a].push(v)
+      }
+    }
+    let improved = false
+    for (let tries = 0; tries < 8; tries += 1) {
+      const Ad = A.map((row, i) => row.map((v, j) => (i === j ? v * (1 + lambda) + 1e-12 : v)))
+      const d = solveSmall(Ad, g)
+      if (!d || !d.every(Number.isFinite)) {
+        lambda *= 10
+        continue
+      }
+      const q = p.map((v, i) => v + d[i]) as CamParams
+      q[4] = Math.min(CAM_LN_F_MAX, Math.max(CAM_LN_F_MIN, q[4]))
+      if (camResiduals(q, src, dst, r2)) {
+        const c2 = r2.reduce((a, v) => a + v * v, 0)
+        if (c2 < cost) {
+          const step = Math.hypot(...d.slice(0, 4))
+          p = q
+          r.set(r2)
+          const gain = cost - c2
+          cost = c2
+          lambda = Math.max(1e-9, lambda / 5)
+          improved = true
+          if (step < 1e-9 || gain < 1e-14 * n) return cameraMatrix(p)
+          break
+        }
+      }
+      lambda *= 10
+    }
+    if (!improved) break
+  }
+  return cameraMatrix(p)
+}
+
+/**
+ * Насколько данные «хотят» преобразования, которого камера дать не может: среднеквадратичное расхождение (px кадра)
+ * между моделью камеры и свободной гомографией, подогнанной к тем же согласованным точкам, измеренное в самих точках
+ * (а не в углах кадра, куда свободная гомография экстраполируется неустойчиво). Перекос, неодинаковый масштаб по
+ * осям, перспектива сверх поворота — всё, что подгоняет табло или сегмент с другим движением, — даёт большое число.
+ */
+function modelDeviationPx(M: Mat3, src: readonly Pt[], dst: readonly Pt[], half: number): number {
+  if (src.length < 8) return 0
+  const F = homographyLsq(src, dst)
+  if (!F) return Infinity
+  let sum2 = 0
+  for (const p of src) {
+    const wm = M[6] * p.x + M[7] * p.y + M[8]
+    const wf = F[6] * p.x + F[7] * p.y + F[8]
+    if (!(wm > 1e-9) || !(wf > 1e-9)) return Infinity
+    const du = (M[0] * p.x + M[1] * p.y + M[2]) / wm - (F[0] * p.x + F[1] * p.y + F[2]) / wf
+    const dv = (M[3] * p.x + M[4] * p.y + M[5]) / wm - (F[3] * p.x + F[4] * p.y + F[5]) / wf
+    sum2 += du * du + dv * dv
+  }
+  return Math.sqrt(sum2 / src.length) * half
+}
+
+const median = (v: readonly number[]): number => {
+  const s = [...v].sort((a, b) => a - b)
+  return s.length ? s[Math.floor((s.length - 1) / 2)] : 0
 }
 
 const unreliable = (inliers = 0, rms = Infinity): MotionEstimate => ({
@@ -628,10 +766,17 @@ export function estimateMotion(prev: Gray, cur: Gray, opts: EstimateOptions): Mo
   // до AMBIGUITY_RADIUS; на уровне 1/2 — мелкие повторы от 4 до 12 px, которые уровень 1/4 уже не различает.
   const ambFar = Math.max(4, Math.round((AMBIGUITY_RADIUS * px) / 4))
   const ambNear = Math.max(2, Math.round((12 * px) / 2))
+  let ambCount = 0
   for (const p of corners) {
     // Периодическая текстура: поток может сойтись к соседнему периоду, и все такие точки «согласятся» на ложный сдвиг.
-    if (ambiguous(pa[2], p.x / 4, p.y / 4, ambFar, 2)) continue
-    if (ambiguous(pa[1], p.x / 2, p.y / 2, ambNear, 1)) continue
+    if (ambiguous(pa[2], p.x / 4, p.y / 4, ambFar, 2)) {
+      ambCount += 1
+      continue
+    }
+    if (ambiguous(pa[1], p.x / 2, p.y / 2, ambNear, 1)) {
+      ambCount += 1
+      continue
+    }
     const q = track(pa, pb, p.x, p.y, 0, 0)
     if (!q || q.residual > LK_MAX_RESIDUAL) continue
     // Проверка «туда-обратно»: из найденной точки поток должен вернуть к исходной.
@@ -642,46 +787,74 @@ export function estimateMotion(prev: Gray, cur: Gray, opts: EstimateOptions): Mo
   }
   if (src.length < MOTION_MIN_INLIERS) return unreliable()
 
+  // Неподвижная графика трансляции (табло, логотип, подписи): поток ≈ 0, пока основная часть сцены едет.
+  // Такие точки не участвуют в подгонке и не стоят в знаменателе доли согласованных.
+  const flows = src.map((p, i) => Math.hypot(dst[i].x - p.x, dst[i].y - p.y) * half)
+  const dropStatic = median(flows) >= MOTION_STATIC_MEDIAN_PX * px
+  const fsrc: Pt[] = []
+  const fdst: Pt[] = []
+  for (let i = 0; i < src.length; i += 1) {
+    if (dropStatic && flows[i] < MOTION_STATIC_FLOW_PX * px) continue
+    fsrc.push(src[i])
+    fdst.push(dst[i])
+  }
+  const staticCount = src.length - fsrc.length
+  if (fsrc.length < MOTION_MIN_INLIERS) return unreliable()
+
   const thr = (MOTION_RANSAC_THRESHOLD_PX * px) / half
   const frameArea = (w * h) / (half * half)
-  const hullOf = (inl: boolean[]): number => hullArea(src.filter((_, i) => inl[i])) / frameArea
+  const hullOf = (inl: boolean[]): number => hullArea(fsrc.filter((_, i) => inl[i])) / frameArea
   const count = (inl: boolean[]): number => inl.filter(Boolean).length
 
-  let fit = ransac(src, dst, thr, 'homography')
-  if (
-    !fit ||
-    count(fit.inl) < MOTION_HOMOGRAPHY_MIN_INLIERS ||
-    hullOf(fit.inl) < MOTION_HOMOGRAPHY_MIN_HULL_SHARE
-  ) {
-    // Точек мало или они кучные: гомография по ним неустойчива, берём подобие.
-    fit = ransac(src, dst, thr, 'similarity')
+  // RANSAC — по подобию (две пары точек на выборку), финал — по модели камеры «поворот + зум».
+  const seed = ransac(fsrc, fdst, thr)
+  if (!seed) return unreliable()
+  // Порог сужается (MOTION_FIT_SHRINK): игрок, которого ведёт камера, почти неподвижен в кадре, и при широком
+  // пороге оттягивает подгонку к нулевому сдвигу; по первой, ещё смещённой подгонке его не отличить.
+  let fit: { M: Mat3; inl: boolean[] } = seed
+  for (const k of MOTION_FIT_SHRINK) {
+    const s1 = fsrc.filter((_, i) => fit.inl[i])
+    const d1 = fdst.filter((_, i) => fit.inl[i])
+    const M = fitCamera(s1, d1, fit.M)
+    if (!M) return unreliable()
+    fit = { M, inl: inlierMask(M, fsrc, fdst, (k * thr) ** 2) }
+    if (count(fit.inl) < 3) return unreliable(count(fit.inl))
   }
-  if (!fit) return unreliable()
 
-  const inliers = count(fit.inl)
+  // Подгонка держится на узких согласованных (fit.inl), а согласованность кадра считается по широкому порогу RANSAC:
+  // иначе доля согласованных падает вместе с шириной порога, хотя модель стала точнее.
+  const loose = inlierMask(fit.M, fsrc, fdst, thr * thr)
+  const inliers = count(loose)
+  const tight = count(fit.inl)
   let sum2 = 0
-  for (let i = 0; i < src.length; i += 1)
-    if (fit.inl[i]) sum2 += transferError2(fit.M, src[i], dst[i])
-  const rmsPx = inliers > 0 ? Math.sqrt(sum2 / inliers) * half : Infinity
+  for (let i = 0; i < fsrc.length; i += 1)
+    if (fit.inl[i]) sum2 += transferError2(fit.M, fsrc[i], fdst[i])
+  const rmsPx = tight > 0 ? Math.sqrt(sum2 / tight) * half : Infinity
   const scale = Math.sqrt(Math.abs(fit.M[0] * fit.M[4] - fit.M[1] * fit.M[3]))
+  const tightSrc = fsrc.filter((_, i) => fit.inl[i])
+  const tightDst = fdst.filter((_, i) => fit.inl[i])
+  const deviation = modelDeviationPx(fit.M, tightSrc, tightDst, half)
   const reliable =
     inliers >= MOTION_MIN_INLIERS &&
-    // Доля — от всех найденных углов, а не от прошедших поток: потерянные точки тоже говорят против.
-    inliers >= MOTION_MIN_INLIER_SHARE * corners.length &&
-    hullOf(fit.inl) >= MOTION_MIN_HULL_SHARE &&
+    // Доля — от углов без неподвижной графики и без отброшенных проверкой периодичности (полосы газона не
+    // говорят ни за, ни против движения); потерянные потоком точки по-прежнему говорят против.
+    inliers >= MOTION_MIN_INLIER_SHARE * (corners.length - ambCount - staticCount) &&
+    hullOf(loose) >= MOTION_MIN_HULL_SHARE &&
     rmsPx <= MOTION_MAX_RMS_PX * px &&
+    deviation <= MOTION_MAX_MODEL_DEVIATION_PX * px &&
     scale <= MOTION_MAX_SCALE_STEP &&
-    scale >= 1 / MOTION_MAX_SCALE_STEP
+    scale >= 1 / MOTION_MAX_SCALE_STEP &&
+    Math.abs(Math.atan2(fit.M[3], fit.M[0])) <= MOTION_MAX_ROLL
   if (!reliable) return unreliable(inliers, rmsPx)
 
   // Соперник: среди несогласованных точек есть второе крупное согласованное движение (например, группа игроков
   // без масок, бегущая вместе). Тогда неизвестно, какое из них — камера.
-  const restSrc = src.filter((_, i) => !fit.inl[i])
-  const restDst = dst.filter((_, i) => !fit.inl[i])
+  const restSrc = fsrc.filter((_, i) => !loose[i])
+  const restDst = fdst.filter((_, i) => !loose[i])
   // Один игрок даёт десяток-другой точек — соперником считается только движение не меньше MOTION_MIN_INLIERS.
   const rivalMin = Math.max(MOTION_MIN_INLIERS, MOTION_RIVAL_SHARE * inliers)
   if (restSrc.length >= rivalMin) {
-    const rival = ransac(restSrc, restDst, thr, 'similarity')
+    const rival = ransac(restSrc, restDst, thr)
     if (rival && count(rival.inl) >= rivalMin) return unreliable(inliers, rmsPx)
   }
 

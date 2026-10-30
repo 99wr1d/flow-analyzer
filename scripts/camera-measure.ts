@@ -69,6 +69,10 @@ const one = (o: Map<string, string[]>, k: string): string => {
 
 interface Diag {
   corners: number
+  /** Расхождение модели камеры со свободной гомографией по согласованным точкам, px кадра. */
+  dev: number
+  /** Неподвижные точки, снятые с подгонки. */
+  stat: number
   amb: number
   lost: number
   fb: number
@@ -123,18 +127,10 @@ async function loadInstrumented(overrides: Record<string, number>): Promise<Inst
   patch(`from './types'`, `from './types.ts'`)
   src +=
     '\nexport const __S: any = {}\n' +
-    'function __reset(n: number): void { Object.assign(__S, { corners: n, amb: 0, lost: 0, fb: 0, tracked: 0, inliers: 0, hull: 0, rms: Infinity, scale: 1, rival: false, dx: [], dy: [], src: [], dst: [], inl: [], half: 1 }) }\n'
+    'function __reset(n: number): void { Object.assign(__S, { corners: n, dev: 0, stat: 0, amb: 0, lost: 0, fb: 0, tracked: 0, inliers: 0, hull: 0, rms: Infinity, scale: 1, rival: false, dx: [], dy: [], src: [], dst: [], inl: [], half: 1 }) }\n'
   patch(
     'if (corners.length < MOTION_MIN_INLIERS) return unreliable()',
     '__reset(corners.length)\n  if (corners.length < MOTION_MIN_INLIERS) return unreliable()'
-  )
-  patch(
-    'if (ambiguous(pa[2], p.x / 4, p.y / 4, ambFar, 2)) continue',
-    'if (ambiguous(pa[2], p.x / 4, p.y / 4, ambFar, 2)) { __S.amb++; continue }'
-  )
-  patch(
-    'if (ambiguous(pa[1], p.x / 2, p.y / 2, ambNear, 1)) continue',
-    'if (ambiguous(pa[1], p.x / 2, p.y / 2, ambNear, 1)) { __S.amb++; continue }'
   )
   patch(
     'if (!q || q.residual > LK_MAX_RESIDUAL) continue',
@@ -146,11 +142,11 @@ async function loadInstrumented(overrides: Record<string, number>): Promise<Inst
   )
   patch(
     'if (src.length < MOTION_MIN_INLIERS) return unreliable()',
-    '__S.tracked = src.length; for (let i = 0; i < src.length; i += 1) { __S.dx.push(dst[i].x - src[i].x); __S.dy.push(dst[i].y - src[i].y) }\n  if (src.length < MOTION_MIN_INLIERS) return unreliable()'
+    '__S.amb = ambCount; __S.tracked = src.length; for (let i = 0; i < src.length; i += 1) { __S.dx.push(dst[i].x - src[i].x); __S.dy.push(dst[i].y - src[i].y) }\n  if (src.length < MOTION_MIN_INLIERS) return unreliable()'
   )
   patch(
     'if (!reliable) return unreliable(inliers, rmsPx)',
-    'Object.assign(__S, { inliers, hull: hullOf(fit.inl), rms: rmsPx, scale, src, dst, inl: fit.inl, half })\n  if (!reliable) return unreliable(inliers, rmsPx)'
+    'Object.assign(__S, { inliers, hull: hullOf(fit.inl), rms: rmsPx, scale, dev: deviation, stat: staticCount, src: fsrc, dst: fdst, inl: fit.inl, half })\n  if (!reliable) return unreliable(inliers, rmsPx)'
   )
   patch(
     'if (rival && count(rival.inl) >= rivalMin) return unreliable(inliers, rmsPx)',
@@ -166,9 +162,11 @@ function failReason(d: Diag, T: Record<string, number>): string {
   if (d.corners < T.MOTION_MIN_INLIERS) return 'мало углов'
   if (d.tracked < T.MOTION_MIN_INLIERS) return 'мало прослежено'
   if (d.inliers < T.MOTION_MIN_INLIERS) return 'мало согласованных'
-  if (d.inliers < T.MOTION_MIN_INLIER_SHARE * d.corners) return 'доля согласованных'
+  if (d.inliers < T.MOTION_MIN_INLIER_SHARE * (d.corners - d.amb - d.stat))
+    return 'доля согласованных'
   if (d.hull < T.MOTION_MIN_HULL_SHARE) return 'кучно'
   if (d.rms > T.MOTION_MAX_RMS_PX) return 'ошибка подгонки'
+  if (d.dev > T.MOTION_MAX_MODEL_DEVIATION_PX) return 'перекос'
   if (d.scale > T.MOTION_MAX_SCALE_STEP || d.scale < 1 / T.MOTION_MAX_SCALE_STEP)
     return 'скачок масштаба'
   if (d.rival) return 'второе движение'
@@ -448,6 +446,8 @@ async function scan(opt: Map<string, string[]>): Promise<void> {
           inliers: d.inliers,
           hull: d.hull,
           rms: d.rms,
+          dev: d.dev,
+          stat: d.stat,
           scale: d.scale,
           rival: d.rival,
           reason: r.reliable ? null : failReason(d, T)
