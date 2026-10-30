@@ -256,4 +256,54 @@ describe('runTrackingJob с движением камеры', () => {
       expect(Math.abs(p.foot.y - a[i].foot.y)).toBeLessThan(1e-5)
     })
   })
+
+  it('(д) оценка камеры падает на кадре N: задача доходит до конца, push больше не вызывается, ошибка сообщена один раз', async () => {
+    const N = 5
+    const pattern: StubPattern = { players: [player(0.3, 0.05)], cuts: [] }
+    const still = (): AsyncGenerator<DecodedFrame> => stream(FRAMES, base, 0)
+    class Throwing extends CameraEstimator {
+      calls: number[] = []
+      override push(
+        ...args: Parameters<CameraEstimator['push']>
+      ): ReturnType<CameraEstimator['push']> {
+        this.calls.push(args[0].index)
+        if (args[0].index === N) throw new Error('сбой оценки')
+        return super.push(...args)
+      }
+    }
+    const cam = new Throwing()
+    const errors: unknown[] = []
+    let asks = 0
+    const out = await runTrackingJob({
+      from: 0,
+      to: 1,
+      anchors: [anchorOf(0.3)],
+      signal: new AbortController().signal,
+      frames: still(),
+      createDetector: () => Promise.resolve(createStubDetector({ pattern })),
+      onAsk: () => {
+        asks += 1
+        return Promise.resolve(null)
+      },
+      camera: cam,
+      onCameraError: (e) => errors.push(e)
+    })
+    const plain = await run(pattern, still(), undefined, anchorOf(0.3))
+    expect(out.kind).toBe('done')
+    expect(plain.out.kind).toBe('done')
+    if (out.kind !== 'done' || plain.out.kind !== 'done') return
+    expect(asks).toBe(0)
+    expect(errors).toHaveLength(1)
+    // Камера работала до N (кадры 0..N), после сбоя не вызывалась.
+    expect(cam.calls).toEqual([0, 1, 2, 3, 4, 5])
+    expect(cam.chain.between(0, N - 1)).not.toBeNull()
+    expect(out.cameraReliable).toBeGreaterThan(0)
+    const a = plain.out.samples[0]
+    const b = out.samples[0]
+    expect(b).toHaveLength(a.length)
+    b.forEach((p, i) => {
+      expect(Math.abs(p.foot.x - a[i].foot.x)).toBeLessThan(1e-5)
+      expect(Math.abs(p.foot.y - a[i].foot.y)).toBeLessThan(1e-5)
+    })
+  })
 })

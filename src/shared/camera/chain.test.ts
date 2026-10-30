@@ -5,7 +5,12 @@ import { MotionChain } from './chain'
 import { MAX_CHAIN_SPAN, type FrameMotion } from './types'
 
 const shift = (tx: number, ty = 0): Mat3 => [1, 0, tx, 0, 1, ty, 0, 0, 1]
-const motion = (index: number, H: Mat3, reliable = true): FrameMotion => ({ index, H, reliable, inliers: 50 })
+const motion = (index: number, H: Mat3, reliable = true): FrameMotion => ({
+  index,
+  H,
+  reliable,
+  inliers: 50
+})
 
 /** Цепочка из кадров 1..n, в каждом сдвиг камеры на tx по x. */
 function shifted(n: number, tx: number): MotionChain {
@@ -83,8 +88,22 @@ describe('MotionChain', () => {
     chain.push(motion(3, shift(0.2, -0.1)))
     chain.cut(5)
     const copy = MotionChain.from(JSON.parse(JSON.stringify(chain.toJSON())))
-    for (const [a, b] of [[0, 4], [4, 1], [2, 3], [4, 6], [5, 6]]) {
+    for (const [a, b] of [
+      [0, 4],
+      [4, 1],
+      [2, 3],
+      [4, 6],
+      [5, 6]
+    ]) {
       expect(copy.between(a, b)).toEqual(chain.between(a, b))
     }
+  })
+
+  it('between(from, to) при from > to: ровно MAX_CHAIN_SPAN — есть, на единицу больше — null (в обе стороны)', () => {
+    const chain = shifted(MAX_CHAIN_SPAN + 1, 0.0001)
+    expect(chain.between(0, MAX_CHAIN_SPAN)).not.toBeNull()
+    expect(chain.between(MAX_CHAIN_SPAN, 0)).not.toBeNull()
+    expect(chain.between(0, MAX_CHAIN_SPAN + 1)).toBeNull()
+    expect(chain.between(MAX_CHAIN_SPAN + 1, 0)).toBeNull()
   })
 })

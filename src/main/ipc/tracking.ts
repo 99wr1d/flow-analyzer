@@ -143,7 +143,12 @@ async function startTracking(
       let final: TrackingDone | null = null
       try {
         const outcome = await runTrackingJob({
-          ...(cameraEnabled() ? { camera: new CameraEstimator() } : {}),
+          ...(cameraEnabled()
+            ? {
+                camera: new CameraEstimator(),
+                onCameraError: (e: unknown) => logError('tracking', e)
+              }
+            : {}),
           from: request.from,
           to: request.to,
           anchors: request.anchors,
@@ -180,10 +185,11 @@ async function startTracking(
             })
         })
         if (outcome.kind === 'done') {
-          logInfo(
-            'tracking',
-            `слежение ${job.id}: надёжное движение камеры на ${Math.round(outcome.cameraReliable * 100)} % кадров`
-          )
+          if (cameraEnabled())
+            logInfo(
+              'tracking',
+              `слежение ${job.id}: надёжное движение камеры на ${Math.round(outcome.cameraReliable * 100)} % кадров`
+            )
           final = {
             jobId: job.id,
             samples: outcome.samples,

@@ -11,7 +11,9 @@ import type { Detector } from './detectorWindow'
 import { footPoint } from './footing'
 import type { CameraEstimator } from '../camera/estimator'
 import { applyH } from '../../shared/pitch/homography'
-import { IDENTITY3, inv3, mul3, type Mat3 } from '../../shared/pitch/linalg'
+import { IDENTITY3, inv3, type Mat3 } from '../../shared/pitch/linalg'
+import type { FrameMotion } from '../../shared/camera/types'
+import { selectTransform } from './selectTransform'
 import { isSceneCut } from '../../shared/tracking/sceneCut'
 
 /** Полный кадр показываем детектору раз в столько секунд; между ними — только вырез вокруг игрока. */
@@ -42,6 +44,8 @@ export interface RunTrackingOptions {
    * а наружу (вырез детектора, вопрос, отсчёты) всё возвращается в экран текущего кадра. Не передана — как раньше.
    */
   camera?: CameraEstimator
+  /** Сбой оценки движения камеры (один раз): задача продолжается без камеры. */
+  onCameraError?: (e: unknown) => void
   /**
    * Вопрос «Кто из них ваш?» по цели target: индекс выбранной рамки, 'none' («моего игрока тут нет» — стоп на последнем
    * надёжном кадре, причина not-here) или null, если отменили. Остальные цели ждут.
@@ -320,6 +324,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     let prevT: Mat3 = IDENTITY3
     let prevHist: Float32Array | null = null
     let motionPushed = 0
+    // Оценка движения упала — больше её не вызываем (задача идёт как без камеры).
+    let cameraBroken = false
     let motionReliable = 0
     const reliableShare = (): number => (motionPushed > 0 ? motionReliable / motionPushed : 0)
     /** Стоп: все цели обрезаются до общей длины len (последний надёжный кадр у всех). */
@@ -388,31 +394,38 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       let toScreen: Mat3 | null = null
       if (opts.camera) {
         const cut = prevHist !== null && isSceneCut(prevHist, out.frameHist)
-        const motion = opts.camera.push(
-          frame,
-          out.detections.map((d) => toFraction(d.box, fw, fh)),
-          cut
-        )
+        let motion: FrameMotion | null = null
+        if (!cameraBroken) {
+          try {
+            motion = opts.camera.push(
+              frame,
+              out.detections.map((d) => toFraction(d.box, fw, fh)),
+              cut
+            )
+          } catch (e) {
+            // Сбой оценки не должен ронять слежение: кадр без движения, до конца задачи камеру не трогаем.
+            cameraBroken = true
+            opts.camera.chain.cut(frame.index)
+            opts.onCameraError?.(e)
+          }
+        }
         prevHist = out.frameHist
         if (motion) {
           motionPushed += 1
           if (motion.reliable) motionReliable += 1
         }
-        let T = prevT
-        if (tracker === null) {
-          anchorIndex = frame.index
-          anchorT = IDENTITY3
-          T = IDENTITY3
-        } else {
-          const toAnchor = opts.camera.chain.between(frame.index, anchorIndex)
-          if (toAnchor) {
-            T = mul3(anchorT, toAnchor)
-          } else {
-            anchorIndex = frame.index
-            anchorT = T
-          }
+        const choice = selectTransform({
+          chain: opts.camera.chain,
+          frameIndex: frame.index,
+          anchorIndex: tracker === null ? null : anchorIndex,
+          anchorT,
+          prevT
+        })
+        anchorIndex = choice.anchorIndex
+        anchorT = choice.anchorT
+        const T = choice.T
+        if (tracker !== null)
           dets = out.detections.map((d) => ({ ...d, box: mapBox(T, d.box, fw, fh) }))
-        }
         prevT = T
         toScreen = inv3(T)
       }

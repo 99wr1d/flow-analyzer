@@ -248,6 +248,7 @@ function ambiguous(l: Level, x: number, y: number, range: number, exclude: numbe
 
 // Рабочие буферы окна потока — общие на модуль: track() не реентерабельна (в одном потоке это безопасно,
 // у каждого worker свой экземпляр модуля).
+// не реентерабельно: один синхронный вызов за раз (задача слежения одна, ipc/tracking.ts active-guard)
 const bufT = new Float32Array(WIN_N)
 const bufX = new Float32Array(WIN_N)
 const bufY = new Float32Array(WIN_N)
