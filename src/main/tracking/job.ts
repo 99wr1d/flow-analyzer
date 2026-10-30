@@ -11,7 +11,7 @@ import type { Detector } from './detectorWindow'
 import { footPoint } from './footing'
 import type { CameraEstimator } from '../camera/estimator'
 import { applyH } from '../../shared/pitch/homography'
-import type { Mat3 } from '../../shared/pitch/linalg'
+import { IDENTITY3, inv3, mul3, type Mat3 } from '../../shared/pitch/linalg'
 import { isSceneCut } from '../../shared/tracking/sceneCut'
 
 /** Полный кадр показываем детектору раз в столько секунд; между ними — только вырез вокруг игрока. */
@@ -312,8 +312,12 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     const lastGood: Array<{ len: number; t: number } | null> = opts.anchors.map(() => null)
     /** Номер кадра каждого отсчёта (у всех целей одинаковые). */
     const sampleFrames: number[] = []
-    // Камера: трекер живёт в координатах кадра refIndex (начало надёжного отрезка); при обрыве опорный кадр берётся заново.
-    let refIndex = 0
+    // Камера: трекер живёт в координатах первого кадра. prevT — переход «экран предыдущего кадра → трекер»; опора
+    // (anchorIndex, anchorT) — кадр, от которого цепочка надёжна, и его переход в трекер. Где цепочки нет (обрыв,
+    // ненадёжный кадр), камера считается неподвижной (как неявно считает трекер без камеры), и опора берётся заново.
+    let anchorIndex = 0
+    let anchorT: Mat3 = IDENTITY3
+    let prevT: Mat3 = IDENTITY3
     let prevHist: Float32Array | null = null
     let motionPushed = 0
     let motionReliable = 0
@@ -367,9 +371,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       // детектора на все цели; если цели далеко друг от друга и не помещаются в вырез — целый кадр).
       const needFull = tracker === null || forceFull || coasting || ordinal % fullEvery === 0
       forceFull = false
-      // Прогнозы трекера — в координатах опорного кадра; движение текущего кадра ещё не оценено, берём экран предыдущего.
-      const toPrevScreen = (b: Box): Box =>
-        mapBox(opts.camera?.chain.between(refIndex, frame.index - 1) ?? null, b, fw, fh)
+      // Прогнозы трекера — в координатах трекера; движение текущего кадра ещё не оценено, берём экран предыдущего.
+      const toPrevScreen = (b: Box): Box => mapBox(inv3(prevT), b, fw, fh)
       const roi =
         needFull || !tracker
           ? undefined
@@ -395,17 +398,23 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           motionPushed += 1
           if (motion.reliable) motionReliable += 1
         }
+        let T = prevT
         if (tracker === null) {
-          refIndex = frame.index
+          anchorIndex = frame.index
+          anchorT = IDENTITY3
+          T = IDENTITY3
         } else {
-          const toRef = opts.camera.chain.between(frame.index, refIndex)
-          if (toRef) {
-            dets = out.detections.map((d) => ({ ...d, box: mapBox(toRef, d.box, fw, fh) }))
-            toScreen = opts.camera.chain.between(refIndex, frame.index)
+          const toAnchor = opts.camera.chain.between(frame.index, anchorIndex)
+          if (toAnchor) {
+            T = mul3(anchorT, toAnchor)
           } else {
-            refIndex = frame.index
+            anchorIndex = frame.index
+            anchorT = T
           }
+          dets = out.detections.map((d) => ({ ...d, box: mapBox(T, d.box, fw, fh) }))
         }
+        prevT = T
+        toScreen = inv3(T)
       }
       const screen = (b: Box): Box => mapBox(toScreen, b, fw, fh)
 

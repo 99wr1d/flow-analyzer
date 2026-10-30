@@ -147,11 +147,11 @@ async function run(
 
 const FRAMES = 10
 
-/** Слежение сбилось: вопрос, стоп, обрыв отсчётов или отсчёты ушли от настоящего положения игрока (0.915 − PAN·i/W). */
+/** Слежение сбилось: вопрос, стоп, обрыв отсчётов или отсчёты ушли от настоящего положения игрока (0.91 − PAN·i/W). */
 function derails(r: Run): boolean {
   if (r.asks > 0 || r.out.kind !== 'done' || r.out.stop !== null) return true
   const s = r.out.samples[0]
-  return s.length < FRAMES || s.some((p, i) => Math.abs(p.foot.x - (0.915 - (PAN * i) / W)) > 0.03)
+  return s.length < FRAMES || s.some((p, i) => Math.abs(p.foot.x - (0.91 - (PAN * i) / W)) > 0.03)
 }
 // Якорь — на игроке в первом кадре (рамка w = 0.03, y 0.4..0.54).
 const anchorOf = (x: number): { x: number; y: number } => ({ x: x + 0.015, y: 0.47 })
@@ -178,7 +178,7 @@ describe('runTrackingJob с движением камеры', () => {
     const s = withCam.out.samples[0]
     expect(s).toHaveLength(FRAMES)
     // Ключи едут по экрану вместе с фоном: каждый кадр на PAN/W левее.
-    s.forEach((p, i) => expect(p.foot.x).toBeCloseTo(0.915 - (PAN * i) / W, 1))
+    s.forEach((p, i) => expect(p.foot.x).toBeCloseTo(0.91 - (PAN * i) / W, 2))
   })
 
   it('(б) два одинаковых игрока рядом, панорама: нет перескока на соседа', async () => {
@@ -203,7 +203,7 @@ describe('runTrackingJob с движением камеры', () => {
     expect(out.stop).toBeNull()
     const s = out.samples[0]
     expect(s).toHaveLength(FRAMES)
-    s.forEach((p, i) => expect(p.foot.x).toBeCloseTo(0.915 - (PAN * i) / W, 1))
+    s.forEach((p, i) => expect(p.foot.x).toBeCloseTo(0.91 - (PAN * i) / W, 2))
   })
 
   it('(в) камера не передана: прежнее поведение, cameraReliable = 0; на неподвижном фоне камера ничего не меняет', async () => {
@@ -224,17 +224,36 @@ describe('runTrackingJob с движением камеры', () => {
     })
   })
 
-  it('(г) ненадёжные кадры посреди панорамы: без исключений, доля надёжных кадров меньше 1', async () => {
-    const pattern: StubPattern = { players: [player(0.9, panVelocity(PAN))], cuts: [] }
-    const { out } = await run(
+  it('(г) обрыв оценки посреди долгой панорамы: без скачка, отсчёты на обрыве и после совпадают с запуском без камеры', async () => {
+    // Медленная панорама 8 px/кадр: обычный трекер идёт сам. К обрыву (кадры 12, 13) накоплено 96 px: если после обрыва
+    // трекер получит рамки в старом пространстве, он увидит скачок на всю накопленную панораму.
+    const pan = 8
+    const frames = 16
+    const slow = makeBase(11, W + pan * frames + 20)
+    const pattern: StubPattern = { players: [player(0.9, panVelocity(pan))], cuts: [] }
+    const flat = [12, 13]
+    const plain = await run(pattern, stream(frames, slow, pan, flat), undefined, anchorOf(0.9))
+    const withCam = await run(
       pattern,
-      stream(FRAMES, base, PAN, [4, 5]),
+      stream(frames, slow, pan, flat),
       new CameraEstimator(),
       anchorOf(0.9)
     )
-    expect(['done', 'failed', 'cancelled']).toContain(out.kind)
-    if (out.kind !== 'done') return
-    expect(out.cameraReliable).toBeGreaterThan(0)
-    expect(out.cameraReliable).toBeLessThan(1)
+    expect(plain.out.kind).toBe('done')
+    expect(withCam.out.kind).toBe('done')
+    if (plain.out.kind !== 'done' || withCam.out.kind !== 'done') return
+    expect(plain.asks).toBe(0)
+    expect(withCam.asks).toBe(0)
+    expect(withCam.out.stop).toBeNull()
+    expect(withCam.out.cameraReliable).toBeGreaterThan(0)
+    expect(withCam.out.cameraReliable).toBeLessThan(1)
+    const a = plain.out.samples[0]
+    const b = withCam.out.samples[0]
+    expect(b).toHaveLength(a.length)
+    expect(b).toHaveLength(frames)
+    b.forEach((p, i) => {
+      expect(Math.abs(p.foot.x - a[i].foot.x)).toBeLessThan(1e-5)
+      expect(Math.abs(p.foot.y - a[i].foot.y)).toBeLessThan(1e-5)
+    })
   })
 })
