@@ -9,6 +9,12 @@ import type { Box, Detection } from '../../shared/tracking/types'
 import type { DecodedFrame } from './frames'
 import type { Detector } from './detectorWindow'
 import { footPoint } from './footing'
+import type { CameraEstimator } from '../camera/estimator'
+import { applyH } from '../../shared/pitch/homography'
+import { IDENTITY3, inv3, type Mat3 } from '../../shared/pitch/linalg'
+import type { FrameMotion } from '../../shared/camera/types'
+import { selectTransform } from './selectTransform'
+import { isSceneCut } from '../../shared/tracking/sceneCut'
 
 /** Полный кадр показываем детектору раз в столько секунд; между ними — только вырез вокруг игрока. */
 export const FULL_DETECT_SECONDS = 1.0
@@ -34,6 +40,13 @@ export interface RunTrackingOptions {
   createDetector: (signal: AbortSignal) => Promise<Detector>
   onProgress?: (done: number, total: number) => void
   /**
+   * Оценка движения камеры: рамки переводятся в координаты опорного кадра (начала надёжного отрезка), трекер живёт в них,
+   * а наружу (вырез детектора, вопрос, отсчёты) всё возвращается в экран текущего кадра. Не передана — как раньше.
+   */
+  camera?: CameraEstimator
+  /** Сбой оценки движения камеры (один раз): задача продолжается без камеры. */
+  onCameraError?: (e: unknown) => void
+  /**
    * Вопрос «Кто из них ваш?» по цели target: индекс выбранной рамки, 'none' («моего игрока тут нет» — стоп на последнем
    * надёжном кадре, причина not-here) или null, если отменили. Остальные цели ждут.
    */
@@ -54,6 +67,8 @@ export type TrackingOutcome =
       /** Потеря любой цели останавливает всю задачу на последнем кадре, где уверены все цели; target — потерянная. */
       stop: null | { t: number; reason: StopReason; target: number; cutAt?: number }
       backend: Detector['backend']
+      /** Доля кадров с надёжным движением камеры среди оценённых (0..1; 0 — камеры нет). */
+      cameraReliable: number
     }
   | {
       kind: 'failed'
@@ -73,6 +88,27 @@ const toFraction = (b: Box, w: number, h: number): FractionBox => ({
   w: b.w / w,
   h: b.h / h
 })
+
+/** Рамка через матрицу кадра (доли кадра): углы переводятся и берётся охватывающая рамка; без матрицы — как есть. */
+function mapBox(M: Mat3 | null, b: Box, w: number, h: number): Box {
+  if (!M) return b
+  const xs: number[] = []
+  const ys: number[] = []
+  for (const [cx, cy] of [
+    [b.x, b.y],
+    [b.x + b.w, b.y],
+    [b.x, b.y + b.h],
+    [b.x + b.w, b.y + b.h]
+  ]) {
+    const p = applyH(M, { x: cx / w, y: cy / h })
+    if (!p) return b
+    xs.push(p.x * w)
+    ys.push(p.y * h)
+  }
+  const x0 = Math.min(...xs)
+  const y0 = Math.min(...ys)
+  return { x: x0, y: y0, w: Math.max(...xs) - x0, h: Math.max(...ys) - y0 }
+}
 
 /**
  * Рамка игрока в пикселях → отсчёт: ноги — середина нижней кромки, высота — высота рамки. Получатели отсчёта (кольцо, точки
@@ -280,6 +316,18 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
     const lastGood: Array<{ len: number; t: number } | null> = opts.anchors.map(() => null)
     /** Номер кадра каждого отсчёта (у всех целей одинаковые). */
     const sampleFrames: number[] = []
+    // Камера: трекер живёт в координатах первого кадра. prevT — переход «экран предыдущего кадра → трекер»; опора
+    // (anchorIndex, anchorT) — кадр, от которого цепочка надёжна, и его переход в трекер. Где цепочки нет (обрыв,
+    // ненадёжный кадр), камера считается неподвижной (как неявно считает трекер без камеры), и опора берётся заново.
+    let anchorIndex = 0
+    let anchorT: Mat3 = IDENTITY3
+    let prevT: Mat3 = IDENTITY3
+    let prevHist: Float32Array | null = null
+    let motionPushed = 0
+    // Оценка движения упала — больше её не вызываем (задача идёт как без камеры).
+    let cameraBroken = false
+    let motionReliable = 0
+    const reliableShare = (): number => (motionPushed > 0 ? motionReliable / motionPushed : 0)
     /** Стоп: все цели обрезаются до общей длины len (последний надёжный кадр у всех). */
     const stopAt = (
       len: number,
@@ -291,7 +339,8 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       kind: 'done',
       samples: samples.map((s) => s.slice(0, len)),
       stop: { t, reason, target, ...(cutAt !== undefined ? { cutAt } : {}) },
-      backend: (detector as Detector).backend
+      backend: (detector as Detector).backend,
+      cameraReliable: reliableShare()
     })
     /**
      * Длина вывода при остановке (потеря, «моего тут нет»): у каждой цели — до её последнего уверенного отсчёта и не
@@ -328,12 +377,59 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       // детектора на все цели; если цели далеко друг от друга и не помещаются в вырез — целый кадр).
       const needFull = tracker === null || forceFull || coasting || ordinal % fullEvery === 0
       forceFull = false
-      const roi = needFull || !tracker ? undefined : sharedRoi(tracker.predictBoxes(frame.index))
+      // Прогнозы трекера — в координатах трекера; движение текущего кадра ещё не оценено, берём экран предыдущего.
+      const toPrevScreen = (b: Box): Box => mapBox(inv3(prevT), b, fw, fh)
+      const roi =
+        needFull || !tracker
+          ? undefined
+          : sharedRoi(tracker.predictBoxes(frame.index).map(opts.camera ? toPrevScreen : (b) => b))
       const out = await detector.detect(
         { rgba: frame.rgba, width: fw, height: fh, index: frame.index, t: frame.t },
         roi
       )
       if (signal.aborted) return { kind: 'cancelled' }
+
+      // Камера: движение кадра оценивается по рамкам детектора и переводит их в координаты опорного кадра.
+      let dets: Detection[] = out.detections
+      let toScreen: Mat3 | null = null
+      if (opts.camera) {
+        const cut = prevHist !== null && isSceneCut(prevHist, out.frameHist)
+        let motion: FrameMotion | null = null
+        if (!cameraBroken) {
+          try {
+            motion = opts.camera.push(
+              frame,
+              out.detections.map((d) => toFraction(d.box, fw, fh)),
+              cut
+            )
+          } catch (e) {
+            // Сбой оценки не должен ронять слежение: кадр без движения, до конца задачи камеру не трогаем.
+            cameraBroken = true
+            opts.camera.chain.cut(frame.index)
+            opts.onCameraError?.(e)
+          }
+        }
+        prevHist = out.frameHist
+        if (motion) {
+          motionPushed += 1
+          if (motion.reliable) motionReliable += 1
+        }
+        const choice = selectTransform({
+          chain: opts.camera.chain,
+          frameIndex: frame.index,
+          anchorIndex: tracker === null ? null : anchorIndex,
+          anchorT,
+          prevT
+        })
+        anchorIndex = choice.anchorIndex
+        anchorT = choice.anchorT
+        const T = choice.T
+        if (tracker !== null)
+          dets = out.detections.map((d) => ({ ...d, box: mapBox(T, d.box, fw, fh) }))
+        prevT = T
+        toScreen = inv3(T)
+      }
+      const screen = (b: Box): Box => mapBox(toScreen, b, fw, fh)
 
       if (tracker === null) {
         const started = pickStarts(opts, out.detections, fw, fh)
@@ -344,7 +440,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       let step = tracker.step({
         index: frame.index,
         t: frame.t,
-        detections: out.detections,
+        detections: dets,
         frameHist: out.frameHist
       })
       // Вопрос по цели ставит на паузу всех: следующий кадр не берём, пока все вопросы кадра не решены.
@@ -354,9 +450,9 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
         const target = step.target
         const index = await opts.onAsk(
           frame.t,
-          cands.map((d) => toFraction(d.box, fw, fh)),
+          cands.map((d) => toFraction(screen(d.box), fw, fh)),
           target,
-          toFraction(tracker.askBox(target), fw, fh)
+          toFraction(screen(tracker.askBox(target)), fw, fh)
         )
         if (signal.aborted) return { kind: 'cancelled' }
         if (index === 'none') {
@@ -372,7 +468,7 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
           samples[target],
           sampleFrames,
           tracker.answerBounds(target),
-          boxToSample(chosen.box, frame.t, fw, fh, feetFrame(frame)),
+          boxToSample(screen(chosen.box), frame.t, fw, fh, feetFrame(frame)),
           fw / fh,
           frame.fps,
           tracker.answerProven(target, chosen.box)
@@ -390,13 +486,19 @@ export async function runTrackingJob(opts: RunTrackingOptions): Promise<Tracking
       coasting = step.coasting.some(Boolean)
       sampleFrames.push(frame.index)
       step.boxes.forEach((box, i) => {
-        samples[i].push(boxToSample(box, frame.t, fw, fh, feetFrame(frame)))
+        samples[i].push(boxToSample(screen(box), frame.t, fw, fh, feetFrame(frame)))
         if (!step.coasting[i]) lastGood[i] = { len: samples[i].length, t: frame.t }
       })
       ordinal += 1
       opts.onProgress?.(Math.min(ordinal, total), total)
     }
-    return { kind: 'done', samples, stop: null, backend: detector.backend }
+    return {
+      kind: 'done',
+      samples,
+      stop: null,
+      backend: detector.backend,
+      cameraReliable: reliableShare()
+    }
   } catch (error) {
     // Отмена закрывает детектор и ffmpeg под ногами: ошибки при этом — не сбой слежения.
     if (signal.aborted) return { kind: 'cancelled' }
