@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { applyH } from '../pitch/homography'
 import { IDENTITY3, inv3, mul3, type Mat3, type Pt } from '../pitch/linalg'
-import { estimateMotion, type EstimateOptions, type Gray } from './estimate'
+import { estimateMotion, modelDeviationPx, type EstimateOptions, type Gray } from './estimate'
 
 // Синтетическая сцена: большая «подложка» (шум-текстура + линии разметки), из которой кадры
 // вырезаются с известным преобразованием камеры G (пиксели кадра prev → пиксели кадра cur).
@@ -518,7 +518,7 @@ describe('estimateMotion: неподвижная графика', () => {
       NO_MASKS
     )
     expect(r.reliable).toBe(true)
-    expect(cornerError(r.H, G)).toBeLessThan(0.5)
+    expect(cornerError(r.H, G)).toBeLessThan(0.3)
   })
 
   it('(б) сцена целиком неподвижна (камера стоит, графика стоит): единичное движение, надёжно', () => {
@@ -591,4 +591,75 @@ describe('estimateMotion: модель «поворот + зум камеры»'
     expect(r.reliable).toBe(false)
     expect(r.H).toEqual(IDENTITY3)
   })
+})
+
+/** Эталон: чистая проекция Hn = [1 0 0; 0 1 0; p6 p7 1] в нормированных координатах (камера её не даёт без сдвига). */
+function perspG(p6: number, p7: number, tx = 0): Mat3 {
+  const Hn: Mat3 = [1, 0, tx, 0, 1, 0, p6, p7, 1]
+  const T: Mat3 = [2 / W, 0, -1, 0, 2 / W, -H / W, 0, 0, 1]
+  return mul3(inv3(T)!, mul3(Hn, T))
+}
+
+describe('estimateMotion: признак перекоса (модель камеры хорошо подгоняется, свободная гомография — лучше)', () => {
+  // Небольшие перекос и перспектива: RMS подгонки модели камеры ≈ 0.3 px (проходит порог 1 px), но данные
+  // просят преобразование, которого камера не даёт. Без проверки modelDeviationPx такие кадры надёжны.
+  for (const [name, A, p6] of [
+    ['сдвиг строк 0.012', [1, 0.012, 0, 0, 1, 0, 0, 0, 1] as Mat3, 0],
+    ['сдвиг строк 0.016', [1, 0.016, 0, 0, 1, 0, 0, 0, 1] as Mat3, 0]
+  ] as const) {
+    it(name, () => {
+      const G = mul3(perspG(p6, 0.5 * p6), A)
+      const r = estimateMotion(render(base1, IDENTITY3, 110, 2), render(base1, G, 111, 2), NO_MASKS)
+      expect(r.rms).toBeLessThanOrEqual(1)
+      expect(r.inliers).toBeGreaterThanOrEqual(40)
+      expect(r.reliable).toBe(false)
+      expect(r.H).toEqual(IDENTITY3)
+    })
+  }
+
+  it('modelDeviationPx: модель, совпадающая со свободной подгонкой → ≈ 0; мало точек → Infinity', () => {
+    const G = cameraG(0.004, 0.02, 0.001, 1.01, 3.7)
+    const T: Mat3 = [2 / W, 0, -1, 0, 2 / W, -H / W, 0, 0, 1]
+    const Hn = mul3(T, mul3(G, inv3(T)!))
+    const src: Pt[] = []
+    for (let i = 0; i < 6; i += 1)
+      for (let j = 0; j < 5; j += 1) src.push({ x: -0.8 + i * 0.3, y: -0.4 + j * 0.2 })
+    const dst = src.map((p) => applyH(Hn, p)!)
+    expect(modelDeviationPx(Hn, src, dst, W / 2)).toBeLessThan(0.01)
+    expect(modelDeviationPx(Hn, src.slice(0, 7), dst.slice(0, 7), W / 2)).toBe(Infinity)
+    // Модель с лишним сдвигом строк против данных без него — заметное расхождение.
+    const skewed: Mat3 = [1, 0.03, 0, 0, 1, 0, 0, 0, 1]
+    expect(modelDeviationPx(skewed, src, dst, W / 2)).toBeGreaterThan(0.75)
+  })
+})
+
+describe('estimateMotion: камера стоит, едет большинство', () => {
+  it('неподвижный фон + большинство точек движется: ложного сдвига нет', () => {
+    // Крупные «игроки» занимают ≈ 60 % кадра и едут группой (+9, +4); фон стоит, масок нет.
+    const { before } = crowd()
+    const moved = before.map((p) => ({ ...p, x: p.x + 9, y: p.y + 4 }))
+    const r = estimateMotion(
+      render(base1, IDENTITY3, 120, 2, before),
+      render(base1, IDENTITY3, 121, 2, moved),
+      NO_MASKS
+    )
+    // Либо единичное движение (камера стоит), либо «ненадёжно»; сдвиг на (+9, +4) недопустим.
+    if (r.reliable) expect(cornerError(r.H, IDENTITY3)).toBeLessThan(0.5)
+    else expect(r.H).toEqual(IDENTITY3)
+  })
+
+  for (const n of [7, 8, 9, 10]) {
+    it(`то же, группа из ${n} из 12 объектов`, () => {
+      const { before } = crowd()
+      const group = before.slice(0, n)
+      const moved = group.map((p) => ({ ...p, x: p.x + 7, y: p.y - 3 }))
+      const r = estimateMotion(
+        render(base1, IDENTITY3, 122, 2, group),
+        render(base1, IDENTITY3, 123, 2, moved),
+        NO_MASKS
+      )
+      if (r.reliable) expect(cornerError(r.H, IDENTITY3)).toBeLessThan(0.5)
+      else expect(r.H).toEqual(IDENTITY3)
+    })
+  }
 })

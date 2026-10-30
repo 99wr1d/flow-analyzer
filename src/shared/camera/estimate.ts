@@ -16,7 +16,9 @@ import {
   MIN_EIG,
   MOTION_EDGE_MARGIN,
   MOTION_MAX_RMS_PX,
+  MOTION_MAX_HIDDEN_STATIC_SHARE,
   MOTION_MAX_MODEL_DEVIATION_PX,
+  MOTION_MAX_STATIC_SHARE,
   MOTION_MAX_ROLL,
   MOTION_MAX_SCALE_STEP,
   MOTION_MIN_HULL_SHARE,
@@ -705,8 +707,14 @@ function fitCamera(src: readonly Pt[], dst: readonly Pt[], init: Mat3): Mat3 | n
  * (а не в углах кадра, куда свободная гомография экстраполируется неустойчиво). Перекос, неодинаковый масштаб по
  * осям, перспектива сверх поворота — всё, что подгоняет табло или сегмент с другим движением, — даёт большое число.
  */
-function modelDeviationPx(M: Mat3, src: readonly Pt[], dst: readonly Pt[], half: number): number {
-  if (src.length < 8) return 0
+export function modelDeviationPx(
+  M: Mat3,
+  src: readonly Pt[],
+  dst: readonly Pt[],
+  half: number
+): number {
+  // Слишком мало точек, чтобы сравнить модель со свободной гомографией: честный ответ — «не знаем».
+  if (src.length < 8) return Infinity
   const F = homographyLsq(src, dst)
   if (!F) return Infinity
   let sum2 = 0
@@ -799,7 +807,9 @@ export function estimateMotion(prev: Gray, cur: Gray, opts: EstimateOptions): Mo
     fdst.push(dst[i])
   }
   const staticCount = src.length - fsrc.length
-  if (fsrc.length < MOTION_MIN_INLIERS) return unreliable()
+  // Много «неподвижных» точек — это либо очень большое табло, либо камера стоит, а едет большинство (толпа, крупные
+  // игроки): тогда настоящий фон снят как «графика», а подгоняется движущаяся группа. Отличить нельзя — ненадёжно.
+  if (staticCount > MOTION_MAX_STATIC_SHARE * src.length) return unreliable()
 
   const thr = (MOTION_RANSAC_THRESHOLD_PX * px) / half
   const frameArea = (w * h) / (half * half)
@@ -831,11 +841,28 @@ export function estimateMotion(prev: Gray, cur: Gray, opts: EstimateOptions): Mo
     if (fit.inl[i]) sum2 += transferError2(fit.M, fsrc[i], fdst[i])
   const rmsPx = tight > 0 ? Math.sqrt(sum2 / tight) * half : Infinity
   const scale = Math.sqrt(Math.abs(fit.M[0] * fit.M[4] - fit.M[1] * fit.M[3]))
-  const tightSrc = fsrc.filter((_, i) => fit.inl[i])
-  const tightDst = fdst.filter((_, i) => fit.inl[i])
-  const deviation = modelDeviationPx(fit.M, tightSrc, tightDst, half)
+  // По широкому набору: узкий подогнан под саму модель и скрывает расхождение с гомографией.
+  const looseSrc = fsrc.filter((_, i) => loose[i])
+  const looseDst = fdst.filter((_, i) => loose[i])
+  const deviation = modelDeviationPx(fit.M, looseSrc, looseDst, half)
+  // Неподвижная графика, не снятая выше (камера едет медленнее порога MOTION_STATIC_MEDIAN_PX): согласованные точки,
+  // которые стоят на месте, хотя модель обещает им заметный сдвиг. Предел: при сдвиге модели меньше
+  // 3·MOTION_STATIC_FLOW_PX графику от фона не отличить — там её вклад не больше этих долей пикселя за кадр.
+  let hidden = 0
+  for (let i = 0; i < fsrc.length; i += 1) {
+    if (!loose[i]) continue
+    const obs = Math.hypot(fdst[i].x - fsrc[i].x, fdst[i].y - fsrc[i].y) * half
+    if (obs >= MOTION_STATIC_FLOW_PX * px) continue
+    const wm = fit.M[6] * fsrc[i].x + fit.M[7] * fsrc[i].y + fit.M[8]
+    const mu = (fit.M[0] * fsrc[i].x + fit.M[1] * fsrc[i].y + fit.M[2]) / wm - fsrc[i].x
+    const mv = (fit.M[3] * fsrc[i].x + fit.M[4] * fsrc[i].y + fit.M[5]) / wm - fsrc[i].y
+    if (Math.hypot(mu, mv) * half >= 3 * MOTION_STATIC_FLOW_PX * px) hidden += 1
+  }
   const reliable =
     inliers >= MOTION_MIN_INLIERS &&
+    // RMS считается по узкому набору (расхождение с гомографией — по широкому) — узкий не должен быть крошечным.
+    tight >= Math.max(8, MOTION_MIN_INLIERS / 2) &&
+    hidden <= MOTION_MAX_HIDDEN_STATIC_SHARE * inliers &&
     // Доля — от углов без неподвижной графики и без отброшенных проверкой периодичности (полосы газона не
     // говорят ни за, ни против движения); потерянные потоком точки по-прежнему говорят против.
     inliers >= MOTION_MIN_INLIER_SHARE * (corners.length - ambCount - staticCount) &&
