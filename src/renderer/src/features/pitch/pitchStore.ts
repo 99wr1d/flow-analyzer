@@ -28,6 +28,8 @@ export interface PitchUiState {
   draft: CalibrationDraft | null
   /** Панель режима разметки слева или справа. */
   panelSide: 'left' | 'right'
+  /** Подтягивать ставимые точки к белым линиям поля (по умолчанию выключено: на трансляции даёт ненадёжный результат; Alt при клике отключает разово). */
+  snapToLines: boolean
   /** Показан вопрос «Сбросить разметку?» (отмена с уже поставленными точками). */
   confirmingCancel: boolean
 }
@@ -36,6 +38,7 @@ export interface PitchUiActions {
   setOnPitch: (on: boolean) => void
   setShowGrid: (on: boolean) => void
   setPanelSide: (side: 'left' | 'right') => void
+  setSnapToLines: (on: boolean) => void
   setConfirmingCancel: (on: boolean) => void
   openDraft: (draft: CalibrationDraft) => void
   closeDraft: () => void
@@ -63,11 +66,13 @@ export const usePitchStore = create<PitchUiState & PitchUiActions>()((set) => ({
   lastPitch: null,
   draft: null,
   panelSide: 'left',
+  snapToLines: false,
   confirmingCancel: false,
 
   setOnPitch: (onPitch) => set({ onPitch }),
   setShowGrid: (showGrid) => set({ showGrid }),
   setPanelSide: (panelSide) => set({ panelSide }),
+  setSnapToLines: (snapToLines) => set({ snapToLines }),
   setConfirmingCancel: (confirmingCancel) => set({ confirmingCancel }),
   openDraft: (draft) => set({ draft, confirmingCancel: false }),
   closeDraft: () =>

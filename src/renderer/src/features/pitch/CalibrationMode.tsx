@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CalibrationFitResult } from '../../../../shared/pitch/calibration'
+import { snapImagePoint } from './snapFrame'
 import { RECT_LIMITS, TEMPLATE_IDS, type TemplateId } from '../../../../shared/pitch/templates'
 import { PITCH_LIMITS } from '../../../../shared/pitch/landmarks'
 import { reprojectionErrors } from '../../../../shared/pitch/homography'
@@ -119,6 +120,7 @@ function Panel({
 }): React.JSX.Element {
   const s = usePitchStore.getState()
   const side = usePitchStore((st) => st.panelSide)
+  const snap = usePitchStore((st) => st.snapToLines)
   const template = templateOf(draft)
   const next = nextRequired(draft)
   const target = nextToPlace(draft)
@@ -233,6 +235,19 @@ function Panel({
       )}
 
       <MiniMap draft={draft} onPickExtra={(id) => s.beginExtra(id)} />
+
+      <label className="cal-check" title={ru.pitch.mode.snapHint}>
+        <input
+          type="checkbox"
+          checked={snap}
+          data-testid="cal-snap"
+          onChange={(e) => {
+            s.setSnapToLines(e.target.checked)
+            e.currentTarget.blur()
+          }}
+        />
+        <span>{ru.pitch.mode.snap}</span>
+      </label>
 
       <p className="cal-status" data-testid="cal-status">
         {status}
@@ -379,6 +394,7 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
     x: number
     y: number
     image: { x: number; y: number }
+    snapped: { x: number; y: number } | null
     bounds: { w: number; h: number }
   } | null>(null)
   const size = videoSize()
@@ -485,14 +501,19 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
       st.selectPoint(hit)
       drag.current = { index: hit }
     } else if (nextToPlace(d)) {
-      st.addPoint(toImage(pos))
+      const image = toImage(pos)
+      const snapped = st.snapToLines && !e.altKey ? snapImagePoint(image) : null
+      st.addPoint(snapped ?? image)
       drag.current = { index: d.points.length }
+      setLoupe({ x: pos.x, y: pos.y, image, snapped, bounds: hostSize() })
+      svgRef.current?.setPointerCapture(e.pointerId)
+      return
     } else {
       st.selectPoint(null)
       return
     }
     svgRef.current?.setPointerCapture(e.pointerId)
-    setLoupe({ x: pos.x, y: pos.y, image: toImage(pos), bounds: hostSize() })
+    setLoupe({ x: pos.x, y: pos.y, image: toImage(pos), snapped: null, bounds: hostSize() })
   }
 
   const onMove = (e: React.PointerEvent<SVGSVGElement>): void => {
@@ -500,8 +521,10 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
     if (!g) return
     const pos = eventPos(e)
     const image = toImage(pos)
-    usePitchStore.getState().movePoint(g.index, image)
-    setLoupe({ x: pos.x, y: pos.y, image, bounds: hostSize() })
+    const st = usePitchStore.getState()
+    const snapped = st.snapToLines && !e.altKey ? snapImagePoint(image) : null
+    st.movePoint(g.index, snapped ?? image)
+    setLoupe({ x: pos.x, y: pos.y, image, snapped, bounds: hostSize() })
   }
 
   const onUp = (e: React.PointerEvent<SVGSVGElement>): void => {
@@ -609,7 +632,15 @@ function Mode({ draft }: { draft: CalibrationDraft }): React.JSX.Element {
               )
             })}
         </svg>
-        {loupe && <Loupe x={loupe.x} y={loupe.y} image={loupe.image} bounds={loupe.bounds} />}
+        {loupe && (
+          <Loupe
+            x={loupe.x}
+            y={loupe.y}
+            image={loupe.image}
+            snapped={loupe.snapped}
+            bounds={loupe.bounds}
+          />
+        )}
         <div className="cal-badge" aria-hidden="true">
           {formatTime(draft.time, { tenths: true })}
         </div>

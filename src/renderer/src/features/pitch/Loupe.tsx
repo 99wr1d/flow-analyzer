@@ -13,11 +13,13 @@ interface Props {
   y: number
   /** Точка на кадре, доли ширины/высоты. */
   image: { x: number; y: number }
+  /** Куда привязалась точка (доли кадра), если привязка сработала: показываем голубой маркер. */
+  snapped?: { x: number; y: number } | null
   /** Размер контейнера — чтобы лупа не вылезала за край. */
   bounds: { w: number; h: number }
 }
 
-export function Loupe({ x, y, image, bounds }: Props): React.JSX.Element {
+export function Loupe({ x, y, image, snapped, bounds }: Props): React.JSX.Element {
   const ref = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -53,7 +55,17 @@ export function Loupe({ x, y, image, bounds }: Props): React.JSX.Element {
     ctx.beginPath()
     ctx.arc(SIZE / 2 + 0.5, SIZE / 2 + 0.5, 3.5, 0, Math.PI * 2)
     ctx.stroke()
-  }, [image.x, image.y])
+    if (snapped && video && video.videoWidth > 0) {
+      const mx = SIZE / 2 + (snapped.x - image.x) * video.videoWidth * ZOOM
+      const my = SIZE / 2 + (snapped.y - image.y) * video.videoHeight * ZOOM
+      ctx.strokeStyle = '#2bd6ff'
+      ctx.lineWidth = 2
+      ctx.beginPath()
+      ctx.arc(mx + 0.5, my + 0.5, 6, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- зависим от координат, а не от нового объекта на каждый ход
+  }, [image.x, image.y, snapped?.x, snapped?.y])
 
   // Лупа появляется справа-сверху от курсора; у края перепрыгивает на другую сторону.
   let left = x + 26

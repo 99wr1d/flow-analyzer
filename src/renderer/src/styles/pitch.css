@@ -212,6 +212,13 @@
 .cal-surface {
   overflow: visible;
 }
+.cal-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text);
+}
 .cal-status {
   margin: 0;
   min-height: 36px;
