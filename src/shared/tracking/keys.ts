@@ -102,6 +102,50 @@ export function thinTrack(
   return thinTracks([samples], tolerance)[0]
 }
 
+/** Радиус окна сглаживания ног, кадров (±3 кадра ≈ ±0,1 с при 30 к/с) и σ гауссова веса. */
+const FOOT_RADIUS = 3
+const FOOT_SIGMA = 1.5
+/** Разрыв по времени: промежуток больше стольких обычных шагов кадра режет траекторию на куски. */
+const GAP_STEPS = 2.5
+const FOOT_WEIGHTS = Array.from({ length: FOOT_RADIUS + 1 }, (_, k) =>
+  Math.exp(-(k * k) / (2 * FOOT_SIGMA * FOOT_SIGMA))
+)
+
+/**
+ * Сглаживание траектории ног: рамка детектора дрожит на 1–3 px от кадра к кадру. Центрированный гауссов фильтр по
+ * времени (траектория известна вся, поэтому без запаздывания). У краёв и разрывов окно сужается симметрично —
+ * равномерное движение остаётся точным. Время и высота рамки не меняются.
+ */
+export function smoothTrack(samples: readonly TrackSample[]): TrackSample[] {
+  const n = samples.length
+  if (n < 3) return samples.map((s) => ({ ...s, foot: { ...s.foot } }))
+  const dts = samples
+    .slice(1)
+    .map((s, i) => s.t - samples[i].t)
+    .sort((a, b) => a - b)
+  const step = dts[Math.floor(dts.length / 2)]
+  const limit = step > 0 ? step * GAP_STEPS : Infinity
+  // Начало и конец куска без разрывов для каждого сэмпла.
+  const lo = new Array<number>(n).fill(0)
+  const hi = new Array<number>(n).fill(n - 1)
+  for (let i = 1; i < n; i += 1) lo[i] = samples[i].t - samples[i - 1].t > limit ? i : lo[i - 1]
+  for (let i = n - 2; i >= 0; i -= 1)
+    hi[i] = samples[i + 1].t - samples[i].t > limit ? i : hi[i + 1]
+  return samples.map((s, i) => {
+    const half = Math.min(FOOT_RADIUS, i - lo[i], hi[i] - i)
+    let sx = 0
+    let sy = 0
+    let sw = 0
+    for (let k = -half; k <= half; k += 1) {
+      const w = FOOT_WEIGHTS[Math.abs(k)]
+      sx += samples[i + k].foot.x * w
+      sy += samples[i + k].foot.y * w
+      sw += w
+    }
+    return { ...s, foot: { x: sx / sw, y: sy / sw } }
+  })
+}
+
 /** Скользящее среднее высоты рамки по окну SMOOTH_WINDOW (у краёв окно сужается). */
 function smoothHeights(samples: readonly TrackSample[]): number[] {
   const half = (SMOOTH_WINDOW - 1) / 2

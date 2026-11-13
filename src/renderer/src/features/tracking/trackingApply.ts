@@ -18,6 +18,7 @@ import {
 import type { Calibration } from '../../../../shared/pitch/calibration'
 import {
   DEFAULT_THIN_TOLERANCE,
+  smoothTrack,
   FOOT_LIFT,
   linkTrackToKeys,
   mergeTrackedKeys,
@@ -428,12 +429,14 @@ const nearestSample = (samples: readonly TrackSample[], t: number): TrackSample 
  */
 export function applyTrackResult(
   current: Annotation,
-  tracks: readonly (readonly TrackSample[])[],
+  rawTracks: readonly (readonly TrackSample[])[],
   plan: TrackPlan,
   opts: ApplyOptions
 ): ApplyResult {
-  if (tracks.length === 0 || tracks.some((t) => t.length === 0))
+  if (rawTracks.length === 0 || rawTracks.some((t) => t.length === 0))
     return { ok: false, reason: 'empty' }
+  // Рамка детектора дрожит от кадра к кадру: ноги сглаживаются до прореживания, иначе дрожание уйдёт в ключи.
+  const tracks = rawTracks.map(smoothTrack)
   const aspect = opts.aspect && opts.aspect > 0 ? opts.aspect : 16 / 9
   const src0 = plan.convertedFromPitch ? plan.base : current
   const link = isLinkType(src0)

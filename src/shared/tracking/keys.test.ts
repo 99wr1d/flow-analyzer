@@ -8,6 +8,7 @@ import {
   linkTrackToKeys,
   mergeTrackedKeys,
   pitchToScreenForTracking,
+  smoothTrack,
   thinTrack,
   thinTracks,
   trackToKeys,
@@ -22,6 +23,66 @@ const sample = (i: number, x: number, y: number, height = 0.2): TrackSample => (
   t: (i + 0.5) / FPS,
   foot: { x, y },
   height
+})
+
+/** Дрожание: среднеквадратичная вторая разность положения (0 у прямой с постоянной скоростью). */
+const jitterOf = (s: readonly TrackSample[]): number => {
+  let sum = 0
+  let n = 0
+  for (let i = 1; i < s.length - 1; i += 1) {
+    const dx = s[i - 1].foot.x - 2 * s[i].foot.x + s[i + 1].foot.x
+    const dy = s[i - 1].foot.y - 2 * s[i].foot.y + s[i + 1].foot.y
+    sum += dx * dx + dy * dy
+    n += 1
+  }
+  return Math.sqrt(sum / Math.max(1, n))
+}
+
+describe('smoothTrack: сглаживание траектории ног', () => {
+  it('дрожание рамки падает не меньше чем втрое', () => {
+    let seed = 11
+    const rnd = (): number => {
+      seed = (seed * 1664525 + 1013904223) >>> 0
+      return seed / 4294967296 - 0.5
+    }
+    const raw = Array.from({ length: 80 }, (_, i) =>
+      sample(i, 0.2 + i * 0.005 + rnd() * 0.004, 0.5 + rnd() * 0.004)
+    )
+    expect(jitterOf(smoothTrack(raw)) * 3).toBeLessThan(jitterOf(raw))
+  })
+  it('равномерное движение не меняется (в том числе у краёв)', () => {
+    const raw = Array.from({ length: 30 }, (_, i) => sample(i, 0.1 + i * 0.01, 0.4 + i * 0.002))
+    smoothTrack(raw).forEach((s, i) => {
+      expect(s.foot.x).toBeCloseTo(raw[i].foot.x, 9)
+      expect(s.foot.y).toBeCloseTo(raw[i].foot.y, 9)
+    })
+  })
+  it('разворот не размазывается: вдали от излома точно по прямым, в изломе отклонение не больше шага кадра', () => {
+    const step = 0.01
+    const raw = Array.from({ length: 41 }, (_, i) =>
+      sample(i, 0.2 + (i <= 20 ? i : 40 - i) * step, 0.5)
+    )
+    const out = smoothTrack(raw)
+    for (const i of [2, 8, 12, 28, 32, 38]) expect(out[i].foot.x).toBeCloseTo(raw[i].foot.x, 9)
+    expect(Math.abs(out[20].foot.x - raw[20].foot.x)).toBeLessThan(step * 1.5)
+  })
+  it('через разрыв по времени не сглаживает: скачок между кусками остаётся', () => {
+    const a = Array.from({ length: 10 }, (_, i) => sample(i, 0.2, 0.5))
+    const b = Array.from({ length: 10 }, (_, i) => sample(100 + i, 0.8, 0.5))
+    const out = smoothTrack([...a, ...b])
+    expect(out[9].foot.x).toBeCloseTo(0.2, 9)
+    expect(out[10].foot.x).toBeCloseTo(0.8, 9)
+  })
+  it('время и высота рамки не трогаются; короткие траектории возвращаются как есть', () => {
+    const raw = [sample(0, 0.3, 0.3, 0.21), sample(1, 0.31, 0.3, 0.22)]
+    expect(smoothTrack(raw)).toEqual(raw)
+    expect(smoothTrack([])).toEqual([])
+    const mid = smoothTrack(Array.from({ length: 9 }, (_, i) => sample(i, 0.2 + i * 0.01, 0.5, 0.2 + i)))
+    mid.forEach((s, i) => {
+      expect(s.t).toBe(sample(i, 0, 0).t)
+      expect(s.height).toBe(0.2 + i)
+    })
+  })
 })
 
 describe('thinTrack', () => {

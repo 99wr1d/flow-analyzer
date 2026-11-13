@@ -9,7 +9,12 @@ import { ru } from '../../i18n/ru'
 import { estimateSeconds } from '../../../../shared/tracking/trackingIpc'
 import { geomAt, keysOf, upsertKey } from '../../../../shared/animation'
 import { sampleCalibration } from '../../../../shared/pitch/pitch.testkit'
-import { FOOT_LIFT, type TrackSample } from '../../../../shared/tracking/keys'
+import {
+  DEFAULT_THIN_TOLERANCE,
+  FOOT_LIFT,
+  thinTrack,
+  type TrackSample
+} from '../../../../shared/tracking/keys'
 import { useAnnotationsStore } from '../annotations/annotationsStore'
 import { autoRuns } from '../annotations/lanes'
 import {
@@ -207,6 +212,24 @@ describe('applyTrackResult: траектория → ключи рисунка',
     expect(AnnotationSchema.safeParse(r.annotation).success).toBe(true)
   })
 
+  it('дрожание рамки сглаживается: ключей заметно меньше, чем при прореживании сырой траектории', () => {
+    const a = circle()
+    const plan = planOf(a)
+    let seed = 5
+    const rnd = (): number => {
+      seed = (seed * 1664525 + 1013904223) >>> 0
+      return seed / 4294967296 - 0.5
+    }
+    const raw = run(1, 4).map((s) => ({
+      ...s,
+      foot: { x: s.foot.x + rnd() * 0.008, y: s.foot.y + rnd() * 0.008 }
+    }))
+    const r = applyTrackResult(a, [raw], plan, { fps: FPS })
+    if (!r.ok) throw new Error(r.reason)
+    const rawKeys = thinTrack(raw, DEFAULT_THIN_TOLERANCE).length
+    expect(keysOf(r.annotation).length * 2).toBeLessThan(rawKeys)
+  })
+
   it('пустой список отсчётов — ошибка, рисунок не меняется', () => {
     const a = circle()
     expect(applyTrackResult(a, [[]], planOf(a), { fps: FPS })).toEqual({
@@ -301,7 +324,7 @@ describe('applyTrackResult: траектория → ключи рисунка',
     const HZ = 60
     const plan = planTracking(a, { now: 0.5 / HZ, fps: HZ, videoDuration: 100, calibration: null })
     if (!plan.ok) throw new Error(plan.reason)
-    // Минута по 60 кадров (3600 отсчётов), шум 1 % кадра: прореживание сначала оставляет почти всё.
+    // Минута по 60 кадров (3600 отсчётов), шум 6 % кадра (после сглаживания ног его остаётся достаточно): прореживание сначала оставляет почти всё.
     let seed = 1
     const rnd = (): number => {
       seed = (seed * 16807) % 2147483647
@@ -311,7 +334,7 @@ describe('applyTrackResult: траектория → ключи рисунка',
     for (let k = 0; k < 3600; k += 1) {
       samples.push({
         t: (k + 0.5) / HZ,
-        foot: { x: 0.5 + (rnd() - 0.5) * 0.02, y: 0.65 + (rnd() - 0.5) * 0.02 },
+        foot: { x: 0.5 + (rnd() - 0.5) * 0.12, y: 0.65 + (rnd() - 0.5) * 0.12 },
         height: 0.3
       })
     }
