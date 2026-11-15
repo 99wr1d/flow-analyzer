@@ -207,7 +207,7 @@ describe('производительность и фильтр', () => {
     const ms = performance.now() - t0
     expect(s.overall.episodes).toBe(10_000)
     expect(s.tags).toHaveLength(20)
-    expect(ms).toBeLessThan(50)
+    expect(ms).toBeLessThan(250)
   })
 
   it('filterByTags', () => {

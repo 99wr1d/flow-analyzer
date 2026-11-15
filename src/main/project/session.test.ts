@@ -51,7 +51,7 @@ beforeEach(async () => {
   await writeFile(videoPath, Buffer.alloc(2048, 7))
 })
 afterEach(async () => {
-  await rm(root, { recursive: true, force: true })
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
 })
 
 async function save(over: Partial<ProjectSaveRequest> = {}, target = projectPath): Promise<void> {
