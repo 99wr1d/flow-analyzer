@@ -1,0 +1,59 @@
+# Сборка установщика Windows при пуше тега вида v0.22.0. Публикацию делает человек вручную:
+# здесь собирается только НЕПОДПИСАННЫЙ установщик и кладётся как артефакт запуска.
+# Подпись (SignPath Foundation) подключается после одобрения заявки: см. закомментированный блок ниже и docs/RELEASING.md.
+name: Release build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      # build:win = модель → сборка → список лицензий → electron-builder (NSIS).
+      - run: npm run build:win
+      - name: Контрольные суммы
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/FlowAnalyzer-Setup-*.exe | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Tee-Object -FilePath dist/SHA256SUMS.txt
+      - id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlowAnalyzer-Setup-unsigned
+          path: |
+            dist/FlowAnalyzer-Setup-*.exe
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+      # ── Подпись SignPath Foundation (включить ПОСЛЕ одобрения заявки) ──
+      # Нужны: в проекте SignPath — slug проекта, политика подписи и конфигурация артефакта; в настройках репозитория —
+      # секрет SIGNPATH_API_TOKEN и переменная SIGNPATH_ORGANIZATION_ID. Подписание требует ручного подтверждения релиза.
+      # - uses: signpath/github-action-submit-signing-request@v1
+      #   with:
+      #     api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+      #     organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+      #     project-slug: flow-analyzer
+      #     signing-policy-slug: release-signing
+      #     github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+      #     wait-for-completion: true
+      #     output-artifact-directory: signed
+      # - uses: actions/upload-artifact@v4
+      #   with:
+      #     name: FlowAnalyzer-Setup-signed
+      #     path: signed/*.exe

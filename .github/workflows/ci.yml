@@ -1,0 +1,25 @@
+# Проверки при каждом изменении: стиль, типы, юнит-тесты. Ничего не публикует.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      # postinstall скачивает модель детектора и сверяет SHA-256 (scripts/fetch-models.mjs).
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
