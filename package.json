@@ -3,6 +3,7 @@
   "productName": "FlowAnalyzer",
   "version": "0.21.0",
   "description": "Футбольный видеоанализатор",
+  "license": "Apache-2.0",
   "main": "./out/main/index.js",
   "author": "99wr1d",
   "scripts": {

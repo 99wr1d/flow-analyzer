@@ -1,0 +1,11 @@
+FlowAnalyzer
+Copyright 2026 99wr1d
+
+Этот продукт включает программное обеспечение, разработанное в рамках проекта FlowAnalyzer
+(https://github.com/99wr1d/flow-analyzer). Лицензия: Apache License 2.0 (файл LICENSE).
+
+Название «FlowAnalyzer» и его логотип не передаются по этой лицензии (раздел 6 лицензии).
+
+Сторонние компоненты и их лицензии перечислены в licenses/THIRD_PARTY_NOTICES.txt
+(файл создаётся при сборке командой npm run notices). Исполняемый файл FFmpeg (GPL v3) поставляется
+отдельной программой, его лицензия и ссылка на исходный код — в licenses/ffmpeg-LICENSE.txt.

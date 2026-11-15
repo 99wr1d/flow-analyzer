@@ -1,11 +1,10 @@
 import { _electron as electron } from '@playwright/test'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 
-export const SHOTS =
-  process.env.FLOW_SHOTS_DIR ??
-  'C:/Users/user/AppData/Local/Temp/claude/C--Users-user/272a2939-769e-4218-aeb7-9ba220c997d1/scratchpad'
+export const SHOTS = process.env.FLOW_SHOTS_DIR ?? join(tmpdir(), 'flowanalyzer-e2e')
 
 // Если задан FLOW_EXE — тесты запускаются на собранном приложении (dist/win-unpacked/FlowAnalyzer.exe).
 export const EXE = process.env.FLOW_EXE
